@@ -245,7 +245,7 @@ async function rotateOnce(ctx) {
     const activeKey = arkKeys[activeIdx];
     if (!activeKey) return;
     const current = (await credentials.resolve("VOLCES_ACTIVE_API_KEY"))?.value;
-    debugLog(`quota=${quota.map((q) => `#${q.idx}:${q.ok ? "s" + q.session.toFixed(1) + "%/m" + (q.monthly !== null ? q.monthly.toFixed(1) + "%" : "?") : "ERR"}`).join(" ")} chosen=${activeIdx} current=${current ? current.slice(-8) : "NONE"}`);
+    debugLog(`quota=${quota.map((q) => `#${q.idx}:${q.ok ? "s" + q.session.toFixed(1) + "%/m" + (q.monthly !== null ? q.monthly.toFixed(1) + "%" : "?") : "ERR"}`).join(" ")} chosen=${activeIdx} current=${current ? "****" : "NONE"}`);
     if (current === activeKey) return;
     // 当前 key 是不参与用量轮询的账号（如只有推理 key 的账号3，通常是 429 切换过去的）——保持不动
     if (current && Object.values(arkKeys).includes(current) &&
@@ -314,7 +314,7 @@ async function rotateOnRateLimit(ctx) {
   if (nextIdx === undefined) return;
   try {
     await credentials.set("VOLCES_ACTIVE_API_KEY", arkKeys[nextIdx]);
-    debugLog(`429/QUOTA-SWITCHED -> #${nextIdx} (current key ${current ? current.slice(-8) : "?"})`);
+    debugLog(`429/QUOTA-SWITCHED -> #${nextIdx} (current key ${current ? "****" : "?"})`);
   } catch (e) {
     debugLog(`429-switch set refused: ${String((e && e.message) || e)}`);
   }
