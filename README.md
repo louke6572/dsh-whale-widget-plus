@@ -251,3 +251,22 @@ dsh-whale-widget-plus/
 ## 📄 许可证
 
 MIT
+
+## ❓ 常见问题
+
+### 为什么 `dsh plugin --profile desktop add ...` 装不上 / 卡住？（#1）
+
+两个原因：
+
+1. **`--profile desktop` 不被 CLI 支持** —— 桌面 profile 由官方桌面应用独占管理，命令会被拒绝或无响应；
+2. **`github:owner/repo` 直装需要访问 GitHub** —— 网络不通时会一直卡住（任务管理器里网络占用为 0）。
+
+正确安装姿势：
+
+- **Web 模式**：先把仓库 clone 或下载 zip 解压到本地，再执行
+  `dsh plugin --profile web add link:<本地路径>`
+- **官方桌面版**（dsh ≥ 0.1.7-rc.2，v0.3.1+）：把仓库放到 `~/.dsh/plugins-src/dsh-whale-widget-plus`，编辑 `~/.dsh/profiles/desktop/package.json`：
+  - `dependencies` 加 `"dsh-whale-widget-plus": "link:../../plugins-src/dsh-whale-widget-plus"`
+  - `dsh.profile.bundles` 加 `"dsh-whale-widget-plus"`
+  - 在 profile 目录执行 `pnpm install`，重启桌面版即可（用官方自带 runtime 的 pnpm 也可以）；
+  - 或者等插件管理市场收录后直接安装。
