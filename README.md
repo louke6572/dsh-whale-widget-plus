@@ -56,6 +56,10 @@ dsh plugin --profile web add link:C:\path\to\dsh-whale-widget-plus\plugins\volc-
 
 重启 dsh web，浏览器 **Ctrl+F5** 强刷即可看到小鲸鱼。
 
+## 🖥️ 官方桌面版支持（v0.3.1+）
+
+插件同时适配官方桌面版（DeepSeek Harness Desktop，dsh ≥ 0.1.7-rc.2）：桌面版界面不走 HTTP 页面注入，插件通过 package.json 的 `dsh.client` 客户端模块声明（`lib/client.js`，`platform: web`、`immediately: true`）在客户端启动时自动挂载小鲸鱼，无需任何额外步骤。Web 模式行为不变（仍走 `webServer.tapIndex` 注入）。
+
 ## 🏗️ 数据链路架构
 
 ```
