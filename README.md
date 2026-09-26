@@ -2,7 +2,7 @@
   <img src="assets/DSH2.png" width="820" alt="DSH 小鲸鱼余额挂件">
 </p>
 
-<h1 align="center">DSH 小鲸鱼余额挂件 · 多版本表情版</h1>
+<h1 align="center">DSH 小鲸鱼余额挂件 · 多种表情版</h1>
 
 <p align="center">
   dsh-whale-widget-plus — DeepSeek Harness 网页右下角的常驻小鲸鱼挂件<br>
