@@ -2233,6 +2233,10 @@ menuBox.appendChild(rowRes)
 // ⚠️ 必须在下面「while (menuBox.firstChild) menuRootView.appendChild(...)」**之前** append：
 //    那一行会把此刻 menuBox 的所有子节点搬进 menuRootView，之后再加的行创建成功但永不显示、且不报错。
 try { exprBuildMenuRows(function (row) { menuBox.appendChild(row) }) } catch (err) {}
+// 手动台词（读官方泡泡编辑器的随机句池）与火山额度（读可选附属插件 /api/volc-usage）同样必须
+// 在下面那次「搬空 menuBox」之前 append。
+try { lineBuildMenuRow(function (row) { menuBox.appendChild(row) }) } catch (err) {}
+try { volcBuildMenuRow(function (row) { menuBox.appendChild(row) }) } catch (err) {}
 // —— 用量记录:底部固定动作行由「用量记录 / ‹ 返回」共用(见下方 nav 行) ——
 
 // ===== 用量记录(主菜单内的子界面,不跳新页面)+ “更多消费记录”窗口 =====
@@ -20252,6 +20256,11 @@ function exprCheckExhausted() {
       try { q = apiQuotaInfo(apiModels[i].modelId) } catch (err) { q = null }
       if (q && typeof q.pct === 'number' && q.pct >= 90) { hit = true; break }
     }
+    // 火山 coding plan：会话级用量 ≥90% 也算疲惫（装了 volc-usage 插件时才有值）
+    if (!hit) {
+      var vs = volcLevelPct('session')
+      if (vs !== null && vs >= 90) hit = true
+    }
     if (hit === exprExhausted) return
     exprExhausted = hit
     if (hit) exprCancelBlink()
@@ -20448,6 +20457,164 @@ function exprInit() {
     try { exprCheckExhausted() } catch (err) {}
   }, 10000)
   if (exprOn) exprLoadPacks(function () { exprRender(); exprRestartTimers() })
+}
+// ===== 手动台词：从官方泡泡配置的随机句池里挑一条「立刻显示」=====
+// 官方 v0.4.0 的泡泡编辑器已有可编辑的加权随机句池（`m.lines=[{t,w}]`，落盘 /dsh-whale/bubble.json），
+// 所以本层**不另存一份台词**，只把用户已有的池子列出来手动挑；显示走官方既有的系统泡泡队列
+// `whaleSysPush({kind:'alert', mods:[{type:'text',...}]})` —— 与 showUsagePopup 同一条路径。
+var linePoolCache = null
+var lineMenuRefs = null
+function lineCollectFromCfg(cfg) {
+  var out = []
+  try {
+    var items = (cfg && Array.isArray(cfg.items)) ? cfg.items : []
+    for (var i = 0; i < items.length; i++) {
+      var mods = (items[i] && Array.isArray(items[i].modules)) ? items[i].modules : []
+      for (var j = 0; j < mods.length; j++) {
+        var m = mods[j]
+        if (!m || m.type !== 'random' || !Array.isArray(m.lines)) continue
+        for (var k = 0; k < m.lines.length; k++) {
+          var t = m.lines[k] && m.lines[k].t
+          if (typeof t === 'string' && t && out.indexOf(t) === -1) out.push(t)
+        }
+      }
+    }
+  } catch (err) {}
+  return out
+}
+function lineLoadPool(cb) {
+  if (linePoolCache) { cb(linePoolCache); return }
+  try {
+    fetch(BUBBLE_URL, { cache: 'no-store' })
+      .then(function (r) { return r.json() })
+      .then(function (d) { linePoolCache = lineCollectFromCfg(d); cb(linePoolCache) })
+      .catch(function () { cb([]) })
+  } catch (err) { cb([]) }
+}
+function lineShow(text) {
+  var s = String(text || '')
+  if (!s) return
+  try {
+    if (whaleSysPush({ kind: 'alert', mods: [{ type: 'text', text: s, size: 7, bold: true }], rank: 3, ttlMs: 6000 })) return
+  } catch (err) {}
+  try { dshwvToast(s) } catch (err2) {}
+}
+function lineFillSelect() {
+  if (!lineMenuRefs || !lineMenuRefs.sel) return
+  var sel = lineMenuRefs.sel
+  var pool = linePoolCache || []
+  while (sel.firstChild) sel.removeChild(sel.firstChild)
+  var hint = document.createElement('option')
+  hint.value = ''
+  hint.textContent = pool.length ? '选一条立刻显示' : '（泡泡编辑器里还没有随机句池）'
+  sel.appendChild(hint)
+  for (var i = 0; i < pool.length; i++) {
+    var o = document.createElement('option')
+    o.value = String(i)
+    o.textContent = pool[i].length > 14 ? pool[i].slice(0, 14) + '…' : pool[i]
+    sel.appendChild(o)
+  }
+  var rand = document.createElement('option')
+  rand.value = 'rand'
+  rand.textContent = '随机一条'
+  sel.appendChild(rand)
+  sel.value = ''
+  if (lineMenuRefs.sync) { try { lineMenuRefs.sync() } catch (err) {} }
+}
+function lineBuildMenuRow(append) {
+  var row = menuRow()
+  row.appendChild(menuLabel('台词'))
+  var sel = document.createElement('select')
+  sel.title = '从泡泡编辑器的随机句池里挑一条立刻显示（不改动你的任何设置）'
+  sel.addEventListener('change', function () {
+    var v = sel.value
+    sel.value = ''
+    if (lineMenuRefs && lineMenuRefs.sync) { try { lineMenuRefs.sync() } catch (err) {} }
+    if (!v) return
+    lineLoadPool(function (pool) {
+      if (!pool.length) {
+        try { dshwvToast('还没有自定义台词：可在「泡泡编辑器」的随机语句模块里添加') } catch (err) {}
+        return
+      }
+      var pick = v === 'rand' ? pool[Math.floor(Math.random() * pool.length)] : pool[Number(v)]
+      lineShow(pick)
+    })
+  })
+  row.appendChild(sel)
+  append(row)
+  lineMenuRefs = { sel: sel, sync: null }
+  try {
+    if (typeof dshwCustSel === 'function') {
+      var h = dshwCustSel(sel, {})
+      if (h && h.sync) lineMenuRefs.sync = h.sync
+    }
+  } catch (err) {}
+  lineLoadPool(function () { lineFillSelect() })
+}
+
+// ===== 火山 coding plan 额度（可选：需另装 plugins/volc-usage）=====
+// 数据源是那个附属插件的 /api/volc-usage（纯 HTTP 契约，不经宿主）。没装就安静地显示提示。
+// 响应形状：{ok, accounts:[{idx,name,ok,plan:{Status,QuotaUsage:[{Level,Percent}]},balance:{CashBalance}}], activeIdx}
+var VOLC_URL = '/api/volc-usage'
+var volcData = null
+var volcMenuRefs = null
+var volcTimer = 0
+function volcActiveAccount() {
+  if (!volcData || !Array.isArray(volcData.accounts) || !volcData.accounts.length) return null
+  for (var i = 0; i < volcData.accounts.length; i++) {
+    if (volcData.accounts[i].idx === volcData.activeIdx) return volcData.accounts[i]
+  }
+  return volcData.accounts[0]
+}
+function volcLevelPct(level) {
+  var acc = volcActiveAccount()
+  var rows = (acc && acc.plan && acc.plan.QuotaUsage) || []
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i].Level === level) return Math.min(100, Math.max(0, Number(rows[i].Percent) || 0))
+  }
+  return null
+}
+function volcSummaryText() {
+  if (!volcData) return '读取中…'
+  if (!volcData.ok) return '未检测到 volc-usage 插件（可选）'
+  var acc = volcActiveAccount()
+  if (!acc) return '未读取到账号'
+  if (!acc.ok) return (acc.name || '账号') + '：' + String(acc.error || '查询失败')
+  var parts = []
+  var rows = (acc.plan && acc.plan.QuotaUsage) || []
+  var names = { session: '会话', weekly: '周', monthly: '月' }
+  for (var i = 0; i < rows.length; i++) {
+    var p = Math.min(100, Math.max(0, Number(rows[i].Percent) || 0))
+    parts.push((names[rows[i].Level] || rows[i].Level) + ' ' + p.toFixed(1).replace(/\.0$/, '') + '%')
+  }
+  if (acc.balance) parts.push('余额¥' + String(acc.balance.CashBalance || '0'))
+  return (acc.name || '') + (parts.length ? '：' + parts.join(' · ') : '')
+}
+function volcRefresh() {
+  try {
+    fetch(VOLC_URL, { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null })
+      .then(function (d) {
+        volcData = (d && d.ok) ? d : { ok: false }
+        if (volcMenuRefs && volcMenuRefs.text) volcMenuRefs.text.textContent = volcSummaryText()
+      })
+      .catch(function () {
+        volcData = { ok: false }
+        if (volcMenuRefs && volcMenuRefs.text) volcMenuRefs.text.textContent = volcSummaryText()
+      })
+  } catch (err) {}
+}
+function volcBuildMenuRow(append) {
+  var row = menuRow()
+  row.appendChild(menuLabel('火山额度'))
+  var text = document.createElement('span')
+  text.style.fontSize = '12px'
+  text.textContent = '读取中…'
+  row.appendChild(text)
+  append(row)
+  volcMenuRefs = { text: text }
+  volcRefresh()
+  if (!volcTimer) volcTimer = setInterval(volcRefresh, 120000)
 }
 function toggleRolePanel() {
   if (rolePanel.classList.contains('dshwv-rolelist-open')) { closeRolePanel(); return }
