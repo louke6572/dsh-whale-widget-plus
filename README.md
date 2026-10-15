@@ -21,6 +21,58 @@ DeepSeek Harness（DSH）Web 界面右下角的常驻挂件：小鲸鱼气泡图
 
 ⚠️ **安装方式二选一、别混用**（npm 名 / `github:`）—— 它们是同一个包名，先后安装会并存冲突；已经是 `github:` 装的，要换 npm 名请先 `dsh plugin --profile web remove dsh-whale-widget`。
 
+## 本仓库相对官方的差异（本仓库独有）
+
+> 本仓库是[官方 `MeteorNOX/DeepSeek-Balance-Whale-Widget`](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)
+> 的分支产品线，当前**整体同步到官方 v0.4.2**（含官方的安全修复、自定义泡泡框、图片框命中区等），
+> 并在其之上保留了下列独有能力。官方已有的能力（余额 / 今日已用 / 峰谷 / 厂商额度模板 /
+> 自定义泡泡框 / 音效四通道 / 角色系统…）本仓库同样具备，用法与官方一致。
+
+### 多版本表情素材包
+
+四套素材随包提供：`assets/v1`（18 张）、`v2`（32 张）、`v3`（32 张）、`v4`（33 张）。菜单里可切换
+素材包、也可手动锁定某一张表情；此外还有情绪映射（连点生气 / 悬停害羞 / 空闲失落）、空闲眨眼、
+随机卖萌，以及**当前模型额度 ≥90% 时的疲惫表情**。
+
+每套素材由一个**自描述清单** `assets/vN/pack.json` 描述：
+
+```json
+{
+  "id": "v2",
+  "label": "第二版",
+  "main": "DSniang1.png",
+  "blink": { "half": "half_closed_eyes.png", "closed": "close_eyes.png" },
+  "moods": { "angry": "angry.png", "shy": "shy.png", "disappointed": "cornerfish.png", "exhausted": "dazed.png" },
+  "cute": ["happy.png", "sotaku.png", "nooo.png"],
+  "labels": { "angry.png": "生气了", "happy.png": "开心" }
+}
+```
+
+- 清单里**只列真实存在的文件**：声明了但盘上没有的会被自动剔除，因此不会出现破图。
+- `labels` 的键写**文件名**或**语义槽位**（`main` / `half` / `closed` / `angry` / `shy` /
+  `disappointed` / `exhausted`）都认；输出统一按文件名。
+- 想加自己的素材包：在 `$DSH_HOME/whale-expressions/<包id>/` 放 `pack.json` + 图片即可。
+  包 id 只允许 `[A-Za-z0-9_-]`、长度 1~32。宿主扫描顺序（先命中者优先）：
+  `assets/expr/<id>` → `assets/<id>` → `$DSH_HOME/whale-expressions/<id>` → `profiles/web/whale-expressions/<id>`。
+
+### 火山 coding plan 额度
+
+`plugins/volc-usage/` 是一个**独立安装**的附属插件（火山方舟编程套餐用量 + 多账号自动轮询）：
+
+```powershell
+dsh plugin --profile web add link:<本仓库绝对路径>\plugins\volc-usage
+```
+
+它读 `$DSH_HOME/.credentials.yaml` 里的 `VOLCES_ACCESS_KEY_ID` / `VOLCES_SECRET_ACCESS_KEY`
+（支持 `_N` 多账号）签名请求火山 OpenAPI，并把额度显示到挂件上；会话或月度用量 ≥90% 时
+自动把生效的方舟推理 key 切到余量最大的账号。**只做 DeepSeek 的话可以不装。**
+
+### 手动台词
+
+官方的泡泡编辑器已自带加权随机句池（可编辑、带防连抽、落盘在宿主
+`/dsh-whale/bubble.json`）；本仓库额外提供**「手动选一条立即显示」**的下拉，选完自动恢复。
+台词内容本身请在官方的泡泡编辑器里维护，不另存一份。
+
 ## 特性
 
 ### 记账与显示
