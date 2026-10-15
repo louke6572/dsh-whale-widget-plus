@@ -363,6 +363,36 @@ var EXPR_PACKS_URL = '/dsh-whale/expr-packs.json'
 function exprImgUrl(packId, name) {
   return '/dsh-whale/expr.png?pack=' + encodeURIComponent(packId) + '&name=' + encodeURIComponent(name)
 }
+// ⚠️⚠️ 表情层的**状态变量必须在这里初始化**，不能留在下面的代码块里。
+// 与 v815 那条「常量必须在构建之前就绪」同因，但坑更深一层：`function` 声明会提升，所以晚定义的
+// 函数能被早的代码调用；但 `var x = 初始化` 是**执行语句**，要等自己那一行才跑。
+// 首版把这段放在 ~20100 行，而菜单在 ~2230 行就构建完了 ⇒ 后果：
+//   · 填充函数读到的 exprPacks 还是 undefined ⇒ 抛错被外层 try 吞掉 ⇒ 三个下拉全空
+//   · 菜单构建时写好的 exprMenuRefs / lineMenuRefs / volcMenuRefs 被随后执行的
+//     初始化**冲回 null** ⇒ 后到的填充直接 return（火山额度行会一直停在「读取中…」）
+var exprPacks = []
+var exprPack = ''
+var exprOn = false
+var exprBlinkOn = true
+var exprManual = null // 手动锁定的文件名（仅内存，不落盘）
+var exprMood = '' // 'angry' | 'shy' | 'disappointed'
+var exprMoodUntil = 0
+var exprExhausted = false
+var exprCuteFile = ''
+var exprCuteUntil = 0
+var exprBlinkFile = ''
+var exprBlinkUntil = 0
+var exprBroken = {} // 本次会话里加载失败的文件名（剔除，不再尝试）
+var exprTimers = { blink: 0, cute: 0, mood: 0, hover: 0, poll: 0 }
+var exprMenuRefs = null
+var exprLastActivity = Date.now()
+var exprIdleFired = false
+var linePoolCache = null
+var lineMenuRefs = null
+var VOLC_URL = '/api/volc-usage'
+var volcData = null
+var volcMenuRefs = null
+var volcTimer = 0
 
 // ===== v815：自定义泡泡框 —— 常量必须在**泡泡构建之前**就绪 =====
 // ⚠️ 血的教训（v815 首版把这些常量写在 13000 行附近，而泡泡在 12600 行就调渲染器了）：
@@ -19888,6 +19918,17 @@ function toggleMenu() {
   // v865（issue #237 后半）：打开菜单时补读一次 size 配置（别的端/别的标签改过也能立刻生效）
   try { resyncSizeCfg() } catch (err) {}
   menuOpen = !menuOpen
+  // 表情素材层与台词：**每次打开菜单都重建一次选项**，不依赖「初始化时填充」的时序
+  // （上一版只把填充放在初始化和清单回调里，桌面端实测三行下拉全空 —— 这个兜底留着）。
+  if (menuOpen) {
+    try { exprLoadPacks(function () {}) } catch (err) {}
+    try { exprFillPackSelect() } catch (err) {}
+    try { exprFillExprSelect() } catch (err) {}
+    // 台词池必须一并失效：lineLoadPool() 命中 linePoolCache 就直接返回，若不清缓存，
+    // 用户在官方泡泡编辑器里新加的随机句要重启应用才出现在下拉里（素材包清单则是每次重拉）。
+    try { linePoolCache = null } catch (err) {}
+    try { lineLoadPool(function () { lineFillSelect() }) } catch (err) {}
+  }
   if (menuOpen) positionMenu()
   menuBox.classList.toggle('dshwv-menu-open', menuOpen)
   if (menuOpen && !menuBtnHide) menuBtn.classList.add('dshwv-menu-btn-visible')
@@ -20122,23 +20163,8 @@ function roleUrl(id) {
 //  · 优先级：手动锁定 > 疲惫 > 情绪 > 眨眼/卖萌 > 角色图。
 //  · 清单来自宿主 /dsh-whale/expr-packs.json，里面**只含真实存在的文件**，所以正常不会破图；
 //    万一仍 404（素材被删），onerror 会把该图从本次会话池里剔除并回落到角色图。
-var exprPacks = []
-var exprPack = ''
-var exprOn = false
-var exprBlinkOn = true
-var exprManual = null // 手动锁定的文件名（仅内存，不落盘）
-var exprMood = '' // 'angry' | 'shy' | 'disappointed'
-var exprMoodUntil = 0
-var exprExhausted = false
-var exprCuteFile = ''
-var exprCuteUntil = 0
-var exprBlinkFile = ''
-var exprBlinkUntil = 0
-var exprBroken = {} // 本次会话里加载失败的文件名（剔除，不再尝试）
-var exprTimers = { blink: 0, cute: 0, mood: 0, hover: 0, poll: 0 }
-var exprMenuRefs = null
-var exprLastActivity = Date.now()
-var exprIdleFired = false
+// 状态变量（exprPacks / exprOn / exprMenuRefs / exprTimers …）**已上移到文件前部常量区**，
+// 见 EXPR_PACKS_URL 上方的说明：必须早于菜单构建初始化，否则会被冲回初始值。
 function exprClearTimer(k) {
   if (exprTimers[k]) { clearTimeout(exprTimers[k]); exprTimers[k] = 0 }
 }
@@ -20169,6 +20195,11 @@ function exprRender() {
   if (exprMood && now < exprMoodUntil && exprFileOk(pack, pack.moods[exprMood])) { exprApplySkin(exprImgUrl(pack.id, pack.moods[exprMood])); return }
   if (exprCuteFile && now < exprCuteUntil && exprFileOk(pack, exprCuteFile)) { exprApplySkin(exprImgUrl(pack.id, exprCuteFile)); return }
   if (exprBlinkFile && now < exprBlinkUntil && exprFileOk(pack, exprBlinkFile)) { exprApplySkin(exprImgUrl(pack.id, exprBlinkFile)); return }
+  // 基座：当前素材包的**主图** —— 「自动」本该显示的就是它。
+  // ⚠️ 首版漏了这一级，直接落到下面的角色图上，于是：①「自动」显示的还是官方角色图（大头），
+  //    看起来像没切包；② 眨眼时显示包内帧、眨眼结束又跳回角色图 ⇒ 在"全身/大头"之间来回跳，
+  //    用户看到的"抽搐"就是这个。素材包主图缺失时才回落角色图。
+  if (exprFileOk(pack, pack.main)) { exprApplySkin(exprImgUrl(pack.id, pack.main)); return }
   exprApplySkin(exprRoleUrlNow())
 }
 function exprSetManual(name) {
@@ -20280,13 +20311,26 @@ function exprIdleTick() {
     exprTriggerMood('disappointed', 5000)
   }
 }
+// 菜单行里的下拉统一用**原生 select + 显式 flex**。
+// 为什么不用官方的自绘下拉 dshwCustSel：它会把原生 select 隐藏掉，出问题时连"到底有几个选项"
+// 都看不到（桌面端没有控制台，没法诊断）；原生 select 始终把当前选项文字显示在框里。
+function styleMenuSelect(sel) {
+  try {
+    sel.style.flex = '1 1 auto'
+    sel.style.minWidth = '0'
+    sel.style.maxWidth = '100%'
+    sel.style.fontSize = '12px'
+    sel.style.height = '22px'
+  } catch (err) {}
+}
 function exprFillPackSelect() {
   if (!exprMenuRefs || !exprMenuRefs.selPack) return
   var sel = exprMenuRefs.selPack
-  while (sel.firstChild) sel.removeChild(sel.firstChild)
+  try { sel.options.length = 0 } catch (err) {}
   var auto = document.createElement('option')
   auto.value = ''
-  auto.textContent = exprPacks.length ? '自动（默认）' : '未找到素材包'
+  // 把扫到几个包直接写进选项文字：一眼能分辨「没扫到包」和「控件没渲染出来」
+  auto.textContent = exprPacks.length ? ('自动（默认，共 ' + exprPacks.length + ' 个包）') : '未找到素材包'
   sel.appendChild(auto)
   for (var i = 0; i < exprPacks.length; i++) {
     var o = document.createElement('option')
@@ -20295,20 +20339,18 @@ function exprFillPackSelect() {
     sel.appendChild(o)
   }
   // 选中的包已被移除（用户删了素材）时回落到「自动」，但**不改**配置值（配置由用户操作写）
-  var sel2 = exprPack
   var exists = false
-  for (var j = 0; j < exprPacks.length; j++) if (exprPacks[j].id === sel2) exists = true
-  sel.value = exists ? sel2 : ''
-  if (exprMenuRefs.syncPack) { try { exprMenuRefs.syncPack() } catch (err) {} }
+  for (var j = 0; j < exprPacks.length; j++) if (exprPacks[j].id === exprPack) exists = true
+  sel.value = exists ? exprPack : ''
 }
 function exprFillExprSelect() {
   if (!exprMenuRefs || !exprMenuRefs.selExpr) return
   var sel = exprMenuRefs.selExpr
   var pack = exprActivePack()
-  while (sel.firstChild) sel.removeChild(sel.firstChild)
+  try { sel.options.length = 0 } catch (err) {}
   var auto = document.createElement('option')
   auto.value = ''
-  auto.textContent = '自动（默认）'
+  auto.textContent = pack ? '自动（默认）' : '先选素材包'
   sel.appendChild(auto)
   if (pack) {
     for (var i = 0; i < pack.images.length; i++) {
@@ -20320,7 +20362,6 @@ function exprFillExprSelect() {
     }
   }
   sel.value = exprManual || ''
-  if (exprMenuRefs.syncExpr) { try { exprMenuRefs.syncExpr() } catch (err) {} }
 }
 function exprBuildMenuRows(append) {
   var rowOn = menuRow()
@@ -20336,9 +20377,25 @@ function exprBuildMenuRows(append) {
   rowOn.appendChild(chk)
   append(rowOn)
 
+  // 「眨眼」开关：对应配置键 blinkOn。此前这个键**没有任何界面能改**（只能手改 size.json），
+  // 而 README 又声称可开关 —— 属于说明与实现不一致，补上这一行。
+  var rowBlink = menuRow()
+  rowBlink.appendChild(menuLabel('眨眼'))
+  var chkBlink = document.createElement('input')
+  chkBlink.type = 'checkbox'
+  chkBlink.title = '空闲时自动眨眼（手动固定表情或额度疲惫时自动暂停）'
+  chkBlink.checked = !!exprBlinkOn
+  chkBlink.addEventListener('change', function () {
+    exprSetBlink(chkBlink.checked)
+    try { saveConfig() } catch (err) {}
+  })
+  rowBlink.appendChild(chkBlink)
+  append(rowBlink)
+
   var rowPack = menuRow()
   rowPack.appendChild(menuLabel('表情包'))
   var selPack = document.createElement('select')
+  styleMenuSelect(selPack)
   selPack.title = '切换表情素材包（立即生效）'
   selPack.addEventListener('change', function () {
     exprPack = selPack.value || ''
@@ -20355,21 +20412,15 @@ function exprBuildMenuRows(append) {
   var rowExpr = menuRow()
   rowExpr.appendChild(menuLabel('表情'))
   var selExpr = document.createElement('select')
+  styleMenuSelect(selExpr)
   selExpr.title = '手动固定一张表情；「自动」恢复'
   selExpr.addEventListener('change', function () { exprSetManual(selExpr.value || null) })
   rowExpr.appendChild(selExpr)
   append(rowExpr)
 
-  exprMenuRefs = { selPack: selPack, selExpr: selExpr, chkOn: chk, syncPack: null, syncExpr: null }
-  // 与其余菜单行同款自绘下拉（不新建浮层 ⇒ 不触发 z-layer-audit）；不可用就退回原生 select
-  try {
-    if (typeof dshwCustSel === 'function') {
-      var a = dshwCustSel(selPack, {})
-      if (a && a.sync) exprMenuRefs.syncPack = a.sync
-      var b = dshwCustSel(selExpr, {})
-      if (b && b.sync) exprMenuRefs.syncExpr = b.sync
-    }
-  } catch (err) {}
+  // 保持原生 select，不套 dshwCustSel：自绘下拉要求调用方自己给宽度，套错就是"空控件"，
+  // 而且它会隐藏原生 select，出问题时连选项文字都看不到、没法诊断。
+  exprMenuRefs = { selPack: selPack, selExpr: selExpr, chkOn: chk, chkBlink: chkBlink }
   exprFillPackSelect()
   exprFillExprSelect()
 }
@@ -20383,8 +20434,17 @@ function exprLoadPacks(cb) {
         exprFillExprSelect()
         if (cb) cb()
       })
-      .catch(function () { if (cb) cb() })
-  } catch (err) { if (cb) cb() }
+      .catch(function () {
+        exprPacks = []
+        exprFillPackSelect()
+        exprFillExprSelect()
+        if (cb) cb()
+      })
+  } catch (err) {
+    exprFillPackSelect()
+    exprFillExprSelect()
+    if (cb) cb()
+  }
 }
 function exprRestartTimers() {
   exprCancelBlink()
@@ -20415,6 +20475,7 @@ function exprEnable(on) {
 }
 function exprSetBlink(on) {
   exprBlinkOn = !!on
+  if (exprMenuRefs && exprMenuRefs.chkBlink) exprMenuRefs.chkBlink.checked = exprBlinkOn
   if (!exprBlinkOn) exprCancelBlink()
   else exprScheduleBlink()
 }
@@ -20427,25 +20488,80 @@ function exprInit() {
       if (m) { try { exprBroken[decodeURIComponent(m[1])] = true } catch (err) { exprBroken[m[1]] = true } }
       exprCancelBlink()
       exprCuteFile = ''
-      if (exprOn) exprApplySkin(exprRoleUrlNow())
+      exprCuteUntil = 0
+      // 回落走 exprRender() 而不是直接打角色图：坏的只是一帧（情绪/眨眼/卖萌），
+      // render 会把它剔掉后自动选下一级（含 pack.main）；直接打角色图会让大头图顶上来，
+      // 一直闪到下一次 render（最长约 8 秒的眨眼周期）才恢复。
+      if (exprOn) exprRender()
     })
   } catch (err) {}
+  // —— 图像所有权仲裁：官方 applyRole() 会**直接写 img.src**（切换角色、或启动时恢复非默认角色），
+  //    那会把素材包主图顶掉。监听 img 的 src 变化：只要当前 src 不是本层写的 expr.png，就重渲染一次。
+  //    不会死循环：给 img.src 赋与当前相同的值是**不产生** mutation 记录的，而本层写出的一律是 expr.png。
   try {
-    // 连点生气（1.5s 内 5 次）
+    if (typeof MutationObserver === 'function') {
+      var exprMo = new MutationObserver(function () {
+        try {
+          if (!exprOn) return
+          if (String(img.getAttribute('src') || '').indexOf('/dsh-whale/expr.png') === 0) return
+          exprRender()
+        } catch (err) {}
+      })
+      exprMo.observe(img, { attributes: true, attributeFilter: ['src'] })
+    }
+  } catch (err) {}
+  try {
+    // ⚠️ 事件可达性（踩过两次坑，结论都写在这里）：
+    // ① 不能把 pointerdown 挂在 img 上：官方 onDocPointerDown 是**捕获阶段**的 document 监听，
+    //    点到鲸鱼时会 e.stopPropagation() ⇒ 事件根本到不了目标节点上的监听器，连点计数永远是 0。
+    // ② 也不能只靠"注册得比官方早"：`exprInit()` 在文件末尾才被调用（晚于官方那行
+    //    `document.addEventListener('pointerdown', onDocPointerDown, true)`），
+    //    之所以还能收到，只是因为官方用的是 stopPropagation（只挡住传播到别的节点），
+    //    而不是 stopImmediatePropagation（会连同一节点上剩余的监听器一起挡掉）—— 纯属巧合，太脆。
+    // 现在统一挂在 **window 捕获阶段**：捕获路径是 window → document → … → target，
+    // window 上的捕获监听**永远先于** document 上的任何监听，与注册先后无关。
     var clicks = []
-    img.addEventListener('pointerdown', function () {
-      exprActivity()
-      var now = Date.now()
-      clicks.push(now)
-      clicks = clicks.filter(function (t) { return now - t < 1500 })
-      if (clicks.length >= 5) { clicks = []; exprTriggerMood('angry', 4000) }
-    })
-    // 悬停害羞（持续 8s）
-    img.addEventListener('pointerenter', function () {
-      exprClearTimer('hover')
-      exprTimers.hover = setTimeout(function () { exprTriggerMood('shy', 4000) }, 8000)
-    })
-    img.addEventListener('pointerleave', function () { exprClearTimer('hover') })
+    window.addEventListener('pointerdown', function (e) {
+      try {
+        if (!exprOn) return
+        if (e.pointerType === 'mouse' && e.button !== 0) return
+        // 菜单打开着时点鲸鱼，官方那一下是"收起菜单"（onDocPointerDown 里 menuOpen 分支），
+        // 不该算进连点计数，否则关菜单那下会白送一次。
+        if (menuOpen) return
+        if (e.target && e.target.closest && (e.target.closest('.dshwv-pop') || e.target.closest('.dshwv-menu') ||
+            e.target.closest('.dshwv-menu-btn') || e.target.closest('.dshwv-rolelist'))) return
+        var on = false
+        try { on = isWhaleHit(e) } catch (err) { on = false }
+        if (!on) return
+        exprActivity()
+        var now = Date.now()
+        clicks.push(now)
+        clicks = clicks.filter(function (t) { return now - t < 1500 })
+        if (clicks.length >= 5) { clicks = []; exprTriggerMood('angry', 4000) }
+      } catch (err) {}
+    }, true)
+    // 悬停害羞（在鲸鱼上持续 8 秒）：同样走 window 捕获 + 命中判定。
+    // isWhaleHit 要读命中画布，所以按 200ms 节流（5 次/秒，足够判定"进入/离开"）。
+    var hoverOn = false
+    var hoverAt = 0
+    window.addEventListener('pointermove', function (e) {
+      try {
+        if (!exprOn) return
+        var now = Date.now()
+        if (now - hoverAt < 200) return
+        hoverAt = now
+        var on = false
+        try { on = isWhaleHit(e) } catch (err) { on = false }
+        if (on === hoverOn) return
+        hoverOn = on
+        if (on) {
+          exprClearTimer('hover')
+          exprTimers.hover = setTimeout(function () { exprTriggerMood('shy', 4000) }, 8000)
+        } else {
+          exprClearTimer('hover')
+        }
+      } catch (err) {}
+    }, true)
     // 空闲失落（120s 无交互）：与页面其它 capture 监听同款写法
     document.addEventListener('pointerdown', exprActivity, true)
     document.addEventListener('pointermove', exprActivity, true)
@@ -20462,8 +20578,7 @@ function exprInit() {
 // 官方 v0.4.0 的泡泡编辑器已有可编辑的加权随机句池（`m.lines=[{t,w}]`，落盘 /dsh-whale/bubble.json），
 // 所以本层**不另存一份台词**，只把用户已有的池子列出来手动挑；显示走官方既有的系统泡泡队列
 // `whaleSysPush({kind:'alert', mods:[{type:'text',...}]})` —— 与 showUsagePopup 同一条路径。
-var linePoolCache = null
-var lineMenuRefs = null
+// linePoolCache / lineMenuRefs 已上移到文件前部常量区（同因：必须早于菜单构建初始化）。
 function lineCollectFromCfg(cfg) {
   var out = []
   try {
@@ -20503,7 +20618,7 @@ function lineFillSelect() {
   if (!lineMenuRefs || !lineMenuRefs.sel) return
   var sel = lineMenuRefs.sel
   var pool = linePoolCache || []
-  while (sel.firstChild) sel.removeChild(sel.firstChild)
+  try { sel.options.length = 0 } catch (err) {}
   var hint = document.createElement('option')
   hint.value = ''
   hint.textContent = pool.length ? '选一条立刻显示' : '（泡泡编辑器里还没有随机句池）'
@@ -20519,17 +20634,16 @@ function lineFillSelect() {
   rand.textContent = '随机一条'
   sel.appendChild(rand)
   sel.value = ''
-  if (lineMenuRefs.sync) { try { lineMenuRefs.sync() } catch (err) {} }
 }
 function lineBuildMenuRow(append) {
   var row = menuRow()
   row.appendChild(menuLabel('台词'))
   var sel = document.createElement('select')
+  styleMenuSelect(sel)
   sel.title = '从泡泡编辑器的随机句池里挑一条立刻显示（不改动你的任何设置）'
   sel.addEventListener('change', function () {
     var v = sel.value
     sel.value = ''
-    if (lineMenuRefs && lineMenuRefs.sync) { try { lineMenuRefs.sync() } catch (err) {} }
     if (!v) return
     lineLoadPool(function (pool) {
       if (!pool.length) {
@@ -20542,23 +20656,14 @@ function lineBuildMenuRow(append) {
   })
   row.appendChild(sel)
   append(row)
-  lineMenuRefs = { sel: sel, sync: null }
-  try {
-    if (typeof dshwCustSel === 'function') {
-      var h = dshwCustSel(sel, {})
-      if (h && h.sync) lineMenuRefs.sync = h.sync
-    }
-  } catch (err) {}
+  lineMenuRefs = { sel: sel }
   lineLoadPool(function () { lineFillSelect() })
 }
 
 // ===== 火山 coding plan 额度（可选：需另装 plugins/volc-usage）=====
 // 数据源是那个附属插件的 /api/volc-usage（纯 HTTP 契约，不经宿主）。没装就安静地显示提示。
 // 响应形状：{ok, accounts:[{idx,name,ok,plan:{Status,QuotaUsage:[{Level,Percent}]},balance:{CashBalance}}], activeIdx}
-var VOLC_URL = '/api/volc-usage'
-var volcData = null
-var volcMenuRefs = null
-var volcTimer = 0
+// VOLC_URL / volcData / volcMenuRefs / volcTimer 已上移到文件前部常量区（同因）。
 function volcActiveAccount() {
   if (!volcData || !Array.isArray(volcData.accounts) || !volcData.accounts.length) return null
   for (var i = 0; i < volcData.accounts.length; i++) {
@@ -20609,6 +20714,8 @@ function volcBuildMenuRow(append) {
   row.appendChild(menuLabel('火山额度'))
   var text = document.createElement('span')
   text.style.fontSize = '12px'
+  text.style.flex = '1 1 auto'
+  text.style.minWidth = '0'
   text.textContent = '读取中…'
   row.appendChild(text)
   append(row)

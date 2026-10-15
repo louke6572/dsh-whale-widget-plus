@@ -137,7 +137,10 @@ check('cute 过滤掉不存在的文件且去重', pack && pack.cute.length === 
 check('blink 两帧都在', pack && pack.blink.half === 'half.png' && pack.blink.closed === 'closed.png')
 check('labels 透传（语义键会被翻译成文件名）', pack && pack.labels['angry.png'] === '生气', pack && JSON.stringify(pack.labels))
 check('images 只含真实存在的文件', pack && pack.images.length === 4 && pack.images.indexOf('ghost.png') === -1, pack && JSON.stringify(pack.images))
-check('清单不泄漏宿主目录', pack && pack.dir === undefined)
+// 原断言 `pack.dir === undefined` 恒真（该字段从未被赋值），等于没验。
+// 改成真能抓到"泄漏宿主路径"的检查：整条 JSON 里不得出现临时主目录，也不得出现盘符绝对路径。
+const packJson = JSON.stringify(pack || {})
+check('清单不泄漏宿主目录', !!pack && packJson.indexOf(tmpHome) === -1 && !/[A-Za-z]:[\\/]/.test(packJson), packJson.slice(0, 120))
 
 // —— 用例 3：图片路由 + ETag 协商缓存 ——
 const imgRes = await call('/dsh-whale/expr.png', { query: '?pack=testpack&name=angry.png' })
