@@ -358,6 +358,11 @@ var SIZE_URL = '/dsh-whale/size.json'
 var IMG_URL = '/dsh-whale/image.png?v=2'
 var GIF_URL = '/dsh-whale/rua.gif'
 var BUBBLE_URL = '/dsh-whale/bubble.json'
+// 表情素材层（宿主路由见 lib/index.js）：清单 + 图片字节（图片带 ETag 协商缓存）
+var EXPR_PACKS_URL = '/dsh-whale/expr-packs.json'
+function exprImgUrl(packId, name) {
+  return '/dsh-whale/expr.png?pack=' + encodeURIComponent(packId) + '&name=' + encodeURIComponent(name)
+}
 
 // ===== v815：自定义泡泡框 —— 常量必须在**泡泡构建之前**就绪 =====
 // ⚠️ 血的教训（v815 首版把这些常量写在 13000 行附近，而泡泡在 12600 行就调渲染器了）：
@@ -2224,6 +2229,10 @@ resOpenBtn.addEventListener('click', function (e) { e.stopPropagation(); openRes
 rowRes.appendChild(menuLabel('资源管理'))
 rowRes.appendChild(resOpenBtn)
 menuBox.appendChild(rowRes)
+// —— 表情素材层：三行（启用开关 / 素材包 / 手动表情）——
+// ⚠️ 必须在下面「while (menuBox.firstChild) menuRootView.appendChild(...)」**之前** append：
+//    那一行会把此刻 menuBox 的所有子节点搬进 menuRootView，之后再加的行创建成功但永不显示、且不报错。
+try { exprBuildMenuRows(function (row) { menuBox.appendChild(row) }) } catch (err) {}
 // —— 用量记录:底部固定动作行由「用量记录 / ‹ 返回」共用(见下方 nav 行) ——
 
 // ===== 用量记录(主菜单内的子界面,不跳新页面)+ “更多消费记录”窗口 =====
@@ -19382,7 +19391,7 @@ function configPayload() {
   //   宿主白名单、读侧合并、客户端回填都做了，唯独这里没发 ⇒ 宿主 pickB 走"沿用旧值(true)" ⇒ 永远存不住。
   //   与 v863 的 subagent.mute 是同一类"半截活"：新键必须走完 **四件套**
   //   ① 客户端 PUT 载荷 → ② 宿主写侧白名单 → ③ 宿主读侧合并 → ④ 客户端回填。
-  return JSON.stringify({ scale: state.scale, sound: soundOn, pressOn: pressOn !== false, vol: soundVol, soundSet: soundSet, usageMode: usageMode, peakMode: peakMode, bubbleOn: bubbleOn, turnCostOn: turnCostOn, turnCostCloseMs: turnCostCloseMs, scrollGapOn: scrollGapOn, scrollGapPx: scrollGapPx, menuBtnHide: menuBtnHide, codexStatsOn: codexStatsOn })
+  return JSON.stringify({ scale: state.scale, sound: soundOn, pressOn: pressOn !== false, vol: soundVol, soundSet: soundSet, usageMode: usageMode, peakMode: peakMode, bubbleOn: bubbleOn, turnCostOn: turnCostOn, turnCostCloseMs: turnCostCloseMs, scrollGapOn: scrollGapOn, scrollGapPx: scrollGapPx, menuBtnHide: menuBtnHide, codexStatsOn: codexStatsOn, exprPack: exprPack, exprOn: exprOn, blinkOn: exprBlinkOn })
 }
 // 真正的 PUT：读响应 → 失败（网络异常 / HTTP!=200 / {ok:false}）静默重试一次 → 仍失败才提示
 function configPut(payload, retried) {
@@ -20099,6 +20108,346 @@ function applyRole(id, name, url) {
 function roleUrl(id) {
   if (id === 'default') return IMG_URL
   return '/dsh-whale/role-image.png?id=' + encodeURIComponent(id)
+}
+// ===== 表情素材层（素材包切换 / 情绪 / 眨眼 / 卖萌 / 疲惫 / 手动锁定）=====
+// 设计要点：
+//  · 本层只做「临时覆盖」—— 角色图由 applyRole() 拥有，恢复目标永远是 currentRole.url。
+//    因此**不**调用 applyRole()（它会写 localStorage['dshw-role'] 并改 currentRole）。
+//  · 换图必须连命中图一起重建（hitReady/hitFailed 复位 + setupHitTest(url)），否则凸包仍按
+//    旧图计算 ⇒ 透明边距错位、点不动或吞点击。
+//  · 优先级：手动锁定 > 疲惫 > 情绪 > 眨眼/卖萌 > 角色图。
+//  · 清单来自宿主 /dsh-whale/expr-packs.json，里面**只含真实存在的文件**，所以正常不会破图；
+//    万一仍 404（素材被删），onerror 会把该图从本次会话池里剔除并回落到角色图。
+var exprPacks = []
+var exprPack = ''
+var exprOn = false
+var exprBlinkOn = true
+var exprManual = null // 手动锁定的文件名（仅内存，不落盘）
+var exprMood = '' // 'angry' | 'shy' | 'disappointed'
+var exprMoodUntil = 0
+var exprExhausted = false
+var exprCuteFile = ''
+var exprCuteUntil = 0
+var exprBlinkFile = ''
+var exprBlinkUntil = 0
+var exprBroken = {} // 本次会话里加载失败的文件名（剔除，不再尝试）
+var exprTimers = { blink: 0, cute: 0, mood: 0, hover: 0, poll: 0 }
+var exprMenuRefs = null
+var exprLastActivity = Date.now()
+var exprIdleFired = false
+function exprClearTimer(k) {
+  if (exprTimers[k]) { clearTimeout(exprTimers[k]); exprTimers[k] = 0 }
+}
+function exprActivePack() {
+  if (!exprPacks.length) return null
+  for (var i = 0; i < exprPacks.length; i++) if (exprPacks[i].id === exprPack) return exprPacks[i]
+  return exprPacks[0]
+}
+function exprFileOk(pack, name) {
+  return !!(pack && name && pack.images && pack.images.indexOf(name) !== -1 && !exprBroken[name])
+}
+function exprRoleUrlNow() { return (currentRole && currentRole.url) ? currentRole.url : IMG_URL }
+// 唯一的换图入口：src + 命中图重建（照 applyRole 的三步，但不碰角色状态）
+function exprApplySkin(url) {
+  if (!url) return
+  img.src = url
+  hitReady = false
+  hitFailed = false
+  try { setupHitTest(url) } catch (err) {}
+}
+// 唯一的「现在该显示哪张图」决策点
+function exprRender() {
+  var pack = exprActivePack()
+  if (!exprOn || !pack) { exprApplySkin(exprRoleUrlNow()); return }
+  var now = Date.now()
+  if (exprManual && exprFileOk(pack, exprManual)) { exprApplySkin(exprImgUrl(pack.id, exprManual)); return }
+  if (exprExhausted && exprFileOk(pack, pack.moods.exhausted)) { exprApplySkin(exprImgUrl(pack.id, pack.moods.exhausted)); return }
+  if (exprMood && now < exprMoodUntil && exprFileOk(pack, pack.moods[exprMood])) { exprApplySkin(exprImgUrl(pack.id, pack.moods[exprMood])); return }
+  if (exprCuteFile && now < exprCuteUntil && exprFileOk(pack, exprCuteFile)) { exprApplySkin(exprImgUrl(pack.id, exprCuteFile)); return }
+  if (exprBlinkFile && now < exprBlinkUntil && exprFileOk(pack, exprBlinkFile)) { exprApplySkin(exprImgUrl(pack.id, exprBlinkFile)); return }
+  exprApplySkin(exprRoleUrlNow())
+}
+function exprSetManual(name) {
+  exprManual = name || null
+  exprCancelBlink()
+  exprRender()
+  exprScheduleBlink()
+}
+function exprTriggerMood(kind, ms) {
+  var pack = exprActivePack()
+  if (!exprOn || !pack || !exprFileOk(pack, pack.moods[kind])) return
+  var dur = ms || 4000
+  exprMood = kind
+  exprMoodUntil = Date.now() + dur
+  exprCancelBlink()
+  exprRender()
+  exprClearTimer('mood')
+  exprTimers.mood = setTimeout(function () {
+    exprMood = ''
+    exprMoodUntil = 0
+    exprRender()
+    exprScheduleBlink()
+  }, dur + 60)
+}
+function exprCancelBlink() {
+  exprClearTimer('blink')
+  exprBlinkFile = ''
+  exprBlinkUntil = 0
+}
+function exprScheduleBlink() {
+  exprClearTimer('blink')
+  if (!exprOn || !exprBlinkOn) return
+  exprTimers.blink = setTimeout(exprDoBlink, 3500 + Math.random() * 4500) // 3.5~8s
+}
+function exprDoBlink() {
+  exprTimers.blink = 0
+  var pack = exprActivePack()
+  if (!exprOn || !exprBlinkOn || !pack) return
+  if (exprManual || exprExhausted || (exprMood && Date.now() < exprMoodUntil)) { exprScheduleBlink(); return }
+  if (document.hidden) { exprScheduleBlink(); return }
+  var half = pack.blink.half
+  var closed = pack.blink.closed
+  if (!exprFileOk(pack, half) || !exprFileOk(pack, closed)) { exprScheduleBlink(); return }
+  exprBlinkFile = half
+  exprBlinkUntil = Date.now() + 400
+  exprRender()
+  setTimeout(function () {
+    exprBlinkFile = closed
+    exprBlinkUntil = Date.now() + 200
+    exprRender()
+    setTimeout(function () {
+      exprBlinkFile = ''
+      exprBlinkUntil = 0
+      exprRender()
+      exprScheduleBlink()
+    }, 130)
+  }, 130)
+}
+function exprScheduleCute() {
+  exprClearTimer('cute')
+  if (!exprOn) return
+  exprTimers.cute = setTimeout(exprDoCute, 25000 + Math.random() * 35000) // 25~60s
+}
+function exprDoCute() {
+  exprTimers.cute = 0
+  var pack = exprActivePack()
+  if (!exprOn || !pack || !pack.cute.length) { exprScheduleCute(); return }
+  if (document.hidden || exprManual || exprExhausted) { exprScheduleCute(); return }
+  var pool = pack.cute.filter(function (f) { return !exprBroken[f] })
+  if (!pool.length) { exprScheduleCute(); return }
+  exprCuteFile = pool[Math.floor(Math.random() * pool.length)]
+  exprCuteUntil = Date.now() + 4000
+  exprRender()
+  setTimeout(function () { exprCuteFile = ''; exprCuteUntil = 0; exprRender() }, 4000)
+  exprScheduleCute()
+}
+// 疲惫联动：任一模型额度已用 ≥90%。官方前端没有 session 百分比，这是唯一可用的口径；
+// 拿不到（apiModels 为空 / 该模型没有额度）时**不触发**，避免误报。
+function exprCheckExhausted() {
+  try {
+    if (!exprOn) return
+    var hit = false
+    for (var i = 0; i < apiModels.length; i++) {
+      var q = null
+      try { q = apiQuotaInfo(apiModels[i].modelId) } catch (err) { q = null }
+      if (q && typeof q.pct === 'number' && q.pct >= 90) { hit = true; break }
+    }
+    if (hit === exprExhausted) return
+    exprExhausted = hit
+    if (hit) exprCancelBlink()
+    exprRender()
+    if (!hit) exprScheduleBlink()
+  } catch (err) {}
+}
+function exprActivity() {
+  exprLastActivity = Date.now()
+  if (exprIdleFired) exprIdleFired = false
+}
+function exprIdleTick() {
+  if (!exprOn) return
+  if (document.hidden) { exprActivity(); return }
+  if (!exprIdleFired && Date.now() - exprLastActivity > 120000) {
+    exprIdleFired = true
+    exprTriggerMood('disappointed', 5000)
+  }
+}
+function exprFillPackSelect() {
+  if (!exprMenuRefs || !exprMenuRefs.selPack) return
+  var sel = exprMenuRefs.selPack
+  while (sel.firstChild) sel.removeChild(sel.firstChild)
+  var auto = document.createElement('option')
+  auto.value = ''
+  auto.textContent = exprPacks.length ? '自动（默认）' : '未找到素材包'
+  sel.appendChild(auto)
+  for (var i = 0; i < exprPacks.length; i++) {
+    var o = document.createElement('option')
+    o.value = exprPacks[i].id
+    o.textContent = exprPacks[i].label || exprPacks[i].id
+    sel.appendChild(o)
+  }
+  // 选中的包已被移除（用户删了素材）时回落到「自动」，但**不改**配置值（配置由用户操作写）
+  var sel2 = exprPack
+  var exists = false
+  for (var j = 0; j < exprPacks.length; j++) if (exprPacks[j].id === sel2) exists = true
+  sel.value = exists ? sel2 : ''
+  if (exprMenuRefs.syncPack) { try { exprMenuRefs.syncPack() } catch (err) {} }
+}
+function exprFillExprSelect() {
+  if (!exprMenuRefs || !exprMenuRefs.selExpr) return
+  var sel = exprMenuRefs.selExpr
+  var pack = exprActivePack()
+  while (sel.firstChild) sel.removeChild(sel.firstChild)
+  var auto = document.createElement('option')
+  auto.value = ''
+  auto.textContent = '自动（默认）'
+  sel.appendChild(auto)
+  if (pack) {
+    for (var i = 0; i < pack.images.length; i++) {
+      var f = pack.images[i]
+      var o = document.createElement('option')
+      o.value = f
+      o.textContent = (pack.labels && pack.labels[f]) || f
+      sel.appendChild(o)
+    }
+  }
+  sel.value = exprManual || ''
+  if (exprMenuRefs.syncExpr) { try { exprMenuRefs.syncExpr() } catch (err) {} }
+}
+function exprBuildMenuRows(append) {
+  var rowOn = menuRow()
+  rowOn.appendChild(menuLabel('表情层'))
+  var chk = document.createElement('input')
+  chk.type = 'checkbox'
+  chk.title = '开启后会按素材包切换表情，并在空闲时眨眼/卖萌'
+  chk.checked = !!exprOn
+  chk.addEventListener('change', function () {
+    exprEnable(chk.checked)
+    try { saveConfig() } catch (err) {}
+  })
+  rowOn.appendChild(chk)
+  append(rowOn)
+
+  var rowPack = menuRow()
+  rowPack.appendChild(menuLabel('表情包'))
+  var selPack = document.createElement('select')
+  selPack.title = '切换表情素材包（立即生效）'
+  selPack.addEventListener('change', function () {
+    exprPack = selPack.value || ''
+    exprManual = null
+    exprBroken = {}
+    exprFillExprSelect()
+    exprRender()
+    exprRestartTimers()
+    try { saveConfig() } catch (err) {}
+  })
+  rowPack.appendChild(selPack)
+  append(rowPack)
+
+  var rowExpr = menuRow()
+  rowExpr.appendChild(menuLabel('表情'))
+  var selExpr = document.createElement('select')
+  selExpr.title = '手动固定一张表情；「自动」恢复'
+  selExpr.addEventListener('change', function () { exprSetManual(selExpr.value || null) })
+  rowExpr.appendChild(selExpr)
+  append(rowExpr)
+
+  exprMenuRefs = { selPack: selPack, selExpr: selExpr, chkOn: chk, syncPack: null, syncExpr: null }
+  // 与其余菜单行同款自绘下拉（不新建浮层 ⇒ 不触发 z-layer-audit）；不可用就退回原生 select
+  try {
+    if (typeof dshwCustSel === 'function') {
+      var a = dshwCustSel(selPack, {})
+      if (a && a.sync) exprMenuRefs.syncPack = a.sync
+      var b = dshwCustSel(selExpr, {})
+      if (b && b.sync) exprMenuRefs.syncExpr = b.sync
+    }
+  } catch (err) {}
+  exprFillPackSelect()
+  exprFillExprSelect()
+}
+function exprLoadPacks(cb) {
+  try {
+    fetch(EXPR_PACKS_URL, { cache: 'no-store' })
+      .then(function (r) { return r.json() })
+      .then(function (d) {
+        exprPacks = (d && d.ok && Array.isArray(d.packs)) ? d.packs : []
+        exprFillPackSelect()
+        exprFillExprSelect()
+        if (cb) cb()
+      })
+      .catch(function () { if (cb) cb() })
+  } catch (err) { if (cb) cb() }
+}
+function exprRestartTimers() {
+  exprCancelBlink()
+  exprClearTimer('cute')
+  exprTimers.cute = 0
+  exprScheduleBlink()
+  exprScheduleCute()
+}
+function exprEnable(on) {
+  exprOn = !!on
+  if (exprMenuRefs && exprMenuRefs.chkOn) exprMenuRefs.chkOn.checked = exprOn
+  if (exprOn) {
+    exprLoadPacks(function () { exprRender(); exprRestartTimers() })
+  } else {
+    exprCancelBlink()
+    exprClearTimer('cute')
+    exprTimers.cute = 0
+    exprClearTimer('mood')
+    exprManual = null
+    exprMood = ''
+    exprMoodUntil = 0
+    exprExhausted = false
+    exprCuteFile = ''
+    exprCuteUntil = 0
+    if (exprMenuRefs && exprMenuRefs.selExpr) exprMenuRefs.selExpr.value = ''
+    exprRender()
+  }
+}
+function exprSetBlink(on) {
+  exprBlinkOn = !!on
+  if (!exprBlinkOn) exprCancelBlink()
+  else exprScheduleBlink()
+}
+function exprInit() {
+  // 图片加载失败 → 把该图从本次会话池剔除并回落角色图（绝不留破图）
+  try {
+    img.addEventListener('error', function () {
+      var u = String(img.src || '')
+      var m = /[?&]name=([^&]+)/.exec(u)
+      if (m) { try { exprBroken[decodeURIComponent(m[1])] = true } catch (err) { exprBroken[m[1]] = true } }
+      exprCancelBlink()
+      exprCuteFile = ''
+      if (exprOn) exprApplySkin(exprRoleUrlNow())
+    })
+  } catch (err) {}
+  try {
+    // 连点生气（1.5s 内 5 次）
+    var clicks = []
+    img.addEventListener('pointerdown', function () {
+      exprActivity()
+      var now = Date.now()
+      clicks.push(now)
+      clicks = clicks.filter(function (t) { return now - t < 1500 })
+      if (clicks.length >= 5) { clicks = []; exprTriggerMood('angry', 4000) }
+    })
+    // 悬停害羞（持续 8s）
+    img.addEventListener('pointerenter', function () {
+      exprClearTimer('hover')
+      exprTimers.hover = setTimeout(function () { exprTriggerMood('shy', 4000) }, 8000)
+    })
+    img.addEventListener('pointerleave', function () { exprClearTimer('hover') })
+    // 空闲失落（120s 无交互）：与页面其它 capture 监听同款写法
+    document.addEventListener('pointerdown', exprActivity, true)
+    document.addEventListener('pointermove', exprActivity, true)
+    document.addEventListener('keydown', exprActivity, true)
+  } catch (err) {}
+  // 10s 一次：空闲检测 + 疲惫联动（低频，避免跟着每秒轮询跑）
+  exprTimers.poll = setInterval(function () {
+    try { exprIdleTick() } catch (err) {}
+    try { exprCheckExhausted() } catch (err) {}
+  }, 10000)
+  if (exprOn) exprLoadPacks(function () { exprRender(); exprRestartTimers() })
 }
 function toggleRolePanel() {
   if (rolePanel.classList.contains('dshwv-rolelist-open')) { closeRolePanel(); return }
@@ -22062,6 +22411,8 @@ applySoundSet()
 setupHitTest(initRoleUrl)
 loadRoles()
 loadAudio()
+// 表情素材层：绑定连点/悬停/空闲与图片错误降级，并按配置决定是否启用（实现见 exprInit）
+try { exprInit() } catch (err) {}
 // 用量设置(任务结束音/预警/预算)加载,并据此初始化主菜单“任务结束”行
 loadUsageSettings(function () {
   try {
@@ -22161,6 +22512,11 @@ function sizeCfgApply(d) {
       codexStatsOn = d.codexStatsOn
       if (codexStatsToggle) codexStatsToggle.checked = codexStatsOn
     }
+    // 表情素材层配置回填（第 ④ 件套）。顺序：先素材包与眨眼开关，最后才 enable，
+    // 避免 enable 时用了旧的 exprPack / blinkOn。老配置里没有这三个键 → 不去动它们。
+    if (d && typeof d.exprPack === 'string') exprPack = d.exprPack
+    if (d && typeof d.blinkOn === 'boolean') exprSetBlink(d.blinkOn)
+    if (d && typeof d.exprOn === 'boolean') exprEnable(d.exprOn)
     // 无论服务端带没带这个键都要应用一次：触屏上 ☰ 需要常显（issue #91 缺陷2），
     // 而旧写法只在键存在时才调用，空配置下按钮永远是透明的。
     applyMenuBtnHideUI()
