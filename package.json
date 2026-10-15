@@ -1,7 +1,7 @@
 {
-  "name": "dsh-whale-widget-plus",
-  "version": "0.3.5",
-  "description": "DSH Web 界面右下角的 DeepSeek 余额小鲸鱼挂件（含今日已用、峰谷定价、随机台词、音效与每轮消耗统计）",
+  "name": "dsh-whale-widget",
+  "version": "0.4.2",
+  "description": "DSH Web 界面右下角的 DeepSeek 余额小鲸鱼挂件:余额/今日已用/峰谷定价、自定义泡泡点击序列(文本/余额/今日/峰谷/图片/随机语句与并列加权选择)、逐行样式与字体、悬浮快捷编辑、音效与每轮消耗、自定义角色/动图/音效、吸附与翻转自定义",
   "keywords": [
     "dsh",
     "dsh-plugin",
@@ -11,24 +11,27 @@
   ],
   "type": "module",
   "main": "lib/index.js",
+  "icon": "./icon.png",
   "files": [
     "lib",
     "assets",
+    "icon.png",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "PROVENANCE.md"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget.git"
+  },
+  "bugs": {
+    "url": "https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget/issues"
+  },
+  "homepage": "https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget#readme",
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
-    },
-    "client": {
-      "platform": "web",
-      "immediately": true
     }
   },
-  "license": "MIT",
-  "exports": {
-    ".": "./lib/index.js",
-    "./client": "./lib/client.js"
-  }
+  "license": "MIT"
 }
