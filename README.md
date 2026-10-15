@@ -402,6 +402,7 @@ curl http://127.0.0.1:3080/dsh-whale/size.json
 curl http://127.0.0.1:3080/dsh-whale/widget.js
 curl http://127.0.0.1:3080/dsh-whale/image.png
 curl http://127.0.0.1:3080/dsh-whale/audio.json
+curl http://127.0.0.1:3080/dsh-whale/expr-packs.json
 ```
 
 - `/dsh-whale/balance.json` → 200 JSON，含 `{ok:true, totalBalance, currency, todayUsage}`
@@ -414,9 +415,11 @@ curl http://127.0.0.1:3080/dsh-whale/audio.json
 - `/dsh-whale/wait.json` → 200 JSON，含 `{ok:true, pending}`；`pending` 为当前挂起的「提问 / 授权」（`{kind:'question'|'approval', id, ts}`）或 `null` —— 这是「提问提示 / 授权提示」音效与常驻气泡的数据源（默认每秒轮询一次）
 - `/dsh-whale/about.json` → 200 JSON：菜单底部版号那行点开后的「关于 / 自检」面板数据源（版本、通道、文件路径与时间、数据落点、记账/余额/Codex 状态；路径已脱敏，**点开才请求**）
 - `/dsh-whale/update-check.json` → 200 JSON：检查更新（`{ok, current, latest, hasUpdate, source}`）；**点了才联网**，镜像优先（npmmirror → jsdelivr → unpkg → npmjs）+ `npm view` 兜底，宿主侧 10 分钟缓存
+- `/dsh-whale/expr-packs.json` → 200 JSON：表情素材包清单 `{ok:true, packs:[{id,label,main,blink,moods,cute,labels,images}]}`。清单只列出**盘上真实存在**的文件（声明了但文件缺失的一律剔除），因此前端不会请求到破图
+- `/dsh-whale/expr.png?pack=<包id>&name=<文件名>` → 200 `image/png`；包 id 与文件名走双白名单（`^[A-Za-z0-9_-]{1,32}$` / `^[A-Za-z0-9_.-]{1,128}$`）且必须是该包 `pack.json` 声明过的文件，否则 404。**唯一带 ETag 的素材路由**：表情图会随眨眼/卖萌高频切换，命中 `If-None-Match` 直接回 304 不重发字节
 - 浏览器 F5 后右下角出现挂件
 
-> ⚠️ **关于上面这些 `curl`**：全部 **26 个** `/dsh-whale/*` 路由都已接入 **DSH 浏览器信任栅栏**（`connection.requestRejection`）。
+> ⚠️ **关于上面这些 `curl`**：全部 **28 个** `/dsh-whale/*` 路由都已接入 **DSH 浏览器信任栅栏**（`connection.requestRejection`）。
 > 因此**不带会话凭据的裸 `curl` 会返回 401**（伪造 `Host` 头则是 403）—— 这是预期行为，不是接口坏了。
 > 想验证接口是否存活，看返回 **401/403** 即说明路由已注册且栅栏在工作；在浏览器里访问同一条路径（带会话）才是 200。
 > 另外**自 0.3.15 起，写请求（`POST`/`PUT`/`PATCH`/`DELETE`）还必须是本机来源**（Host 为 `127.0.0.1`/`localhost`/`[::1]`），否则 403 —— 详见上方「安全边界」。
