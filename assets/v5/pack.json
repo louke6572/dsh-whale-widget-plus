@@ -7,7 +7,7 @@
     "closed": "blink_closed.png"
   },
   "moods": {
-    "angry": "angry.png",
+    "angry": "rice.png",
     "shy": "shy.png",
     "disappointed": "disappointed.png",
     "exhausted": "exhausted.png"
@@ -15,7 +15,6 @@
   "cute": [
     "token.png",
     "eating.png",
-    "rice.png",
     "thumbsup.png",
     "happy.png",
     "awesome.png",
@@ -23,7 +22,8 @@
     "corner.png",
     "bored.png",
     "rich.png",
-    "shocked.png"
+    "shocked.png",
+    "angry.png"
   ],
   "labels": {
     "main.png": "主图",
