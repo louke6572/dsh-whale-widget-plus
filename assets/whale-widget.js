@@ -5696,7 +5696,8 @@ function refreshPlatformUsageRow(el, force) {
     .then(function (r) { return r.json() })
     .then(function (d) {
       if (d && d.ok) {
-        el.textContent = '今日 ¥' + Number(d.today && d.today.cost || 0).toFixed(2) + ' · 本月 ¥' + Number(d.month && d.month.cost || 0).toFixed(2)
+        var srcTag = d.source === 'official' ? '官方登录态 · ' : ''
+        el.textContent = srcTag + '今日 ¥' + Number(d.today && d.today.cost || 0).toFixed(2) + ' · 本月 ¥' + Number(d.month && d.month.cost || 0).toFixed(2)
       } else if (d && d.code === 'NO_TOKEN') {
         el.textContent = '未配置（粘贴 userToken 后启用）'
       } else {
