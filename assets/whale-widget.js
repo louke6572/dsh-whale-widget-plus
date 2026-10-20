@@ -14565,9 +14565,17 @@ try {
   // 徽标排版微调（仅作用外部徽标，不影响气泡内）：块间距拉开 + 倒计时描边框；
   // 两块 vertical-align:top + 等高锁定（pbAlign 实测取最大高）→ 顶/底严格对齐（两个等高胶囊）
   var pbStyle = document.createElement('style')
-  pbStyle.textContent = '.dshwv-peakbadge .dshwv-trowline>.dshwv-trow{vertical-align:top !important}.dshwv-peakbadge .dshwv-trowline>.dshwv-trow+.dshwv-trow{margin-left:calc(var(--dshw-u) * 14 + 5px) !important}.dshwv-peakbadge .dshwv-trow.dshwv-rgb{letter-spacing:0.06em !important;display:inline-flex !important;align-items:center !important;justify-content:center !important;box-sizing:border-box !important;text-decoration:none !important;border:2px solid rgba(32,49,112,.35) !important;border-radius:0.35em !important;padding:0.02em 0.28em !important}.dshwv-peakbadge .dshwv-trow.dshwv-rgb-rouge{border-color:rgba(224,67,63,.6) !important}.dshwv-peakbadge .dshwv-trow.dshwv-rgb-bamboo{border-color:rgba(47,162,76,.6) !important}.dshwv-peakbadge .dshwv-trow.dshwv-bgrgb{display:inline-flex !important;align-items:center !important;justify-content:center !important;box-sizing:border-box !important}'
+  pbStyle.textContent = '.dshwv-peakbadge .dshwv-trowline>.dshwv-trow{vertical-align:top !important}.dshwv-peakbadge .dshwv-trowline>.dshwv-trow+.dshwv-trow{margin-left:calc(var(--dshw-u) * 14 + 5px) !important}.dshwv-peakbadge .dshwv-trow.dshwv-rgb{letter-spacing:0.06em !important;display:inline-flex !important;align-items:center !important;justify-content:center !important;box-sizing:border-box !important;text-decoration:none !important;border:2px solid rgba(32,49,112,.35) !important;border-radius:0.35em !important;padding:0.02em 0.28em !important}.dshwv-peakbadge .dshwv-trow.dshwv-rgb-rouge{border-color:rgba(224,67,63,.6) !important}.dshwv-peakbadge .dshwv-trow.dshwv-rgb-bamboo{border-color:rgba(47,162,76,.6) !important}.dshwv-peakbadge .dshwv-trow.dshwv-bgrgb{display:inline-flex !important;align-items:center !important;justify-content:center !important;box-sizing:border-box !important}' +
+    // 逐步骤金额「-x.xx」：贴在峰谷徽标正上方，每次模型调用完成向上滚一次
+    '.dshwv-peakbadge .dshwv-stepcost{position:absolute;left:0;bottom:100%;margin-bottom:calc(var(--dshw-u) * 3);font-weight:700;color:#e0433f;font-size:calc(var(--dshw-u) * 11);line-height:1;letter-spacing:0.02em;white-space:nowrap;opacity:0;pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,.35)}' +
+    '.dshwv-peakbadge .dshwv-stepcost.dshwv-steproll{animation:dshwvStepRoll .9s ease-out forwards}' +
+    '@keyframes dshwvStepRoll{0%{opacity:0;transform:translateY(10px)}18%{opacity:1;transform:translateY(0)}72%{opacity:1;transform:translateY(-6px)}100%{opacity:0;transform:translateY(-14px)}}'
   document.head.appendChild(pbStyle)
   root.appendChild(pbWrap)
+  // 逐步骤金额元素（每次模型调用完成后由 pollStepCost 写入并触发向上滚动）
+  var pbStepEl = document.createElement('div')
+  pbStepEl.className = 'dshwv-stepcost'
+  pbWrap.appendChild(pbStepEl)
   // 左右镜像补偿：吸附到对侧（dshwv-left）时人物贴图自身镜像、质量偏向视觉左，
   // 徽标若留在本地 left:0 会与人物重叠。这里把徽标挂到容器右缘外侧（朝屏幕中心的空白区），
   // 物理上与人物完全错开；不加镜像变换，文字保持正读。
@@ -23703,7 +23711,32 @@ function pollLastTurn() {
       .catch(function () {})
   } catch (err) {}
 }
-setInterval(function () { pollLastTurn(); pollWaitState() }, 1000)
+// —— 逐步骤金额滚动：轮询 last-step.json，seq 变化即显示「-x.xx」并向上滚一次 ——
+var STEP_COST_URL = '/dsh-whale/last-step.json'
+var lastStepSeq2 = 0
+var lastStepAligned = false
+function pollStepCost() {
+  try {
+    fetch(STEP_COST_URL, { cache: 'no-store' })
+      .then(function (r) { return r.json() })
+      .then(function (d) {
+        if (!d || !d.ok || typeof d.seq !== 'number') return
+        if (!lastStepAligned) { lastStepAligned = true; lastStepSeq2 = d.seq; return }
+        if (d.seq <= lastStepSeq2) return
+        lastStepSeq2 = d.seq
+        var el = document.querySelector('.dshwv-peakbadge .dshwv-stepcost')
+        var amt = Number(d.amount)
+        if (!el || !(amt > 0)) return
+        el.textContent = '-' + amt.toFixed(2)
+        el.classList.remove('dshwv-steproll')
+        void el.offsetWidth // 强制回流，确保连续两次都能重放动画
+        el.classList.add('dshwv-steproll')
+        setTimeout(function () { try { el.classList.remove('dshwv-steproll') } catch (err) {} }, 950)
+      })
+      .catch(function () {})
+  } catch (err) {}
+}
+setInterval(function () { pollLastTurn(); pollWaitState(); pollStepCost() }, 1000)
 }
 // 主界面检测通过（或稍后由 MutationObserver 检测到）后执行挂件初始化；非主界面不启动
 try { dshwTryStart(true) } catch (err) {}
