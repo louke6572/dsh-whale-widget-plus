@@ -14566,9 +14566,9 @@ try {
   // 两块 vertical-align:top + 等高锁定（pbAlign 实测取最大高）→ 顶/底严格对齐（两个等高胶囊）
   var pbStyle = document.createElement('style')
   pbStyle.textContent = '.dshwv-peakbadge .dshwv-trowline>.dshwv-trow{vertical-align:top !important}.dshwv-peakbadge .dshwv-trowline>.dshwv-trow+.dshwv-trow{margin-left:calc(var(--dshw-u) * 14 + 5px) !important}.dshwv-peakbadge .dshwv-trow.dshwv-rgb{letter-spacing:0.06em !important;display:inline-flex !important;align-items:center !important;justify-content:center !important;box-sizing:border-box !important;text-decoration:none !important;border:2px solid rgba(32,49,112,.35) !important;border-radius:0.35em !important;padding:0.02em 0.28em !important}.dshwv-peakbadge .dshwv-trow.dshwv-rgb-rouge{border-color:rgba(224,67,63,.6) !important}.dshwv-peakbadge .dshwv-trow.dshwv-rgb-bamboo{border-color:rgba(47,162,76,.6) !important}.dshwv-peakbadge .dshwv-trow.dshwv-bgrgb{display:inline-flex !important;align-items:center !important;justify-content:center !important;box-sizing:border-box !important}' +
-    // 逐步骤金额「-x.xx」：从峰谷徽标处自下而上浮出、上移、淡出（带同款红框）
+    // 逐步骤金额「-x.xx」：从峰谷徽标处自下而上浮出、上移、淡出（纯文字，无边框）
     '.dshwv-peakbadge .dshwv-stepcost{position:absolute;left:0;right:0;bottom:100%;text-align:center;pointer-events:none;opacity:0}' +
-    '.dshwv-peakbadge .dshwv-stepchip{display:inline-block;font-weight:700;color:#e0433f;font-size:calc(var(--dshw-u) * 68);line-height:1;letter-spacing:0.02em;white-space:nowrap;border:2px solid currentColor;border-radius:0.35em;padding:0.02em 0.28em;text-shadow:0 1px 2px rgba(0,0,0,.2)}' +
+    '.dshwv-peakbadge .dshwv-stepchip{display:inline-block;font-weight:700;color:#e0433f;font-size:calc(var(--dshw-u) * 68);line-height:1;letter-spacing:0.02em;white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,.2)}' +
     '.dshwv-peakbadge .dshwv-stepcost.dshwv-steproll{animation:dshwvStepRoll 1.4s ease-out forwards}' +
     '@keyframes dshwvStepRoll{0%{opacity:0;transform:translateY(34px)}10%{opacity:1;transform:translateY(22px)}62%{opacity:1;transform:translateY(-6px)}100%{opacity:0;transform:translateY(-40px)}}'
     document.head.appendChild(pbStyle)
