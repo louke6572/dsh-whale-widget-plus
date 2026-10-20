@@ -154,6 +154,7 @@ dsh plugin --profile web add link:<本仓库绝对路径>\plugins\volc-usage
 - 📉 **今日已用**：有余额接口时记录观测到的**下降额**（当天首次观测为统计起点，充值等增加额不会冲掉消费），无余额接口的厂商显示本机会话**估算**
 - 🎯 **额度（订阅 / 资源包）**：填总量即可，已用**按 DSH 会话 token 自动累计**（口径 `input + cacheRead + output`，推理 token 已含在 output 内，跨天保留），也可切换手动填写；支持「不重置 / 每日 / 每月」
 - 🧾 **订阅额度接口（`kind:'quota'` 模板）**：直接读厂商官方接口的「窗口已用% + 重置时间」，与上面按会话统计的额度互补。**支持一个接口返回多个窗口**（目前 OpenCode Go 为 5h / 周 / 月三窗口），逐窗口展示已用百分比与各自的紧凑重置倒计时；模板用 `quota.json.windows` 描述各窗口的字段路径
+- 📊 **平台用量同步（可选）**：对齐 DeepSeek Platform「查询用量」页的官方口径。在 **小鲸鱼记账 → 平台用量** 行粘贴平台 `userToken`（在 platform.deepseek.com 登录后，浏览器控制台执行 `localStorage.getItem("userToken")` 复制），保存后：**今日已用改用平台官方消费**（不再是余额差推算），并显示本月消费。token 存在 DSH 凭据服务（`DEEPSEEK_USER_TOKEN`），不落配置文件；未配置或接口失败时静默回落余额差口径，行为与旧版一致
 - 💱 **单价（可选）**：位置在「密钥 / 接口」面板 → 展开「接口与字段（高级）」→「单价（可选）」。每个模型可自填单价 —— **缓存命中 / 未命中输入 / 输出**，单位是「币种 / 百万 token」；币种支持人民币（CNY）与美元（USD），**选美元时必须填汇率（元/USD）**；记账与账本**统一按人民币结算**（美元单价会按汇率折算）；单价**不分峰谷**（两个时段同价）。**内置价目表只覆盖 DeepSeek 模型（flash / pro）**：其他厂商（GLM / Kimi / 豆包 / SenseNova …）的单价与 DeepSeek 完全不同，**留空则只统计 token、不折算金额**（每轮消耗提示会显示「本轮 N tok」而不是钱），想看到准确金额请在该模型上填写单价；给第三方模型套用 DeepSeek 单价会把金额算错一个数量级。注意：**内置 DeepSeek 不支持自定义单价**（始终用内置峰谷价）；额度单位选「金额（元）」时，已用**只能手动填写**
 - 🫧 **泡泡模块**：每个模型自动获得「余额·<模型名>」与「额度·<模型名>」两个模块，占位符 `{balance}`、`{today}`、`{quota}`、`{quota_used}`、`{quota_left}`、`{quota_total}`、`{quota_reset}`
 
@@ -483,9 +484,11 @@ curl http://127.0.0.1:3080/dsh-whale/expr-packs.json
 - `/dsh-whale/update-check.json` → 200 JSON：检查更新（`{ok, current, latest, hasUpdate, source}`）；**点了才联网**，镜像优先（npmmirror → jsdelivr → unpkg → npmjs）+ `npm view` 兜底，宿主侧 10 分钟缓存
 - `/dsh-whale/expr-packs.json` → 200 JSON：表情素材包清单 `{ok:true, packs:[{id,label,main,blink,moods,cute,labels,images}]}`。清单只列出**盘上真实存在**的文件（声明了但文件缺失的一律剔除），因此前端不会请求到破图
 - `/dsh-whale/expr.png?pack=<包id>&name=<文件名>` → 200 `image/png`；包 id 与文件名走双白名单（`^[A-Za-z0-9_-]{1,32}$` / `^[A-Za-z0-9_.-]{1,128}$`）且必须是该包 `pack.json` 声明过的文件，否则 404。**唯一带 ETag 的素材路由**：表情图会随眨眼/卖萌高频切换，命中 `If-None-Match` 直接回 304 不重发字节
+- `/dsh-whale/platform-usage.json` → 200 JSON：DeepSeek **Platform 官方用量**（`{ok:true, currency, today:{tokens,cost}, month:{tokens,cost,requests}, models:[…]}`），数据来自 `platform.deepseek.com/api/v0/usage/amount|cost`，凭据是 `DEEPSEEK_USER_TOKEN`（平台网页 token，见「记账」章节）。未配置时返回 `{ok:false, code:'NO_TOKEN'}`，前端静默回落余额差口径
+- `/dsh-whale/platform-token.json` → `PUT {token}` 保存平台 token 并立即同步一次；`DELETE` 清除。token 存 DSH 凭据服务，不落配置文件
 - 浏览器 F5 后右下角出现挂件
 
-> ⚠️ **关于上面这些 `curl`**：全部 **28 个** `/dsh-whale/*` 路由都已接入 **DSH 浏览器信任栅栏**（`connection.requestRejection`）。
+> ⚠️ **关于上面这些 `curl`**：全部 **30 个** `/dsh-whale/*` 路由都已接入 **DSH 浏览器信任栅栏**（`connection.requestRejection`）。
 > 因此**不带会话凭据的裸 `curl` 会返回 401**（伪造 `Host` 头则是 403）—— 这是预期行为，不是接口坏了。
 > 想验证接口是否存活，看返回 **401/403** 即说明路由已注册且栅栏在工作；在浏览器里访问同一条路径（带会话）才是 200。
 > 另外**自 0.3.15 起，写请求（`POST`/`PUT`/`PATCH`/`DELETE`）还必须是本机来源**（Host 为 `127.0.0.1`/`localhost`/`[::1]`），否则 403 —— 详见上方「安全边界」。

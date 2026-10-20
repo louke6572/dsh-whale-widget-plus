@@ -5627,8 +5627,83 @@ function buildUsageSettingsArea() {
   palDivider.style.borderTop = '1px solid rgba(32,49,112,.15)'
   palDivider.style.margin = '6px 0 8px'
   usagePanel.appendChild(palDivider)
+  // —— 平台用量同步（可选）：对齐 DeepSeek Platform「查询用量」页的官方口径 ——
+  // 平台用量页的数据源是 platform.deepseek.com 的私有用量接口；插件这边需要一次性配置平台
+  // userToken（在 platform.deepseek.com 登录后，浏览器控制台执行 localStorage.getItem("userToken")）。
+  // 配好后宿主会直接拉「今日 / 本月消耗 + 分模型 token」，界面里的今日已用也改用这个官方口径。
+  var platRow = menuRow()
+  var platLab = menuLabel('平台用量')
+  platLab.style.flex = '0 0 auto'
+  platRow.appendChild(platLab)
+  var platStatus = document.createElement('span')
+  platStatus.className = 'dshwv-usage-hint'
+  platStatus.style.flex = '1'
+  platStatus.style.textAlign = 'right'
+  platStatus.style.paddingRight = '6px'
+  platStatus.style.whiteSpace = 'nowrap'
+  platStatus.style.overflow = 'hidden'
+  platStatus.style.textOverflow = 'ellipsis'
+  platStatus.textContent = '检查中…'
+  platRow.appendChild(platStatus)
+  var platRefBtn = document.createElement('button')
+  platRefBtn.type = 'button'
+  platRefBtn.className = 'dshwv-roleimport'
+  platRefBtn.textContent = '刷新'
+  platRefBtn.title = '重新拉取平台用量（Platform 官方口径：今日/本月消费与分模型 token）'
+  platRefBtn.addEventListener('click', function () { refreshPlatformUsageRow(platStatus, true) })
+  platRow.appendChild(platRefBtn)
+  usagePanel.appendChild(platRow)
+  var platRow2 = menuRow()
+  var platInp = document.createElement('input')
+  platInp.type = 'password'
+  platInp.className = 'dshwv-number'
+  platInp.style.flex = '1'
+  platInp.placeholder = '平台 userToken（浏览器控制台 localStorage.getItem("userToken")）'
+  platInp.title = 'DeepSeek Platform 网页登录态的 userToken；只存 DSH 凭据服务（DEEPSEEK_USER_TOKEN），不落配置文件'
+  platRow2.appendChild(platInp)
+  var platSave = document.createElement('button')
+  platSave.type = 'button'
+  platSave.className = 'dshwv-roleimport'
+  platSave.textContent = '保存'
+  platSave.title = '保存 token 并立即同步一次'
+  platSave.addEventListener('click', function () {
+    var tok = String(platInp.value || '').trim()
+    if (!tok) { platStatus.textContent = '请先粘贴 token'; return }
+    platStatus.textContent = '同步中…'
+    fetch('/dsh-whale/platform-token.json', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: tok }) })
+      .then(function (r) { return r.json() })
+      .then(function (d) {
+        if (d && d.ok) {
+          platInp.value = ''
+          platStatus.textContent = '今日 ¥' + Number(d.today.cost || 0).toFixed(2) + ' · 本月 ¥' + Number(d.month.cost || 0).toFixed(2)
+          if (typeof dshwvToast === 'function') dshwvToast('平台用量已启用：今日已用改用官方口径')
+        } else {
+          platStatus.textContent = '失败：' + ((d && d.code) || '未知')
+        }
+      })
+      .catch(function () { platStatus.textContent = '网络错误' })
+  })
+  platRow2.appendChild(platSave)
+  usagePanel.appendChild(platRow2)
+  refreshPlatformUsageRow(platStatus, false)
   // 右侧滚动条再靠右一点（减小面板右内边距）
   try { usagePanel.style.paddingRight = '6px' } catch (err) {}
+}
+// 平台用量状态行：ok → 「今日 ¥x · 本月 ¥y」；NO_TOKEN → 提示配置；其余显示错误码
+function refreshPlatformUsageRow(el, force) {
+  if (!el) return
+  fetch('/dsh-whale/platform-usage.json' + (force ? '?refresh=1' : ''), { cache: 'no-store' })
+    .then(function (r) { return r.json() })
+    .then(function (d) {
+      if (d && d.ok) {
+        el.textContent = '今日 ¥' + Number(d.today && d.today.cost || 0).toFixed(2) + ' · 本月 ¥' + Number(d.month && d.month.cost || 0).toFixed(2)
+      } else if (d && d.code === 'NO_TOKEN') {
+        el.textContent = '未配置（粘贴 userToken 后启用）'
+      } else {
+        el.textContent = '同步失败：' + ((d && d.code) || '?')
+      }
+    })
+    .catch(function () { el.textContent = '同步失败：网络' })
 }
 // 某个模型的子菜单：余额预警 / 今日预算（各自独立）+ 密钥/接口入口
 // —— 手动额度编辑器（订阅 / 资源包：厂商没有额度接口，已用值手填）——
