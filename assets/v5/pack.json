@@ -1,0 +1,48 @@
+{
+  "id": "v5",
+  "label": "第五版",
+  "main": "main.png",
+  "blink": {
+    "half": "blink_half.png",
+    "closed": "blink_closed.png"
+  },
+  "moods": {
+    "angry": "angry.png",
+    "shy": "shy.png",
+    "disappointed": "disappointed.png",
+    "exhausted": "exhausted.png"
+  },
+  "cute": [
+    "token.png",
+    "eating.png",
+    "rice.png",
+    "thumbsup.png",
+    "happy.png",
+    "awesome.png",
+    "okay.png",
+    "corner.png",
+    "bored.png",
+    "rich.png",
+    "shocked.png"
+  ],
+  "labels": {
+    "main.png": "主图",
+    "blink_half.png": "眨眼1-半闭",
+    "blink_closed.png": "眨眼·闭上",
+    "angry.png": "生气了",
+    "shy.png": "脸红",
+    "disappointed.png": "委屈",
+    "exhausted.png": "发呆",
+    "token.png": "token来",
+    "eating.png": "吃吃吃",
+    "rice.png": "大白饭",
+    "thumbsup.png": "点赞",
+    "happy.png": "开心",
+    "awesome.png": "厉害",
+    "okay.png": "哦知道了",
+    "corner.png": "墙角大肥鱼",
+    "bored.png": "无聊",
+    "rich.png": "有钱",
+    "shocked.png": "震惊"
+  }
+}
