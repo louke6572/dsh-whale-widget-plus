@@ -116,6 +116,11 @@ dsh plugin --profile web add link:<本仓库绝对路径>\plugins\volc-usage
 - 🎨 **逐模块样式**：字体（含自定义字体）、字号、加粗/斜体/下划线、纯色或**跑马灯渐变**配色、底色；文本与随机语句支持悬浮快捷编辑
 - 🖐️ **拖拽排版**：桌面端原生拖拽、移动端长按拖拽；模块可并入某行首/尾、可拆行、整行可排序；**每行最多 6 个模块、泡泡最多 6 行**，图片类模块独占一行且一个泡泡只允许一个
 - 📚 **模块库**：把常用模块"另存"进库，之后在任意泡泡里点击或拖入复用
+- 🗂️ **手写 `~/.dsh/.dshw-bubble.json` 是「全量替换」，不是增量合并**：文件里的 `items` 就是**整条**点击序列 —— 出厂序列（第 1 项 `kind:"custom"` 里的 **峰谷时段** 与 **谷价倒计时** 两个模块、第 2 项整个 `kind:"choice"` 并列步骤）**只在读不到这个文件**时兜底。只写一两条 `items` 会把出厂那些一起顶掉，而不是"在它们后面加两句"。
+  - 建议先「自定义泡泡」窗口里改（面板保存的就是这份文件）；确实要手写，就先从面板或本机现成的文件里**复制一整份 `items`** 再改。
+  - 写坏了/想恢复：**删掉这个文件**即可回到出厂序列（插件不改写你的文件，读不到就回退）。
+  - 宿主还有一道语义校验：`items` 里出现**不认识的 `kind`**（客户端只会把它静默渲染成普通泡）、`modules` 不是数组、或并列步骤没有候选时，这份文件会被**忽略**（改用出厂序列）并在宿主日志里打一条 `[dsh-whale] 泡泡配置被忽略（<路径>）：<原因>` —— 原文件保留，改好或删掉都随你。
+  - 被忽略时不是只有日志：`/dsh-whale/bubble.json` 的响应里会带 `ignored: { path, reason }`，插件诊断信息里「泡泡配置」那一行也会显示 `被忽略：<原因>`，方便排查（界面目前不会弹提示，靠这两处自查）。
 - 🏷️ **菜单底部显示当前版本**（**居中**在最下方按钮与菜单底边之间的空隙里，一行 9px 小字；这行**不改变菜单高度** —— 按钮下边距与菜单下内边距各让出一部分、正好等于这行高度。**开发版**显示"下一个版本号 + beta"，例如 `v0.3.19-beta`）
 
 ### 提醒
@@ -175,12 +180,13 @@ dsh plugin --profile web add link:<本仓库绝对路径>\plugins\volc-usage
 
 ```text
 dsh-whale-widget/
-├── package.json              # DSH bundle 插件元数据（dsh.bundle.patch 指向 cordis.patch.yml；顶层 icon 指向 icon.png）
+├── package.json              # DSH bundle 插件元数据（dsh.bundle.patch + dsh.client；顶层 icon 指向 icon.png）
 ├── icon.png                  # 插件列表图标（256×256 PNG，含透明；宿主读成 data URL 塞进 meta.icon，必须是正方形）
 ├── README.md                 # 本文件
 ├── cordis.patch.yml          # 插件挂载声明
 ├── lib/
 │   ├── index.js              # 宿主侧插件本体（路由 + 记账 + 音效/图片/角色服务）
+│   ├── client.js             # 客户端半区：dsh.client 生命周期 + 挂载 whale-widget.js
 │   └── accounting.mjs        # 记账内核（定点金额运算 + 余额观测/校正账本）
 ├── assets/
 │   ├── whale-widget.js       # 前端挂件本体（由宿主按 mtime 热读取）
@@ -205,7 +211,7 @@ dsh-whale-widget/
 | `.dshw-usage.json` | 记账账本 + 按日余额观测/校正摘要 + 用量设置（任务结束音、余额预警、今日预算、每轮消耗提示内容，以及 **`events`**：按压 / 每轮消耗 / 提问 / 授权四个事件的音效选择、独立音量、冒泡配置；**每轮消耗的自动关闭秒数存在 `.dshw-size.json` 的 `turnCostCloseMs`**） |
 | `.dshw-usage.json.before-recharge-fix.bak` | 旧格式账本备份（0.3.1 首次写入旧账本前自动创建；已存在则不覆盖） |
 | `.dshw-turn.json` | 每轮消耗的 seq（避免热重载后前端把新轮次当旧轮次） |
-| `.dshw-bubble.json` | 自定义泡泡配置（点击序列 + 模块库 + 点按角色推进队列开关） |
+| `.dshw-bubble.json` | 自定义泡泡配置（点击序列 + 模块库 + 点按角色推进队列开关）。**手写即全量替换**：`items` 就是整条序列；写坏或想恢复，删掉该文件即可（详见「泡泡系统」一节） |
 | `.dshw-api.json` | 自定义 API 模型注册表（厂商 / 凭据名 / 接口字段 / 自定义单价 / 额度与用量累计；**不含密钥**） |
 | `.dshw-usage-archive.json` | 账本归档（超过保留期的逐轮明细与逐日汇总；明细 90 天/2 万条、逐日 365 天） |
 | `.dshw-codex.json` | Codex 本地会话统计缓存（按天/模型聚合 + 文件偏移；**不含任何凭据**） |
@@ -517,7 +523,7 @@ curl http://127.0.0.1:3080/dsh-whale/expr-packs.json
 - **换了 / 删了 API key 之后，更早的记账天变成「本地估算 ¥0.00」**：记账按**密钥指纹分本**（一把 key 一本账），换 key 等于换了一本 —— 数据**没丢**，都在 `.dshw-usage.json` 的 `accounting.books` 里。当前版本已让界面把历史本里的日期正常显示（标注「已观测消费 · 历史账户」），并在「小鲸鱼记账」面板顶部提示「检测到 N 个记账本」；**两个本不会被相加**（插件无法判断两次是不是同一个账户），但同一天的明细可以在该面板的「每日与逐条明细」里逐日查看。
 - **手机上拖不动鲸鱼**：本版本已用触摸事件接管拖拽，请硬刷新页面拿到最新 `whale-widget.js`；仍不行请反馈浏览器型号。
 - **隐藏了菜单按钮怎么进菜单**：电脑端右键鲸鱼，手机端长按鲸鱼约 1.5 秒。
-- **改了前端代码不生效**：前端 `assets/whale-widget.js` 由宿主按 mtime 热读取，**硬刷新**（Ctrl+F5）即可；改了宿主 `lib/index.js` 必须**重启 `dsh web`**。
+- **改了前端代码不生效**：前端 `assets/whale-widget.js` 由宿主按 mtime 热读取，**硬刷新**（Ctrl+F5）即可；改了宿主 `lib/index.js` 必须**重启 `dsh web`**。**关闭/开启插件**由 `lib/client.js` 的 `dsh.client` 生命周期接管：关闭会卸载客户端并刷新一次页面，重新开启即时出现（桌面端首次安装仍需重开客户端）。
 - **模型名看不懂**：账本记录的是 API 模型 id；`deepseek-flash` 即 DeepSeek-V4.1-Flash，旧名 `deepseek-v4-flash` / `-vision-exp` 现在也由同一颗 V4.1-Flash 提供并按 Flash 计价（面板里已加标注）。
 
 ## 定价表
@@ -533,7 +539,7 @@ curl http://127.0.0.1:3080/dsh-whale/expr-packs.json
 
 ## 开发与维护
 
-- 仓库里 `lib/index.js` 是宿主本体、`lib/accounting.mjs` 是记账内核（定点金额运算 + 观测/校正账本）、`assets/whale-widget.js` 是前端本体；宿主改动（含记账内核）需重启 `dsh web`，仅前端改动硬刷新页面即生效。
+- 仓库里 `lib/index.js` 是宿主本体、`lib/client.js` 是客户端生命周期壳、`lib/accounting.mjs` 是记账内核（定点金额运算 + 观测/校正账本）、`assets/whale-widget.js` 是前端本体；宿主改动（含记账内核）需重启 `dsh web`，仅前端改动硬刷新页面即生效。
 - 完整规格、视觉参数、路由清单、架构结论与生成提示词见 [`whale-widget-prompt.md`](whale-widget-prompt.md)。
 - 本地联调：`dsh plugin --profile web add link:.` 后，改前端 → Ctrl+F5；改宿主 → 重启 `dsh web`。
 

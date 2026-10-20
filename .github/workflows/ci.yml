@@ -43,8 +43,9 @@ jobs:
       - name: Syntax check
         run: |
           node --check lib/index.js
+          node --check lib/client.js
           node --check assets/whale-widget.js
-          echo "两个文件的语法都通过"
+          echo "三个文件的语法都通过"
 
       # 核心不变量自检（tools/ci-audit.mjs）。这里只跑静态四项，不跑「打包后能不能运行」那一项：
       # 日常 push/PR 关心的是「源码对不对」，没必要每次打一个 npm 包。
@@ -79,7 +80,7 @@ jobs:
       # （本机用泛化的 C:/Users 试过，会被它骗到）。
       - name: Dev-path audit (must be stripped)
         run: |
-          if grep -n "TestBox" lib/index.js lib/accounting.mjs assets/whale-widget.js; then
+          if grep -n "TestBox" lib/index.js lib/client.js lib/accounting.mjs assets/whale-widget.js; then
             echo "::error::发布文件里出现了开发机路径 —— 宿主发布副本必须先跑 _strip-dev-paths.mjs --apply 再提交"
             exit 1
           fi
@@ -93,6 +94,14 @@ jobs:
       - name: Dead-settings audit (控件有值但没有消费方)
         run: node tools/check-dead-settings.mjs
 
+      # 并列步骤的候选不许被静默裁掉（issue #263：手写配置里第 3 个及以后的候选**永远不出现**，
+      #   控制台与界面都没有提示；编辑器读配置那一趟还会在「打开一次再保存」时把它们从配置里抹掉）。
+      #   做法与仓库其它门禁一致：从 assets/whale-widget.js 里**逐字抽出真函数/真代码块**跑行为断言 ——
+      #   运行期映射、抽两万次每个候选都得出现过、编辑器"读配置→保存"整趟（按 2/3/4/5 个候选逐规模）、
+      #   四个编辑动作一个候选都不许丢、保存 payload 的真循环。脚本 0 依赖（只用 node:fs）。
+      - name: Choice-options audit (并列候选被静默裁掉)
+        run: node tools/choice-options-audit.mjs
+
       # package.json 必须能被解析，且 version 是 semver（发布流程按它取版本号）
       - name: package.json sanity
         run: |
@@ -102,3 +111,11 @@ jobs:
             if (p.name !== 'dsh-whale-widget-plus') { console.error('包名意外: ' + p.name); process.exit(1) }
             console.log('package.json OK: ' + p.name + '@' + p.version)
           "
+
+      # 泡泡配置文件被静默误用（issue #258）：`~/.dsh/.dshw-bubble.json` 是**全量替换**语义 ——
+      #   文件里的 items 就是整条点击序列，出厂序列只在读不到文件时兜底；而客户端会把不认识的
+      #   kind 静默渲染成普通泡 ⇒ 写错的人只会"看着还行、其实少了东西"。
+      #   两层：① 从 lib/index.js 逐字抽出真 bubbleConfigProblem / loadBubbleConfig 跑行为断言；
+      #   ② README 必须写明全量替换语义与恢复办法。
+      - name: Bubble-config audit (全量替换语义 + 语义校验)
+        run: node tools/bubble-config-audit.mjs

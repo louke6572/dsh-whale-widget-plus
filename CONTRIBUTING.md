@@ -40,6 +40,7 @@ dsh-whale-widget/
 │
 ├── lib/
 │   ├── index.js                  3,953 行   宿主侧本体：23 条路由 + 记账接线 + 音效/图片/角色服务
+│   ├── client.js                    64 行   客户端半区：dsh.client 生命周期 + 挂载 whale-widget.js
 │   └── accounting.mjs              252 行   记账内核：定点金额运算 + 余额观测/校正账本
 │
 ├── assets/
