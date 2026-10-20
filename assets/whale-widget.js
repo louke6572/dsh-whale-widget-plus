@@ -5191,7 +5191,7 @@ function openApiModelPanel(modelId) {
     var pTip = document.createElement('div')
     pTip.className = 'dshwv-bubhint'
     pTip.style.margin = '0 0 6px'
-    pTip.textContent = '单位为「币种 / 百万 token」，留空则沿用内置价目表。币种选美元时请填汇率，记账会换算成人民币（账本统一按 CNY 结算）；自定义单价不分峰谷。'
+    pTip.textContent = '单位为「币种 / 百万 token」。内置价目表只覆盖 DeepSeek 模型；其他厂商（GLM/Kimi/豆包等）留空则只统计 token、不折算金额 —— 想看到准确金额请填这里。币种选美元时请填汇率，记账会换算成人民币（账本统一按 CNY 结算）；自定义单价不分峰谷。'
     card.appendChild(pTip)
     // 按钮
     var btns = document.createElement('div')
@@ -5918,7 +5918,8 @@ function openApiModelMenu(modelId) {
       pTxt = '内置峰谷价（内置模型不支持自定义单价）'
     } else {
       // 这一行是只读展示；真正填写的地方在「密钥 / 接口」面板
-      pTxt = '未设置（沿用内置价目表）→ 在「密钥 / 接口」里填写'
+      // 第三方模型没有内置价目表（DeepSeek 价只对 DeepSeek 生效）：不填单价就只记 token、不算钱
+      pTxt = '未设置（不折算金额，只记 token）→ 在「密钥 / 接口」里填写'
     }
     readonlyRow('单价', pTxt)
     // 「已观测消费」= DeepSeek 账户口径（余额观测），只在内置项的设置里显示，与下面的「余额校正」配套。
@@ -17989,8 +17990,25 @@ function bubbleRenderRandom(lines) {
 }
 // 每轮消耗提示(v720):内容改为可编辑的模块列表,与余额预警/预算同一条渲染链路。
 // 旧版是写死的三段(label/amount/hint),现在的默认内容(usageTurnCostDefaultLines)复刻它的观感。
-function bubbleRenderCostMods(amount) {
+function bubbleRenderCostMods(amount, tokens) {
+  // amount 为 null = 本轮模型未配置单价（第三方厂商，host 不折算金额）⇒ 只显示 token 用量。
+  // 以前这种情况会拿 DeepSeek 价目表硬算，混用厂商时金额能差十几倍。
+  if ((amount === null || amount === undefined || amount === '') && Number(tokens) > 0) {
+    bubbleRenderCostTokenMods(Number(tokens))
+    return
+  }
   bubbleRenderModules(usageAlertModsResolved(usageTurnCostLines(), null, null, usageCostValue(amount)))
+}
+// 未定价模型的每轮用量提示：token 数 + 一句说明（不进用户模板，模板里只有 {cost} 金额语义）
+function bubbleRenderCostTokenMods(tokens) {
+  var n = Number(tokens) || 0
+  var txt = n >= 10000 ? (Math.round(n / 100) / 10) + 'k' : String(n)
+  var mods = [
+    { type: 'text', text: '本轮用量', size: 12, color: '#203170', row: 1 },
+    { type: 'text', text: txt + ' tok', size: 22, bold: true, color: '#203170', row: 2 },
+    { type: 'text', text: '该模型未配置单价，暂不折算金额', size: 10, color: '#8a8fa3', row: 3 },
+  ]
+  bubbleRenderModules(mods)
 }
 // 等待交互提示（v761 / #161 C5）：内容取 events.<kind>.lines（缺失/空 → 默认模板），
 // 走与预警/预算/消耗同一条模块渲染链路。`{session}` 在这里就替换成当前对话名
@@ -19432,7 +19450,7 @@ function hideBubble() {
   bubbleCloseVisual()
   whaleSysDone()
 }
-function showCostBubble(amount) {
+function showCostBubble(amount, tokens) {
   if (!bubbleOn || !turnCostOn) return
   // v778：②区「冒泡提示」勾选框（events.turnCost.bubbleOn）以前**只写不读** —— 取消勾选照样弹。
   //   同类问题（"控件有值、没有消费方"）与本次修的音量滑块同源，一并接上：
@@ -19443,7 +19461,7 @@ function showCostBubble(amount) {
   } catch (err) {}
   // 进入系统泡泡队列(等级3):若同批有预警/预算,则排在它们之后展示
   // v851：带上"每轮消耗提示"自己的框（空 = 跟随保底）
-  whaleSysPush({ kind: 'cost', amount: amount, frameId: sysFrameIdOf('cost'), rank: 3 })
+  whaleSysPush({ kind: 'cost', amount: amount, tokens: tokens || 0, frameId: sysFrameIdOf('cost'), rank: 3 })
 }
 function hideCostBubble() {
   // 与手动点击“第 n 次点击”一致:有下一项时保持打开淡切,无下一项才收起
@@ -19505,7 +19523,7 @@ function whaleSysQueueInsert(item) {
 function whaleSysOpenItem(item) {
   whaleSysItem = item
   if (item.kind === 'cost') {
-    sceneOpen('cost', function () { bubbleRenderCostMods(item.amount) }, turnCostCloseMs > 0 ? turnCostCloseMs : 0)
+    sceneOpen('cost', function () { bubbleRenderCostMods(item.amount, item.tokens) }, turnCostCloseMs > 0 ? turnCostCloseMs : 0)
   } else if (item.kind === 'wait') {
     // 等待交互：常驻（ttl 0 = sceneOpen 不布自动关闭计时器），内容在渲染时按当前设置取
     sceneOpen('wait', function () { bubbleRenderWaitMods(item.waitKind) }, 0)
@@ -23586,8 +23604,9 @@ function pollLastTurn() {
             lastCostSeq = d.seq
             try { localStorage.setItem('dshw-last-seq', String(lastCostSeq)) } catch (err) {}
             playTaskEndSound()
-            if (d.turn !== null && d.amount !== null) {
-              showCostBubble(Number(d.amount))
+            // amount 为 null = 本轮用的是没配单价的第三方模型（host 不折算金额）⇒ 显示 token 数
+            if (d.turn !== null) {
+              showCostBubble(d.amount === null || d.amount === undefined ? null : Number(d.amount), Number(d.tokens) || 0)
             }
           } else {
             // 记忆值已过期（host 端重置/文件丢失）：拉齐到当前值，避免永久不弹
@@ -23600,8 +23619,8 @@ function pollLastTurn() {
           lastCostSeq = d.seq
           try { localStorage.setItem('dshw-last-seq', String(lastCostSeq)) } catch (err) {}
           playTaskEndSound()
-          if (d.turn !== null && d.amount !== null) {
-            showCostBubble(Number(d.amount))
+          if (d.turn !== null) {
+            showCostBubble(d.amount === null || d.amount === undefined ? null : Number(d.amount), Number(d.tokens) || 0)
           }
         }
       })
