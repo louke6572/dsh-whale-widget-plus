@@ -382,6 +382,8 @@ var exprCuteFile = ''
 var exprCuteUntil = 0
 var exprBlinkFile = ''
 var exprBlinkUntil = 0
+var exprPressFile = '' // 按压中的临时表情（=当前包 blink.closed；pointerdown 设、pointerup 清）
+var exprPressUntil = 0
 var exprBroken = {} // 本次会话里加载失败的文件名（剔除，不再尝试）
 var exprTimers = { blink: 0, cute: 0, mood: 0, hover: 0, poll: 0 }
 var exprMenuRefs = null
@@ -20020,6 +20022,8 @@ function pressDown() {
   pressVisualStartedAt = performance.now()
   body.style.transform = SQUISH
   pressing = true
+  // 按压闭眼：按住期间切当前素材包的「闭眼」帧（松开由 pressUp 还原；无该帧的包自动无此效果）
+  try { exprPressStart() } catch (err) {}
   // v868（用户报"取消勾选按压音效没效果"）：pressOn 以前只是存了个状态、**没接到播放上**。
   //   闸门放在这里（真实点按的唯一入口），试听走 playPress() 直接调用 ⇒ 试听始终有声。
   if (pressOn === false) return
@@ -20036,6 +20040,8 @@ function pressUp() {
   }
   body.style.transform = 'scaleY(1) scaleX(1)'
   pressing = false
+  // 按压闭眼还原（即便按压音效关着也要还原 —— 表情与音效是两条独立链路）
+  try { exprPressEnd() } catch (err) {}
   // v868：静音按压时松开音也不响（顺手把 releasePlayed 标记收干净，避免下次误触发）
   if (pressOn === false) {
     try { releasePlayed = true } catch (err) {}
@@ -20341,6 +20347,8 @@ function exprRender() {
   if (!exprOn || !pack) { exprApplySkin(exprRoleUrlNow()); return }
   var now = Date.now()
   if (exprManual && exprFileOk(pack, exprManual)) { exprApplySkin(exprImgUrl(pack.id, exprManual)); return }
+  // 按压闭眼：仅次于手动锁定 —— 按住挂件是最直接的交互反馈，压过疲惫/情绪/卖萌/眨眼（松开即还原）
+  if (exprPressFile && now < exprPressUntil && exprFileOk(pack, exprPressFile)) { exprApplySkin(exprImgUrl(pack.id, exprPressFile)); return }
   if (exprExhausted && exprFileOk(pack, pack.moods.exhausted)) { exprApplySkin(exprImgUrl(pack.id, pack.moods.exhausted)); return }
   if (exprMood && now < exprMoodUntil && exprFileOk(pack, pack.moods[exprMood])) { exprApplySkin(exprImgUrl(pack.id, pack.moods[exprMood])); return }
   if (exprCuteFile && now < exprCuteUntil && exprFileOk(pack, exprCuteFile)) { exprApplySkin(exprImgUrl(pack.id, exprCuteFile)); return }
@@ -20351,6 +20359,23 @@ function exprRender() {
   //    用户看到的"抽搐"就是这个。素材包主图缺失时才回落角色图。
   if (exprFileOk(pack, pack.main)) { exprApplySkin(exprImgUrl(pack.id, pack.main)); return }
   exprApplySkin(exprRoleUrlNow())
+}
+// —— 按压闭眼：按住挂件切「闭眼」帧、松开还原 ——
+// 这是旧 plus（6f054cc「V3 按压统一为闭眼」）就有的行为，v0.4.2 基线重建前端时丢失；
+// 在新表情层里按其架构补回：pointerdown → exprPressStart，pointerup → exprPressEnd。
+// 文件取当前素材包 blink.closed（该槽缺失的包自动无此效果）；60s 安全上限防 pointerup 丢失贴死。
+function exprPressStart() {
+  var pack = exprActivePack()
+  if (!exprOn || !pack || !exprFileOk(pack, pack.blink.closed)) return
+  exprPressFile = pack.blink.closed
+  exprPressUntil = Date.now() + 60000
+  exprRender()
+}
+function exprPressEnd() {
+  if (!exprPressFile) return
+  exprPressFile = ''
+  exprPressUntil = 0
+  exprRender()
 }
 function exprSetManual(name) {
   exprManual = name || null
