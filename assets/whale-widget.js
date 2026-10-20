@@ -2180,6 +2180,82 @@ menuBox.appendChild(rowRole)
 menuBox.appendChild(row1)
 menuBox.appendChild(row2)
 menuBox.appendChild(row6)
+// —— 峰谷徽标：外置常驻徽标的状态字样式（localStorage 持久化，改完即时重绘徽标）——
+// 样式取值与峰谷模块 peakStyle 同一套：mini=峰/谷，liangwen=梁文峰/梁文谷，
+// gaofeng=高峰/低谷（v0.4.3 新增），custom=自定义文字（v0.4.3 新增，读 peakLabel/offLabel）
+function dshwPbLabelGet() {
+  var d = { mode: 'mini', p: '峰', o: '谷' }
+  try {
+    var raw = localStorage.getItem('dshw-pblabel')
+    if (raw) {
+      var j = JSON.parse(raw)
+      if (j && typeof j.mode === 'string') {
+        d.mode = j.mode
+        if (j.p) d.p = String(j.p)
+        if (j.o) d.o = String(j.o)
+      }
+    }
+  } catch (err) {}
+  if (['mini', 'liangwen', 'gaofeng', 'custom'].indexOf(d.mode) < 0) d.mode = 'mini'
+  return d
+}
+function dshwPbLabelSet(v) { try { localStorage.setItem('dshw-pblabel', JSON.stringify(v)) } catch (err) {} }
+var rowPb = menuRow()
+rowPb.appendChild(menuLabel('峰谷徽标'))
+var pbSel = document.createElement('select')
+pbSel.className = 'dshwv-sound'
+;[['mini', '峰/谷'], ['liangwen', '梁文峰/梁文谷'], ['gaofeng', '高峰/低谷'], ['custom', '自定义']].forEach(function (o) {
+  var op = document.createElement('option')
+  op.value = o[0]
+  op.textContent = o[1]
+  pbSel.appendChild(op)
+})
+pbSel.value = dshwPbLabelGet().mode
+rowPb.appendChild(pbSel) // 必须先挂到行里：dshwCustSel 要求 select 已有父节点，否则静默早退不包裹
+// 自定义行：仅选「自定义」时出现，两个输入框 = 高峰文字 / 低谷文字（change 时保存并重绘）
+var pbCustomRow = menuRow()
+pbCustomRow.appendChild(menuLabel('自定义'))
+var pbInpP = document.createElement('input')
+pbInpP.type = 'text'
+pbInpP.className = 'dshwv-qedit-content'
+pbInpP.placeholder = '高峰文字'
+pbInpP.style.flex = '1'
+var pbInpO = document.createElement('input')
+pbInpO.type = 'text'
+pbInpO.className = 'dshwv-qedit-content'
+pbInpO.placeholder = '低谷文字'
+pbInpO.style.flex = '1'
+pbCustomRow.appendChild(pbInpP)
+pbCustomRow.appendChild(pbInpO)
+function pbCustomSync() {
+  var cur = dshwPbLabelGet()
+  pbCustomRow.style.display = cur.mode === 'custom' ? '' : 'none'
+  if (cur.mode === 'custom') { pbInpP.value = cur.p; pbInpO.value = cur.o }
+}
+pbCustomSync()
+pbSel.addEventListener('change', function () {
+  var v = dshwPbLabelGet()
+  v.mode = pbSel.value || 'mini'
+  dshwPbLabelSet(v)
+  pbCustomSync()
+  if (typeof window.__dshwPbRender === 'function') window.__dshwPbRender()
+})
+function pbCustomInput() {
+  var v = dshwPbLabelGet()
+  v.p = pbInpP.value.trim() || '峰'
+  v.o = pbInpO.value.trim() || '谷'
+  dshwPbLabelSet(v)
+  if (typeof window.__dshwPbRender === 'function') window.__dshwPbRender()
+}
+pbInpP.addEventListener('change', pbCustomInput)
+pbInpO.addEventListener('change', pbCustomInput)
+menuBox.appendChild(rowPb)
+menuBox.appendChild(pbCustomRow)
+dshwCustSel(pbSel)
+try {
+  var pbSelWrap = pbSel.parentNode
+  if (pbSelWrap && pbSelWrap !== rowPb) pbSelWrap.style.flex = '1'
+} catch (err) {}
 // v762：「每轮消耗提示」整行**不再挂到主菜单**（菜单里已再无此行，配置入口移进「全局设置」面板）。
 // ⚠️ row7 及其内部控件（turnCostToggle / turnCostCustomBtn）的创建**必须原样保留**：
 //    turnCostToggle 仍被 OPEN 时的状态同步与 setTurnCostOn() 引用，**取消挂载 ≠ 删除创建**。
@@ -8032,16 +8108,7 @@ function bubbleDefaultFirstModules() {
       color: "#9fb0d9",
       tpl: "今日已用 {expense_ds}"
     },
-    {
-      type: "peak",
-      size: 6,
-      peakColor: "#e0433f",
-      offColor: "#2fa24c",
-      peakRgb: "",
-      offRgb: "bamboo",
-      bold: true,
-      tpl: "{status}"
-    },
+    // v0.4.3：峰谷时段模块已移至气泡外常驻徽标（.dshwv-peakbadge），默认配置不再包含
   ]
 }
 
@@ -10517,8 +10584,9 @@ function renderBubblePal() {
     { key: 'bonus', label: '赠金', pin: true, cb: function () { bubbleModuleAdd({ type: 'bonus', size: 11, tpl: '{bonus_ds}' }) } },
     { key: 'recharge', label: '充值余额', pin: true, cb: function () { bubbleModuleAdd({ type: 'recharge', size: 11, tpl: '{recharge_ds}' }) } },
     { key: 'today', label: '今日已用', pin: true, cb: function () { bubbleModuleAdd({ type: 'today', size: 1, tpl: '今日已用 {expense_ds}' }) } },
-    { key: 'peak', label: '峰谷时段', pin: true, cb: function () { bubbleModuleAdd({ type: 'peak', size: 4, peakColor: '#e0433f', offColor: '#2fa24c', tpl: '{status}' }) } },
-    { key: 'nextpeak', label: '时段倒计时', pin: true, cb: function () { bubbleModuleAdd({ type: 'peak', size: 6, bold: true, peakStyle: 'count', peakColor: '#e0433f', offColor: '#2fa24c', tpl: '{countdown}' }) } },
+    // v0.4.3：峰谷时段/时段倒计时模块已移至气泡外常驻徽标（.dshwv-peakbadge），气泡内不再显示
+    // { key: 'peak', label: '峰谷时段', pin: true, cb: function () { bubbleModuleAdd({ type: 'peak', size: 4, peakColor: '#e0433f', offColor: '#2fa24c', tpl: '{status}' }) } },
+    // { key: 'nextpeak', label: '时段倒计时', pin: true, cb: function () { bubbleModuleAdd({ type: 'peak', size: 6, bold: true, peakStyle: 'count', peakColor: '#e0433f', offColor: '#2fa24c', tpl: '{countdown}' }) } },
     // v768：对话名模块（内容 = 当前对话标题；「保留长度」可在模块编辑器里改）
     { key: 'session', label: '对话名', pin: true, cb: function () { bubbleModuleAdd({ type: 'session', size: 4, bold: true, tpl: '{session}', len: WAIT_SESSION_MAX }) } },
     { key: 'random', label: '随机语句', cb: function () { bubbleModuleAdd(bubbleCloneModule(bubbleDefaultSecondModules()[0])) } },
@@ -13977,6 +14045,80 @@ root.appendChild(body)
 root.appendChild(menuBtn)
 dshwBodyAppend(root)
 dshwBodyAppend(menuBox)
+
+// ===== 峰谷时间常驻徽标（v0.4.3）：把气泡里的「峰/谷 + 倒计时」原样移到气泡外常驻 =====
+// 照搬：直接调用气泡自己的渲染器 bubbleRowsTo()，把与气泡内完全相同配置的两个模块渲染到
+// 外部容器 —— DOM 结构 / 字体 / 字号 / 间距 / 底色块 / 颜色 / 每秒 ticker 注册，全部由
+// 气泡渲染管线生成，零手写样式。气泡内不再渲染峰谷（bubbleRowsTo 入口已过滤，见该函数）。
+try {
+  var pbWrap = document.createElement('div')
+  pbWrap.className = 'dshwv-peakbadge'
+  pbWrap.style.cssText = 'position:absolute;left:0;bottom:0;z-index:3;pointer-events:none;white-space:nowrap;text-align:left;font-family:inherit;--dshw-u:calc(var(--dshw-base) / 1026)'
+  // 徽标排版微调（仅作用外部徽标，不影响气泡内）：块间距拉开 + 倒计时描边框；
+  // 两块 vertical-align:top + 等高锁定（pbAlign 实测取最大高）→ 顶/底严格对齐（两个等高胶囊）
+  var pbStyle = document.createElement('style')
+  pbStyle.textContent = '.dshwv-peakbadge .dshwv-trowline>.dshwv-trow{vertical-align:top !important}.dshwv-peakbadge .dshwv-trowline>.dshwv-trow+.dshwv-trow{margin-left:calc(var(--dshw-u) * 14 + 5px) !important}.dshwv-peakbadge .dshwv-trow.dshwv-rgb{letter-spacing:0.06em !important;display:inline-flex !important;align-items:center !important;justify-content:center !important;box-sizing:border-box !important;text-decoration:none !important;border:2px solid rgba(32,49,112,.35) !important;border-radius:0.35em !important;padding:0.02em 0.28em !important}.dshwv-peakbadge .dshwv-trow.dshwv-rgb-rouge{border-color:rgba(224,67,63,.6) !important}.dshwv-peakbadge .dshwv-trow.dshwv-rgb-bamboo{border-color:rgba(47,162,76,.6) !important}.dshwv-peakbadge .dshwv-trow.dshwv-bgrgb{display:inline-flex !important;align-items:center !important;justify-content:center !important;box-sizing:border-box !important}'
+  document.head.appendChild(pbStyle)
+  root.appendChild(pbWrap)
+  // 左右镜像补偿：吸附到对侧（dshwv-left）时人物贴图自身镜像、质量偏向视觉左，
+  // 徽标若留在本地 left:0 会与人物重叠。这里把徽标挂到容器右缘外侧（朝屏幕中心的空白区），
+  // 物理上与人物完全错开；不加镜像变换，文字保持正读。
+  function pbSyncFlip() {
+    try {
+      if (root.classList.contains('dshwv-left')) {
+        pbWrap.style.left = 'auto'; pbWrap.style.right = '-10px'; pbWrap.style.transform = ''
+      } else {
+        pbWrap.style.left = '0'; pbWrap.style.right = ''; pbWrap.style.transform = ''
+      }
+    } catch (e) {}
+  }
+  pbSyncFlip()
+  if (typeof MutationObserver === 'function') {
+    new MutationObserver(function (ms) {
+      for (var i = 0; i < ms.length; i++) { if (ms[i].attributeName === 'class') { pbSyncFlip(); break } }
+    }).observe(root, { attributes: true })
+  }
+  // 逐字段照抄用户气泡实际渲染的模块（BUBBLE_DEFAULT_ITEMS 出厂默认，row:4 同一行）：
+  // 「峰/谷」= size2 白字 + rouge/bamboo 底色跑马灯 + 雅黑；倒计时 = size5 rouge/bamboo 文字跑马灯（无下划线，粗描边框）
+  var pbMods = [
+    { type: 'peak', size: 2, peakColor: '#ffffff', offColor: '#ffffff', tpl: '{status}', peakRgb: '', offRgb: '', peakBgRgb: 'rouge', peakBg: '', offBgRgb: 'bamboo', offBg: '', peakStyle: 'mini', bold: true, row: 4, fontFamily: '"Microsoft YaHei",sans-serif' },
+    { type: 'peak', size: 5, bold: true, peakColor: '#e0433f', offColor: '#2fa24c', peakRgb: 'rouge', offRgb: 'bamboo', peakStyle: 'count', tpl: '{countdown}', row: 4, fontFamily: '', italic: false, ul: false }
+  ]
+  // 等高对齐：实测「峰谷标签」与「倒计时框」取最大高度，两块锁同高（inline-flex 垂直居中 +
+  // vertical-align:top → 顶/底严格对齐）。缩放/字号/文字长度变化由 ResizeObserver 兜底重算。
+  function pbAlign() {
+    try {
+      var chip = pbWrap.querySelector('.dshwv-trow.dshwv-bgrgb') || pbWrap.querySelector('.dshwv-trowline > .dshwv-trow')
+      var cd = pbWrap.querySelector('.dshwv-trow.dshwv-rgb')
+      if (!chip || !cd) return
+      var h = Math.max(chip.getBoundingClientRect().height, cd.getBoundingClientRect().height)
+      if (h > 0) { chip.style.height = h + 'px'; cd.style.height = h + 'px' }
+    } catch (err) {}
+  }
+  // 渲染徽标：先按主菜单「峰谷徽标」设置（dshwPbLabelGet）刷新状态模块字段，再交气泡渲染管线，最后锁等高
+  function pbRender() {
+    try {
+      var lbl = dshwPbLabelGet()
+      pbMods[0].peakStyle = lbl.mode
+      if (lbl.mode === 'custom') { pbMods[0].peakLabel = lbl.p; pbMods[0].offLabel = lbl.o }
+      else { delete pbMods[0].peakLabel; delete pbMods[0].offLabel }
+      pbWrap.innerHTML = ''
+      bubbleRowsTo(pbWrap, pbMods, true)
+      requestAnimationFrame(pbAlign)
+      setTimeout(pbAlign, 80)
+    } catch (err) {
+      try { console.log('[peakbadge] render error: ' + err.message) } catch (e) {}
+    }
+  }
+  try { window.__dshwPbRender = pbRender } catch (err) {}
+  // 延迟到 IIFE 主体执行完毕（state 等就绪），然后交给气泡自己的渲染器（keepPeak=true 见该函数）
+  setTimeout(pbRender, 0)
+  if (typeof ResizeObserver === 'function') {
+    try { new ResizeObserver(function () { pbAlign() }).observe(pbWrap) } catch (err) {}
+  }
+} catch (err) {
+  try { console.log('[peakbadge] init error: ' + err.message) } catch (e) {}
+}
 
 // ===== PR #105 后半：DOM 守护（SPA 切路由 / 别的插件替换 body 子树时把节点摘掉）=====
 // 背景：DSH 是 SPA，切到会话列表 / 设置 / 插件市场再回来、或其它客户端插件整体替换
@@ -18035,6 +18177,8 @@ var BUBBLE_PEAK_STYLE_OPTS = [
   ['qiangqiang', '!?强强?!'],
   ['count', '倒计时'],
   ['mini', '简洁(峰/谷)'],
+  ['gaofeng', '高峰/低谷'],
+  ['custom', '自定义'],
 ]
 function bubblePeakStyleOf(m) {
   m = m || {}
@@ -18071,6 +18215,9 @@ function bubblePeakText(m) {
   if (st === 'liangwen') return peak ? '梁文峰' : '梁文谷'
   if (st === 'qiangqiang') return peak ? '!?峰峰?!' : '!?谷谷?!'
   if (st === 'mini') return peak ? '峰' : '谷'
+  if (st === 'gaofeng') return peak ? '高峰' : '低谷'
+  // 自定义：文字存在徽标模块的 peakLabel/offLabel 字段（主菜单「峰谷徽标」下拉写入），空则退回 峰/谷
+  if (st === 'custom') return peak ? (String(m.peakLabel || '') || '峰') : (String(m.offLabel || '') || '谷')
   return peak ? '高峰时段' : '空闲时段'
 }
 // 按权重抽 1 条,avoidIdx 用于“不连续重复上一句”
@@ -18340,8 +18487,11 @@ function bubbleRowContentOf(mod) {
 // 渲染一组模块为泡泡内容(F2 渲染层:按行分组 → 行内 flex 并排(≤6 模块/行)→ 超宽自动折行;
 // 图片单独一整行;泡泡行数上限维持 6)
 // 把模块追加为行到指定父容器(真实泡泡 textBox 与编辑器预览共用;旧配置每模块一行 → 与旧版逐像素一致)
-function bubbleRowsTo(parentEl, mods) {
+function bubbleRowsTo(parentEl, mods, keepPeak) {
   if (!parentEl || !Array.isArray(mods)) return
+  // v0.4.3：峰谷/倒计时已外移为常驻徽标（.dshwv-peakbadge）。气泡内渲染一律过滤掉峰谷模块；
+  // 外部常驻徽标传 keepPeak=true 走同一套渲染管线（样式与气泡内完全一致）。
+  if (!keepPeak) { try { mods = mods.filter(function (m) { return m && m.type !== 'peak' && m.type !== 'nextpeak' }) } catch (err) {} }
   var old = parentEl.querySelectorAll('.dshwv-trow, .dshwv-mimg')
   for (var i = 0; i < old.length; i++) { try { parentEl.removeChild(old[i]) } catch (err) {} }
   var ROW_MAX = 6 // 泡泡行数上限(维持旧版)
