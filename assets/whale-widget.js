@@ -14567,7 +14567,7 @@ try {
   var pbStyle = document.createElement('style')
   pbStyle.textContent = '.dshwv-peakbadge .dshwv-trowline>.dshwv-trow{vertical-align:top !important}.dshwv-peakbadge .dshwv-trowline>.dshwv-trow+.dshwv-trow{margin-left:calc(var(--dshw-u) * 14 + 5px) !important}.dshwv-peakbadge .dshwv-trow.dshwv-rgb{letter-spacing:0.06em !important;display:inline-flex !important;align-items:center !important;justify-content:center !important;box-sizing:border-box !important;text-decoration:none !important;border:2px solid rgba(32,49,112,.35) !important;border-radius:0.35em !important;padding:0.02em 0.28em !important}.dshwv-peakbadge .dshwv-trow.dshwv-rgb-rouge{border-color:rgba(224,67,63,.6) !important}.dshwv-peakbadge .dshwv-trow.dshwv-rgb-bamboo{border-color:rgba(47,162,76,.6) !important}.dshwv-peakbadge .dshwv-trow.dshwv-bgrgb{display:inline-flex !important;align-items:center !important;justify-content:center !important;box-sizing:border-box !important}' +
     // 逐步骤金额「-x.xx」：贴在峰谷徽标正上方，每次模型调用完成向上滚一次
-    '.dshwv-peakbadge .dshwv-stepcost{position:absolute;left:0;right:0;bottom:100%;margin-bottom:2px;text-align:center;font-weight:700;color:#e0433f;font-size:calc(var(--dshw-u) * 46);line-height:1;letter-spacing:0.02em;white-space:nowrap;opacity:0;pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,.35)}' +
+    '.dshwv-peakbadge .dshwv-stepcost{position:absolute;left:0;right:0;bottom:100%;margin-bottom:2px;text-align:center;font-weight:700;color:#e0433f;font-size:calc(var(--dshw-u) * 68);line-height:1;letter-spacing:0.02em;white-space:nowrap;opacity:0;pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,.35)}' +
     '.dshwv-peakbadge .dshwv-stepcost.dshwv-steproll{animation:dshwvStepRoll .9s ease-out forwards}' +
     '@keyframes dshwvStepRoll{0%{opacity:0;transform:translateY(10px)}18%{opacity:1;transform:translateY(0)}72%{opacity:1;transform:translateY(-6px)}100%{opacity:0;transform:translateY(-14px)}}'
   document.head.appendChild(pbStyle)
@@ -23727,9 +23727,17 @@ function pollStepCost() {
         if (d.seq <= lastStepSeq2) return
         lastStepSeq2 = d.seq
         var el = document.querySelector('.dshwv-peakbadge .dshwv-stepcost')
+        if (!el) return
         var amt = Number(d.amount)
-        if (!el || !(amt > 0)) return
-        el.textContent = '-' + amt.toFixed(2)
+        var tok = Number(d.tokens) || 0
+        if (amt > 0) {
+          el.textContent = '-' + amt.toFixed(2)
+          el.style.color = '#e0433f'
+        } else if (tok > 0) {
+          // 没配单价：显示本步 token 消耗（金额不可算，但 token 是真实的）
+          el.textContent = (tok >= 1000 ? (Math.round(tok / 100) / 10) + 'k' : String(tok)) + ' tok'
+          el.style.color = '#536ba9'
+        } else { return }
         el.classList.remove('dshwv-steproll')
         void el.offsetWidth // 强制回流，确保连续两次都能重放动画
         el.classList.add('dshwv-steproll')
