@@ -99,6 +99,6 @@ jobs:
           node -e "
             const p = require('./package.json')
             if (!/^\d+\.\d+\.\d+/.test(String(p.version))) { console.error('version 不是 semver: ' + p.version); process.exit(1) }
-            if (p.name !== 'dsh-whale-widget') { console.error('包名意外: ' + p.name); process.exit(1) }
+            if (p.name !== 'dsh-whale-widget-plus') { console.error('包名意外: ' + p.name); process.exit(1) }
             console.log('package.json OK: ' + p.name + '@' + p.version)
           "
