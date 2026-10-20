@@ -14566,16 +14566,20 @@ try {
   // 两块 vertical-align:top + 等高锁定（pbAlign 实测取最大高）→ 顶/底严格对齐（两个等高胶囊）
   var pbStyle = document.createElement('style')
   pbStyle.textContent = '.dshwv-peakbadge .dshwv-trowline>.dshwv-trow{vertical-align:top !important}.dshwv-peakbadge .dshwv-trowline>.dshwv-trow+.dshwv-trow{margin-left:calc(var(--dshw-u) * 14 + 5px) !important}.dshwv-peakbadge .dshwv-trow.dshwv-rgb{letter-spacing:0.06em !important;display:inline-flex !important;align-items:center !important;justify-content:center !important;box-sizing:border-box !important;text-decoration:none !important;border:2px solid rgba(32,49,112,.35) !important;border-radius:0.35em !important;padding:0.02em 0.28em !important}.dshwv-peakbadge .dshwv-trow.dshwv-rgb-rouge{border-color:rgba(224,67,63,.6) !important}.dshwv-peakbadge .dshwv-trow.dshwv-rgb-bamboo{border-color:rgba(47,162,76,.6) !important}.dshwv-peakbadge .dshwv-trow.dshwv-bgrgb{display:inline-flex !important;align-items:center !important;justify-content:center !important;box-sizing:border-box !important}' +
-    // 逐步骤金额「-x.xx」：贴在峰谷徽标正上方，每次模型调用完成向上滚一次
-    '.dshwv-peakbadge .dshwv-stepcost{position:absolute;left:0;right:0;bottom:100%;margin-bottom:2px;text-align:center;font-weight:700;color:#e0433f;font-size:calc(var(--dshw-u) * 68);line-height:1;letter-spacing:0.02em;white-space:nowrap;opacity:0;pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,.35)}' +
-    '.dshwv-peakbadge .dshwv-stepcost.dshwv-steproll{animation:dshwvStepRoll .9s ease-out forwards}' +
-    '@keyframes dshwvStepRoll{0%{opacity:0;transform:translateY(10px)}18%{opacity:1;transform:translateY(0)}72%{opacity:1;transform:translateY(-6px)}100%{opacity:0;transform:translateY(-14px)}}'
-  document.head.appendChild(pbStyle)
-  root.appendChild(pbWrap)
-  // 逐步骤金额元素（每次模型调用完成后由 pollStepCost 写入并触发向上滚动）
-  var pbStepEl = document.createElement('div')
-  pbStepEl.className = 'dshwv-stepcost'
-  pbWrap.appendChild(pbStepEl)
+    // 逐步骤金额「-x.xx」：从峰谷徽标处自下而上浮出、上移、淡出（带同款红框）
+    '.dshwv-peakbadge .dshwv-stepcost{position:absolute;left:0;right:0;bottom:100%;text-align:center;pointer-events:none;opacity:0}' +
+    '.dshwv-peakbadge .dshwv-stepchip{display:inline-block;font-weight:700;color:#e0433f;font-size:calc(var(--dshw-u) * 68);line-height:1;letter-spacing:0.02em;white-space:nowrap;border:2px solid currentColor;border-radius:0.35em;padding:0.02em 0.28em;text-shadow:0 1px 2px rgba(0,0,0,.2)}' +
+    '.dshwv-peakbadge .dshwv-stepcost.dshwv-steproll{animation:dshwvStepRoll 1.4s ease-out forwards}' +
+    '@keyframes dshwvStepRoll{0%{opacity:0;transform:translateY(34px)}10%{opacity:1;transform:translateY(22px)}62%{opacity:1;transform:translateY(-6px)}100%{opacity:0;transform:translateY(-40px)}}'
+    document.head.appendChild(pbStyle)
+    root.appendChild(pbWrap)
+    // 逐步骤金额元素（每次模型调用完成后由 pollStepCost 写入并触发向上滚动）
+    var pbStepEl = document.createElement('div')
+    pbStepEl.className = 'dshwv-stepcost'
+    var pbStepChip = document.createElement('span')
+    pbStepChip.className = 'dshwv-stepchip'
+    pbStepEl.appendChild(pbStepChip)
+    pbWrap.appendChild(pbStepEl)
   // 左右镜像补偿：吸附到对侧（dshwv-left）时人物贴图自身镜像、质量偏向视觉左，
   // 徽标若留在本地 left:0 会与人物重叠。这里把徽标挂到容器右缘外侧（朝屏幕中心的空白区），
   // 物理上与人物完全错开；不加镜像变换，文字保持正读。
@@ -23726,22 +23730,23 @@ function pollStepCost() {
         if (!lastStepAligned) { lastStepAligned = true; lastStepSeq2 = d.seq; return }
         if (d.seq <= lastStepSeq2) return
         lastStepSeq2 = d.seq
-        var el = document.querySelector('.dshwv-peakbadge .dshwv-stepcost')
-        if (!el) return
+        var chip = document.querySelector('.dshwv-peakbadge .dshwv-stepchip')
+        if (!chip) return
         var amt = Number(d.amount)
         var tok = Number(d.tokens) || 0
         if (amt > 0) {
-          el.textContent = '-' + amt.toFixed(2)
-          el.style.color = '#e0433f'
+          chip.textContent = '-' + amt.toFixed(2)
+          chip.style.color = '#e0433f'
         } else if (tok > 0) {
           // 没配单价：显示本步 token 消耗（金额不可算，但 token 是真实的）
-          el.textContent = (tok >= 1000 ? (Math.round(tok / 100) / 10) + 'k' : String(tok)) + ' tok'
-          el.style.color = '#536ba9'
+          chip.textContent = (tok >= 1000 ? (Math.round(tok / 100) / 10) + 'k' : String(tok)) + ' tok'
+          chip.style.color = '#536ba9'
         } else { return }
-        el.classList.remove('dshwv-steproll')
-        void el.offsetWidth // 强制回流，确保连续两次都能重放动画
-        el.classList.add('dshwv-steproll')
-        setTimeout(function () { try { el.classList.remove('dshwv-steproll') } catch (err) {} }, 950)
+        var boxEl = chip.parentNode
+        boxEl.classList.remove('dshwv-steproll')
+        void boxEl.offsetWidth // 强制回流，确保连续两次都能重放动画
+        boxEl.classList.add('dshwv-steproll')
+        setTimeout(function () { try { boxEl.classList.remove('dshwv-steproll') } catch (err) {} }, 1450)
       })
       .catch(function () {})
   } catch (err) {}
