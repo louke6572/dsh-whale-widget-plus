@@ -341,18 +341,100 @@ function installRateLimitRotation(ctx) {
   });
 }
 
+// ===== 信任栅栏（与鲸鱼主插件同款三层，见主插件 lib/index.js 的 rejected()）=====
+// 本插件路由是只读 GET，但 /api/volc-usage 会**带着真实 AK/SK 去请求火山 OpenAPI**，
+// 因此同样必须确认请求来自本机/同源，不能把"用真实凭据发请求"暴露给任意 Web 会话。
+//   ① 插件自带轻量校验（永远先跑）：Host 必须回环或 DSHW_TRUSTED_HOSTS 声明；
+//      `Sec-Fetch-Site: cross-site` 一律拒；带 Origin 时必须与 Host 同源。
+//   ② 宿主栅栏可用 → 委托它（内部还有一层浏览器鉴权 401），返回码照用；它抛异常按拒绝处理。
+//   ③ 宿主栅栏不可用 → 只靠 ①，并在插件加载时打一条醒目 warn。
+const TRUSTED_AUTHORITIES = String(process.env.DSHW_TRUSTED_HOSTS || "")
+  .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+
+function isLoopbackHostname(hn) {
+  const h = String(hn || "").toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
+  if (!h) return false;
+  if (h === "localhost" || h.endsWith(".localhost")) return true;
+  if (h === "::1") return true;
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (!m) return false;
+  if (Number(m[1]) !== 127) return false;
+  return [m[2], m[3], m[4]].every((x) => Number(x) <= 255);
+}
+
+function makeFence(ctx) {
+  const connectionFence = () => {
+    try {
+      const conn = ctx.get("connection") || ctx.connection;
+      return conn && typeof conn.requestRejection === "function" ? conn : null;
+    } catch (e) {
+      return null;
+    }
+  };
+  if (!connectionFence()) {
+    try {
+      console.warn(
+        "[volc-usage] 宿主信任栅栏不可用（connection.requestRejection 缺失）：已启用插件自带的回环/同源校验。" +
+        "若本机 dsh 部署在非回环地址（反代/局域网），请用环境变量 DSHW_TRUSTED_HOSTS 声明允许的 Host（逗号分隔，可带端口）。",
+      );
+    } catch (e) {}
+  }
+  // 通过 → false；应拒绝 → true（已写好响应）
+  return function reject(req, res) {
+    const deny = (code) => {
+      try { res.statusCode = code || 403; res.end(); } catch (e) {}
+      return true;
+    };
+    try {
+      const conn = connectionFence();
+      const headers = (req && req.headers) || {};
+      let hostUrl = null;
+      try { hostUrl = new URL("http://" + String(headers.host || "")); } catch (e) { return deny(403); } // 缺 Host/畸形 → 拒
+      if (!isLoopbackHostname(hostUrl.hostname)) {
+        // 非回环：宿主栅栏可用时交给它判（它知道 dsh 自己的 --trusted-host 声明了谁）
+        const authority = hostUrl.host.toLowerCase();
+        const hostname = hostUrl.hostname.toLowerCase();
+        const listed = TRUSTED_AUTHORITIES.some((e) => (e.indexOf(":") >= 0 ? e === authority : e === hostname));
+        if (!listed && !conn) return deny(403);
+      }
+      // 下面两条与信任列表无关，任何情况下都执行
+      const site = String(headers["sec-fetch-site"] || "").toLowerCase();
+      if (site === "cross-site") return deny(403);
+      const origin = headers.origin;
+      if (typeof origin === "string" && origin && origin !== "null") {
+        let originUrl = null;
+        try { originUrl = new URL(origin); } catch (e) { return deny(403); }
+        if (originUrl.host.toLowerCase() !== hostUrl.host.toLowerCase()) return deny(403);
+      }
+      if (!conn) return false;
+      let code;
+      try {
+        code = conn.requestRejection(req);
+      } catch (e) {
+        return deny(403); // 栅栏抛异常 → fail-closed（旧写法在这里静默放行）
+      }
+      if (code === undefined || code === null || code === false) return false;
+      return deny(typeof code === "number" ? code : 403);
+    } catch (e) {
+      return deny(403); // 校验器自身出错 → 拒绝
+    }
+  };
+}
+
 export const name = "volc-usage";
-export const inject = ["webServer"];
+export const inject = ["webServer", "credentials"];
 
 export function apply(ctx) {
   const webServer = ctx.get("webServer");
   if (webServer === undefined) return;
+  const reject = makeFence(ctx);
   ctx.effect(
     () =>
       webServer.register({
         kind: "exact",
         path: "/api/volc-usage",
         handler: async (req, res) => {
+          if (reject(req, res)) return;
           const respond = (code, obj) => {
             const body = JSON.stringify(obj);
             res.writeHead(code, {

@@ -1,0 +1,48 @@
+{
+  "id": "v1",
+  "label": "第一版",
+  "main": "DSniang1.png",
+  "blink": {
+    "half": "half_closed_eyes.png",
+    "closed": "close_eyes.png"
+  },
+  "moods": {
+    "angry": "angry.png",
+    "shy": "shy.png",
+    "disappointed": "disappointed.png",
+    "exhausted": "exhausted.png"
+  },
+  "cute": [
+    "cheer.png",
+    "fatfish.png",
+    "greet.png",
+    "mock.png",
+    "ok.png",
+    "quiet.png",
+    "sad.png",
+    "scared.png",
+    "stroking.png",
+    "thumbsup.png",
+    "what.png"
+  ],
+  "labels": {
+    "DSniang1.png": "主图-基准",
+    "angry.png": "生气",
+    "cheer.png": "加油",
+    "close_eyes.png": "眨眼2-全闭",
+    "disappointed.png": "失落",
+    "exhausted.png": "疲惫",
+    "fatfish.png": "压力大肥鱼",
+    "greet.png": "打招呼",
+    "half_closed_eyes.png": "眨眼1-半闭",
+    "mock.png": "嘲笑",
+    "ok.png": "ok",
+    "quiet.png": "别吵",
+    "sad.png": "伤心",
+    "scared.png": "惊吓",
+    "shy.png": "害羞",
+    "stroking.png": "摸头",
+    "thumbsup.png": "点赞",
+    "what.png": "干什么？"
+  }
+}
