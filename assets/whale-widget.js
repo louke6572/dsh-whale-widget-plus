@@ -14494,6 +14494,12 @@ function bubbleFitContent(pop, tb, baseW, preview) {
     var cy = minY <= maxY ? Math.max(minY, Math.min(content.cy, maxY)) : (topMin + vp.h - 8) / 2
     pop.style.left = (baseW - w + (state && state.flip ? content.cx - cx : cx - content.cx)) + 'px'
     pop.style.top = (baseH - h + cy - content.cy) + 'px'
+    // 记住「自然落位」top：桌宠避让以它为绝对基准（增量会正反馈）。
+    // 每次 fit 都重置基准并清零已抬升量，随后由 petAutoFit() 重新避让一次。
+    if (pop === bubbleBox) {
+      petBubbleBaseTop = baseH - h + cy - content.cy
+      petBubbleLifted = 0
+    }
   }
   // 清掉本次分行生成 span 的记录，避免布局自身触发无限重排。
   if (tb === textBox && bubbleContentObserver) bubbleContentObserver.takeRecords()
@@ -14506,6 +14512,8 @@ function scheduleBubbleFit() {
     bubbleFitPending = false
     if (!bubbleShown) return
     bubbleFitContent(bubbleBox, textBox, root.clientWidth, false)
+    // 气泡尺寸/内容变了 ⇒ 底边位置跟着变 ⇒ 桌宠的「头顶避让」必须重算一次
+    if (petOn) petRefitNow()
   })
 }
 // 覆盖接口刷新、自定义余额应用/取消、数字滚动及异步图片加载；同帧多次变化只测一次。
@@ -21492,21 +21500,44 @@ function petMeasure(v) {
     return { charRatio: (maxY - minY + 1) / H, gapRatio: (H - 1 - maxY) / H }
   } catch (err) { return null }
 }
-// 地面线 = 「气泡下沿 ↔ 峰谷徽标上沿」之间那条带子：
+// 地面线：**只看脚底**，与气泡完全解耦（气泡是让开的一方，不是测量基准）。
 //   · 脚底站在**徽标上沿**（再往下就会盖住梁文峰/倒计时标签 —— 桌宠不透明区比鲸鱼 PNG 宽得多，
 //     鲸鱼靠 PNG 透明边距能压住徽标，桌宠不能）
-//   · 头顶不越过气泡下沿（气泡尾巴正好指向角色头部）
-//   · 角色高度按这条带子反算，尺寸只在第一段动画定一次（逐段只调底边，避免大小跳变）
+//
+// ⚠️ 2026-10-21 实测修正（用户报"重叠、位置一模一样"的根因）：
+//   旧实现脚底对齐徽标上沿、角色高度取 root×0.46，两者互相独立 ⇒ 空隙只有 88px 而角色有 181px，
+//   头顶必然向上溢出 94px 钻进气泡 = 视觉上的"重叠"。
+//   修法（优先级明确）：① 角色保持 root×0.46 该有的尺寸 → ② **气泡整体上移**给头顶让位 →
+//   ③ 只有气泡已经顶到视口安全线、仍让不开时，才把角色按剩余空间收缩（下限 60px）。
 function petGroundLine() {
   try {
     var rootRect = root.getBoundingClientRect()
     var badge = pbWrap ? pbWrap.getBoundingClientRect() : null
-    var bubble = bubbleBox ? bubbleBox.getBoundingClientRect() : null
-    var top = bubble && bubble.height > 0 ? bubble.bottom + 2 : rootRect.top + rootRect.height * 0.35
     var bottom = badge && badge.height > 0 ? badge.top - 3 : rootRect.bottom - 30
-    if (!(bottom - top > 40)) bottom = top + 120
+    var top = rootRect.top + rootRect.height * 0.35
+    if (!(bottom - top > 40)) top = bottom - 120
     return { top: top, bottom: bottom, rootBottom: rootRect.bottom }
   } catch (err) { return null }
+}
+// 布局求解：返回 { charH, lift }，纯函数式（不写 DOM），便于自检与复用。
+var petBubbleLifted = 0
+var petBubbleBaseTop = null // bubbleFitContent 算出的自然 top（相对 .dshwv-body）
+function petSolveLayout(feetAbs, wantH, popH, naturalPopTopAbs, lowestPopTopAbs) {
+  var GAP = 4
+  var res = { charH: wantH, lift: 0 }
+  if (!(popH > 0)) return res // 没气泡：只按 wantH
+  var charTop = feetAbs - wantH
+  var needPopTop = charTop - GAP - popH
+  if (needPopTop >= lowestPopTopAbs) {
+    res.lift = Math.max(0, Math.round(naturalPopTopAbs - needPopTop))
+    return res
+  }
+  // 气泡已被顶到安全线：让不开 ⇒ 角色按剩余空间收缩
+  res.lift = Math.max(0, Math.round(naturalPopTopAbs - lowestPopTopAbs))
+  var availTop = lowestPopTopAbs + popH + GAP
+  var shrunk = feetAbs - availTop
+  if (shrunk > 60 && shrunk < wantH) res.charH = shrunk
+  return res
 }
 function petAutoFit(v) {
   try {
@@ -21514,11 +21545,37 @@ function petAutoFit(v) {
     if (!m || !(m.charRatio > 0.15)) return
     var g = petGroundLine()
     if (!g) return
-    if (!petFitH) {
-      // 尺寸看 root 高度（不跟气泡抢空间），视觉上与鲸鱼娘（238px 盒）同一档
-      var rootH2 = root.getBoundingClientRect().height || 400
-      var charH = rootH2 * 0.46
-      if (!(charH > 40) || !(charH < 600)) charH = 180
+    var rootRect = root.getBoundingClientRect()
+    var rootH2 = rootRect.height || 400
+    var wantH = rootH2 * 0.46
+    if (!(wantH > 40) || !(wantH < 600)) wantH = 180
+    // 气泡几何（只在显示时参与）
+    //
+    // ⚠️ 必须用**可见轮廓**（尾圈 `.dshwv-b2` 的底边）而不是 `.dshwv-pop` 盒子的底边：
+    //    pop 盒是 1026:700 定比画布，尾巴下方还有大片透明留白（实测盒底 784、尾圈底 769）。
+    //    按盒子算会多抬 15px，叠加后视觉上出现"气泡飘太高"的大空档。
+    var popH = 0, naturalPopTopAbs = 0, popBase = null, popTailBottom = 0
+    if (bubbleBox && bubbleShown) {
+      var popRect = bubbleBox.getBoundingClientRect()
+      if (popRect.height > 0) {
+        popH = popRect.height
+        popBase = petBubbleBaseTop == null ? (parseFloat(bubbleBox.style.top) || 0) : petBubbleBaseTop
+        // 可见底边：优先取尾巴末圈 b2，退而求其次取 b1 / 主体形状
+        var tailEl = bubbleBox.querySelector('.dshwv-b2') || bubbleBox.querySelector('.dshwv-b1') ||
+          bubbleBox.querySelector('.dshwv-bshape')
+        var tailRect = tailEl ? tailEl.getBoundingClientRect() : null
+        var visBottom = tailRect && tailRect.height > 0 ? tailRect.bottom : popRect.bottom
+        // 换算成"相对 pop 盒顶的可见高度"，供 petSolveLayout 按盒顶推算
+        popTailBottom = visBottom - popRect.top
+        naturalPopTopAbs = rootRect.top + popBase
+      }
+    }
+    // 用可见轮廓高度代替盒高来求 lift，最后再折回盒 top
+    var solvePopH = popH > 0 && popTailBottom > 0 && popTailBottom < popH ? popTailBottom : popH
+    var solved = petSolveLayout(g.bottom, wantH, solvePopH, naturalPopTopAbs, widgetTopMin() + 8)
+    var charH = solved.charH
+    // 尺寸只在第一段动画定（逐段只调底边，避免大小跳变）；仅在求解值明显变化时重设
+    if (!petFitH || Math.abs(petFitH * m.charRatio - charH) > 4) {
       petFitH = charH / m.charRatio
       petWrap.style.height = petFitH.toFixed(1) + 'px'
       petWrap.style.width = (petFitH * (v.videoWidth / v.videoHeight)).toFixed(1) + 'px'
@@ -21526,7 +21583,23 @@ function petAutoFit(v) {
     // 底边：让「当前帧的不透明底」正好落在 g.bottom
     var gapPx = m.gapRatio * petFitH
     petWrap.style.bottom = (g.rootBottom - g.bottom - gapPx).toFixed(1) + 'px'
+    // 气泡上移让位（绝对基准，不累积）
+    if (popH > 0 && popBase !== null) {
+      if (solved.lift !== petBubbleLifted) {
+        bubbleBox.style.top = (popBase - solved.lift) + 'px'
+        petBubbleLifted = solved.lift
+      }
+    }
     petUpdateHit()
+  } catch (err) {}
+}
+// 立即按"当前可见层"重排一次（供气泡内容变化、窗口缩放、角色切换调用）
+function petRefitNow() {
+  try {
+    if (!petOn) return
+    var v = petVidCur()
+    if (!v || !v.videoWidth) return
+    petAutoFit(v)
   } catch (err) {}
 }
 function petMarkBroken(name) {
@@ -21861,6 +21934,13 @@ function petDisable() {
   petFirstFrame = false
   petFitH = 0
   try { petWrap.style.height = ''; petWrap.style.width = ''; petWrap.style.bottom = '' } catch (err) {}
+  // 退出桌宠 ⇒ 撤销气泡避让，回到自然落位（否则气泡会永远悬在半空）
+  try {
+    if (petBubbleLifted && bubbleBox && petBubbleBaseTop !== null) {
+      bubbleBox.style.top = petBubbleBaseTop + 'px'
+    }
+    petBubbleLifted = 0
+  } catch (err) {}
   try { img.style.visibility = '' } catch (err) {}
   petApplyMenuMode()
   try { setupHitTest(currentRole && currentRole.url ? currentRole.url : IMG_URL) } catch (err) {}
