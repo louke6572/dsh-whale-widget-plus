@@ -21728,9 +21728,7 @@ function petCategoryOfAction(name) {
   return ''
 }
 function petOnSelectCategory(id, v) {
-  if (v === 'auto') {
-    petPin = null
-  } else if (v.indexOf('auto:') === 0) {
+  if (v === 'auto' || v.indexOf('auto:') === 0) {
     petPin = { type: 'category', value: id }
   } else {
     petPin = { type: 'action', value: v }
@@ -21744,14 +21742,12 @@ function petFillCategorySelect(sel, id) {
     if (!sel) return
     var list = petFilter(petCategoryList(id) || [])
     sel.textContent = ''
+    // 只保留一个「自动随机」：在这个分类下拉里它就是"仅本类轮播"。
+    // 回到全局轮播的入口是「待机 → 随机（默认）」（会清掉固定项）。
     var a = document.createElement('option')
-    a.value = 'auto'
+    a.value = 'auto:' + id
     a.textContent = '自动随机'
     sel.appendChild(a)
-    var ca = document.createElement('option')
-    ca.value = 'auto:' + id
-    ca.textContent = '本类随机'
-    sel.appendChild(ca)
     for (var i = 0; i < list.length; i++) {
       var op = document.createElement('option')
       op.value = list[i]
@@ -21768,16 +21764,15 @@ function petSetSelValue(sel, v) {
   try {
     if (!sel) return
     sel.value = v
-    if (sel.value !== v) sel.value = 'auto'
+    if (sel.value !== v && sel.options && sel.options.length) sel.value = sel.options[0].value
   } catch (err) {}
 }
 function petSyncCategorySelects() {
   try {
     PET_CAT_NAMES.forEach(function (id) {
-      var v = 'auto'
+      var v = 'auto:' + id
       if (petPin) {
         if (petPin.type === 'action' && petCategoryOfAction(petPin.value) === id) v = petPin.value
-        else if (petPin.type === 'category' && petPin.value === id) v = 'auto:' + id
       }
       petSetSelValue(petCatSels[id], v)
     })
