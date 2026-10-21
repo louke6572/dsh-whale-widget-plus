@@ -21747,7 +21747,7 @@ function petFillGroupedSelect(sel, groups, placeholder) {
     sel.textContent = ''
     var auto = document.createElement('option')
     auto.value = 'auto'
-    auto.textContent = placeholder || '🔄 自动随机（全部轮播）'
+    auto.textContent = placeholder || '自动随机（全部）'
     sel.appendChild(auto)
     for (var g = 0; g < groups.length; g++) {
       var id = groups[g][0]
@@ -21757,7 +21757,7 @@ function petFillGroupedSelect(sel, groups, placeholder) {
       og.label = id
       var ga = document.createElement('option')
       ga.value = 'auto:' + id
-      ga.textContent = '🔄 自动随机（' + id + '）'
+      ga.textContent = '自动随机（' + id + '）'
       og.appendChild(ga)
       for (var i = 0; i < list.length; i++) {
         var op = document.createElement('option')
@@ -21781,12 +21781,12 @@ function petFillActionSelect() {
   var work = []
   Object.keys(PET_POOLS.work).forEach(function (k) { if (PET_POOLS.work[k]) work.push(PET_POOLS.work[k]) })
   groups.push(['工作状态', work])
-  petFillGroupedSelect(petActSel, groups, '🔄 自动随机（全部）')
+  petFillGroupedSelect(petActSel, groups, '自动随机（全部）')
 }
 function petFillLineSelect() {
   var groups = []
   PET_POOLS.cats.forEach(function (c) { if (c.noMirror) groups.push([c.id, c.list]) })
-  petFillGroupedSelect(petLineSel, groups, '🔄 自动随机（全部）')
+  petFillGroupedSelect(petLineSel, groups, '自动随机（全部）')
 }
 function petSetSelValue(sel, v) {
   try {
