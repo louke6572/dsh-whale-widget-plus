@@ -14622,6 +14622,7 @@ var bubbleFitPending = false
 //   3) 气泡底边（同样按可见轮廓的尾圈/主体形状算，不按盒子）落到它上方 GAP 处
 // 量像素有成本 ⇒ 只在「气泡刚 fit 完 / 切换角色 / 气泡内容变化」时算一次，并缓存顶边。
 var bubbleAvoidHead = null
+var bubbleAvoidGeo = '' // 上次量头顶时的 root 几何；启动期位置/缩放变化后必须作废缓存
 var bubbleAvoidLift = 0 // 当前已抬升量（px，0 = 未抬）
 var petBubbleBaseEffective = null // 自然落位 top（鲸鱼/桌宠共用基准）
 function measureCharTopPx() {
@@ -14679,6 +14680,13 @@ function applyBubbleAvoid(charTopHint) {
     var pr = bubbleBox.getBoundingClientRect()
     if (!(pr.height > 0)) return
     if (!bubbleShown && bubbleBox.className.indexOf('dshwv-pop-open') < 0) return
+    // 启动期 root 会先按默认尺寸出现、再应用保存的缩放/位置；只要 root 几何变了，
+    // 之前缓存的「头顶屏幕坐标」就作废，否则气泡会按旧位置抬升，表现为首次进入时位置偏离。
+    try {
+      var gr = root.getBoundingClientRect()
+      var gk = Math.round(gr.left) + ',' + Math.round(gr.top) + ',' + Math.round(gr.width) + ',' + Math.round(gr.height)
+      if (gk !== bubbleAvoidGeo) { bubbleAvoidGeo = gk; bubbleAvoidHead = null }
+    } catch (err) {}
     var charTopRaw = (charTopHint !== undefined && charTopHint !== null) ? charTopHint : measureCharTopPx()
     if (charTopRaw === null || !isFinite(charTopRaw)) return
     // 头顶稳定值：呼吸/眨眼等每帧不透明轮廓会差几像素，跟着量会让气泡上下抖。
@@ -18278,6 +18286,10 @@ function sceneOpen(kind, renderFn, ttlMs) {
     try { renderFn() } catch (err) {}
     try { bubbleFitContent(bubbleBox, textBox, root.clientWidth, false) } catch (err) {}
     try { bubbleBox.classList.add('dshwv-pop-open') } catch (err) {}
+    // 首次打开/内容换行后补两次重排：字体、图片与挂件缩放可能在这之后才稳定，
+    // 只靠同步的一次 fit 会让首泡停在旧坐标上（"刚进界面气泡位置偏离"）。
+    try { setTimeout(scheduleBubbleFit, 80) } catch (err) {}
+    try { setTimeout(scheduleBubbleFit, 400) } catch (err) {}
     // 内容替换(泡泡已开着)时淡入新文字;首次打开不加内联透明度,
     // 文字显隐交给 CSS(.dshwv-pop-open 才显示,带 .36s 延时跟随泡泡成形)
     if (wasOpen) {
