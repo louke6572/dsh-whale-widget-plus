@@ -626,7 +626,7 @@ var css = [
   '.dshwv-petmenu .dshwv-petsec{font-size:10px;opacity:.6;margin:6px 4px 2px;user-select:none}',
   '.dshwv-petmenu .dshwv-petitem{padding:4px 6px;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;user-select:none}',
   '.dshwv-petmenu .dshwv-petitem:hover{background:rgba(32,49,112,.08)}',
-  '.dshwv-menu-row.dshwv-pet-hide{display:none !important}',
+  '.dshwv-pet-hide{display:none !important}',
   // v751（PR #119）：光标不再写 document.body.style.cursor —— cursor 是可继承属性，写 <body> 会让 Blink
   // 失效**整棵文档树**的样式；而它在点击链路上按下/抬手各写一次，紧接着 isWhaleHit() 的
   // getBoundingClientRect() 与泡泡行测量的 getComputedStyle()/scrollWidth 会强制刷新样式+布局，
@@ -2145,7 +2145,7 @@ petActBtn.className = 'dshwv-roleimport'
 petActBtn.style.flex = '1'
 petActBtn.textContent = '动作菜单'
 petActBtn.title = '桌宠形态下点播一段动画（也可右键角色唤出）；未切到桌宠形态时会提示'
-petActBtn.addEventListener('click', function (e) { e.stopPropagation(); petActsOpen() })
+petActBtn.addEventListener('click', function (e) { e.stopPropagation(); petPanelOpen('acts') })
 rowPet.appendChild(petActBtn)
 // —— 桌宠专用：一键切回小鲸鱼（桌宠形态下主菜单只保留桌宠相关项，角色下拉行会被隐藏）——
 var rowPetBack = menuRow()
@@ -2225,7 +2225,44 @@ roleFileInput.addEventListener('change', function () { onRoleFileChosen(roleFile
 menuBox.appendChild(rowRole)
 menuBox.appendChild(row1)
 menuBox.appendChild(row2)
+// 桌宠形态下的分组分隔线：上半 = 显示设置，中间 = 动作/台词/待机，下半 = 通用项
+var petSep1 = document.createElement('div')
+petSep1.className = 'dshwv-menu-sep dshwv-pet-only'
+menuBox.appendChild(petSep1)
 menuBox.appendChild(rowPet)
+// —— 桌宠台词：带文字的动作单独成行，不再和纯动作混在同一个面板 ——
+var rowPetLines = menuRow()
+var petLinesBtn = document.createElement('button')
+petLinesBtn.type = 'button'
+petLinesBtn.className = 'dshwv-roleimport'
+petLinesBtn.style.flex = '1'
+petLinesBtn.textContent = '台词菜单'
+petLinesBtn.title = '桌宠形态下播放带文字的台词动作（文字始终保持正读）'
+petLinesBtn.addEventListener('click', function (e) { e.stopPropagation(); petPanelOpen('lines') })
+rowPetLines.appendChild(menuLabel('桌宠台词'))
+rowPetLines.appendChild(petLinesBtn)
+menuBox.appendChild(rowPetLines)
+// —— 待机动画：随机（默认）或指定某一段，localStorage 持久化 ——
+var rowPetIdle = menuRow()
+var petIdleSel = document.createElement('select')
+petIdleSel.style.cssText = 'flex:1;min-width:0;font-size:12px;line-height:1.4;height:24px;border:1px solid rgba(32,49,112,.25);border-radius:6px;background:#fff;color:#203170;padding:0 4px;box-sizing:border-box'
+petIdleSel.title = '选择桌宠的待机动画；「随机」= 沿用默认待机池'
+petIdleSel.addEventListener('change', function (e) {
+  e.stopPropagation()
+  var v = petIdleSel.value
+  if (!v) {
+    petIdlePick = ''
+    try { localStorage.removeItem('dshw-pet-idle') } catch (err) {}
+    return
+  }
+  petSurfaceIdle(v)
+})
+rowPetIdle.appendChild(menuLabel('待机动画'))
+rowPetIdle.appendChild(petIdleSel)
+menuBox.appendChild(rowPetIdle)
+var petSep2 = document.createElement('div')
+petSep2.className = 'dshwv-menu-sep dshwv-pet-only'
+menuBox.appendChild(petSep2)
 menuBox.appendChild(row6)
 // —— 峰谷徽标：外置常驻徽标的状态字样式（localStorage 持久化，改完即时重绘徽标）——
 // 样式取值与峰谷模块 peakStyle 同一套：mini=峰/谷，liangwen=梁文峰/梁文谷，
@@ -20071,6 +20108,8 @@ function express() {
   state.top = clampWidgetTop(state.top)
   root.style.top = state.top + 'px'
   root.classList.toggle('dshwv-left', !!state.flip)
+  // 贴左/贴右变化会影响 noMirror 动作的补偿方向，必须立刻重算
+  try { if (petOn) petApplyFacing() } catch (err) {}
   scheduleBubbleFit()
 }
 function settle() {
@@ -20872,6 +20911,7 @@ function toggleMenu() {
     try { lineLoadPool(function () { lineFillSelect() }) } catch (err) {}
   }
   if (menuOpen) positionMenu()
+  if (menuOpen) { try { petFillIdleSelect() } catch (err) {} }
   menuBox.classList.toggle('dshwv-menu-open', menuOpen)
   if (menuOpen && !menuBtnHide) menuBtn.classList.add('dshwv-menu-btn-visible')
   // 汉堡按钮关闭菜单时同样复位用量子界面(用量态时滑回主菜单态,
@@ -21577,8 +21617,34 @@ var PET_POOLS = {
     // noMirror：带文字，镜像会颠倒 —— 宠物朝右（被镜像）时不抽这一类（与 dsh-pet 同规则）
     { id: '文字', w: 10, noMirror: true, list: ['是啊，吃什么', '深度思考碎碎念'] }
   ],
-  weights: { idle: 10, turn: 5, move: 5 },
+  // v0.4.4：待机占比 10→55，并把待机停留从 8–20s 拉长到 25–45s。
+  // 旧权重下 80% 都走随机分类，几秒换一段，看起来"待机动作切换太快"。
+  weights: { idle: 55, turn: 5, move: 5 },
   work: { waiting: '工作状态-原地踱步张望', success: '工作状态-雀跃庆祝' }
+}
+var PET_IDLE_MIN_MS = 25000
+var PET_IDLE_SPAN_MS = 20000
+// 自定义待机动画（空 = 随机）。只存本机，刷新/重启后保持。
+var petIdlePick = ''
+try { petIdlePick = localStorage.getItem('dshw-pet-idle') || '' } catch (err) { petIdlePick = '' }
+function petIdleResolve(avoid) {
+  if (petIdlePick && petHave(petIdlePick)) return petIdlePick
+  return petPickNew(PET_POOLS.idle, avoid)
+}
+function petSurfaceIdle(name) {
+  if (!name || !petHave(name)) return
+  petIdlePick = name
+  try { localStorage.setItem('dshw-pet-idle', name) } catch (err) {}
+  try { petFillIdleSelect() } catch (err) {}
+  // 选了就立刻切过去给用户看（菜单不用关）
+  try {
+    if (petOn) {
+      clearTimeout(petTimer)
+      petTempUntil = 0
+      petSwitchTo(name, true)
+      petTimer = setTimeout(petRunChain, PET_IDLE_MIN_MS + Math.random() * PET_IDLE_SPAN_MS)
+    }
+  } catch (err) {}
 }
 var petOn = false // 是否处于桌宠形态
 var petAnims = null // 宿主清单：name -> true（null = 还没拉过）
@@ -21608,9 +21674,20 @@ function petVidBack() { return petShown === 0 ? petVidB : petVidA }
 // 朝向：root 的 dshwv-left 已经把整棵子树镜像了（含桌宠）。
 // 这里只叠桌宠自己的朝向（转向动画翻转），**不能**再乘 state.flip ——
 // 否则两次镜像互相抵消，贴左时桌宠跟贴右一模一样，看起来"吸附反转没生效"。
+// 例外：带文字的动作（PET_POOLS.cats.noMirror）必须让屏幕总变换 = 不镜像，
+// 否则贴左时画面里的字会是反的；所以这类动作把方向再反一次，抵消 root 的镜像。
+var petNoMirror = false
+function petIsNoMirror(name) {
+  for (var i = 0; i < PET_POOLS.cats.length; i++) {
+    var c = PET_POOLS.cats[i]
+    if (c.noMirror && c.list.indexOf(name) >= 0) return true
+  }
+  return false
+}
 function petApplyFacing() {
   try {
-    var k = petFacingR ? -1 : 1
+    var k = petNoMirror ? 1 : (petFacingR ? -1 : 1)
+    if (petNoMirror && state && state.flip) k = -1
     petWrap.style.transform = 'scaleX(' + k + ')'
   } catch (err) {}
 }
@@ -21754,6 +21831,7 @@ function petSwitchTo(name, loop) {
       if (!petFirstFrame) { petFirstFrame = true; try { img.style.visibility = 'hidden' } catch (err) {} }
       setTimeout(function () { petAutoFit(back) }, 0)
       petShown = 1 - petShown
+      petNoMirror = petIsNoMirror(name)
       petApplyFacing()
       // 旧层延迟释放：只释放「既不是当前可见层、也不在播」的那一个
       setTimeout(function () {
@@ -21788,8 +21866,8 @@ function petRunChain() {
     try {
       var cv = petVidCur()
       if (!cv || cv.readyState < 2 || cv.paused || !cv.currentSrc) {
-        var idleb = petPickNew(PET_POOLS.idle, petCur)
-        if (idleb) { petTempUntil = 0; petSwitchTo(idleb, true); petTimer = setTimeout(petRunChain, 12000) }
+        var idleb = petIdleResolve(petCur)
+        if (idleb) { petTempUntil = 0; petSwitchTo(idleb, true); petTimer = setTimeout(petRunChain, PET_IDLE_MIN_MS) }
       }
     } catch (err) {}
     petTimer = setTimeout(petRunChain, 350)
@@ -21799,8 +21877,15 @@ function petRunChain() {
   var r = Math.random() * 100
   var acted = false
   if (r < w.idle) {
-    var idle = petPickNew(PET_POOLS.idle, petCur)
-    if (idle) { petSwitchTo(idle, true); acted = true; petTimer = setTimeout(petRunChain, 8000 + Math.random() * 12000) }
+    var idle = petIdleResolve(petCur)
+    if (idle) {
+      // 已经是同一段待机且在播 ⇒ 不重载（避免每 25s 看到一次"重新开始"的跳帧）
+      var cvIdle = petVidCur()
+      var samePlaying = petCur === idle && cvIdle && cvIdle.readyState >= 2 && !cvIdle.paused
+      if (!samePlaying) petSwitchTo(idle, true)
+      acted = true
+      petTimer = setTimeout(petRunChain, PET_IDLE_MIN_MS + Math.random() * PET_IDLE_SPAN_MS)
+    }
   } else if (r < w.idle + w.turn) {
     var turn = petPickNew(PET_POOLS.turn, petCur)
     if (turn) { petSwitchTo(turn, false); acted = true }
@@ -21808,12 +21893,11 @@ function petRunChain() {
     var mv = petPickNew(PET_POOLS.moves, petCur)
     if (mv) { petSwitchTo(mv, false); acted = true }
   } else {
-    // 分类池：按 weight 抽（noMirror 类在朝右时跳过）
+    // 分类池：按 weight 抽（带文字的 noMirror 类由 petApplyFacing 反向抵消镜像，文字始终正读）
     var cats = []
     var total = 0
     for (var i = 0; i < PET_POOLS.cats.length; i++) {
       var c = PET_POOLS.cats[i]
-      if (c.noMirror && petFacingR) continue
       if (!petFilter(c.list).length) continue
       cats.push(c)
       total += c.w
@@ -21893,8 +21977,9 @@ function petPlayNamed(name) {
 // 之前另开一个 .dshwv-petmenu 浮层 ⇒ 用户看到"两套菜单"；现在右键角色直接打开主菜单，
 // 「桌宠动作」行在菜单内切换到本面板，返回键回主菜单。
 var petActsPanel = null
-function petActsEnsure() {
-  if (petActsPanel) return petActsPanel
+var petLinesPanel = null
+function petPanelBuild(kind) {
+  var isLines = kind === 'lines'
   var el = document.createElement('div')
   el.className = 'dshwv-petacts'
   el.addEventListener('pointerdown', function (e) { e.stopPropagation() })
@@ -21902,7 +21987,7 @@ function petActsEnsure() {
   var head = document.createElement('div')
   head.className = 'dshwv-petacts-head'
   var title = document.createElement('span')
-  title.textContent = '桌宠动作'
+  title.textContent = isLines ? '桌宠台词' : '桌宠动作'
   var back = document.createElement('button')
   back.type = 'button'
   back.className = 'dshwv-petacts-back'
@@ -21924,49 +22009,88 @@ function petActsEnsure() {
     })
     el.appendChild(d)
   }
-  var rand = document.createElement('div')
-  rand.className = 'dshwv-petacts-item'
-  rand.style.fontWeight = '600'
-  rand.textContent = '🎲 随机一段'
-  rand.addEventListener('click', function (e) {
-    e.stopPropagation()
-    petRunChain()
-    try { closeMenu() } catch (err) {}
-  })
-  el.appendChild(rand)
-  sec('待机 / 转向 / 移动')
-  petFilter(PET_POOLS.idle).forEach(function (x) { item(x, x) })
-  petFilter(PET_POOLS.turn).forEach(function (x) { item(x, x) })
-  petFilter(PET_POOLS.moves).forEach(function (x) { item(x, x) })
-  sec('点击回应')
-  petFilter(PET_POOLS.clicks).forEach(function (x) { item(x, x) })
-  PET_POOLS.cats.forEach(function (c) {
-    var list = petFilter(c.list)
-    if (!list.length) return
-    sec(c.id)
-    list.forEach(function (x) { item(x, x) })
-  })
-  sec('工作状态')
-  Object.keys(PET_POOLS.work).forEach(function (k) {
-    var nm = PET_POOLS.work[k]
-    if (petHave(nm)) item(nm, nm)
-  })
+  if (!isLines) {
+    var rand = document.createElement('div')
+    rand.className = 'dshwv-petacts-item'
+    rand.style.fontWeight = '600'
+    rand.textContent = '🎲 随机一段'
+    rand.addEventListener('click', function (e) {
+      e.stopPropagation()
+      petRunChain()
+      try { closeMenu() } catch (err) {}
+    })
+    el.appendChild(rand)
+    sec('待机 / 转向 / 移动')
+    petFilter(PET_POOLS.idle).forEach(function (x) { item(x, x) })
+    petFilter(PET_POOLS.turn).forEach(function (x) { item(x, x) })
+    petFilter(PET_POOLS.moves).forEach(function (x) { item(x, x) })
+    sec('点击回应')
+    petFilter(PET_POOLS.clicks).forEach(function (x) { item(x, x) })
+    PET_POOLS.cats.forEach(function (c) {
+      if (c.noMirror) return // 带文字的动作归「桌宠台词」面板
+      var list = petFilter(c.list)
+      if (!list.length) return
+      sec(c.id)
+      list.forEach(function (x) { item(x, x) })
+    })
+    sec('工作状态')
+    Object.keys(PET_POOLS.work).forEach(function (k) {
+      var nm = PET_POOLS.work[k]
+      if (petHave(nm)) item(nm, nm)
+    })
+  } else {
+    // 台词面板只放带文字的动作；petApplyFacing 会抵消镜像，贴左时文字也正读
+    PET_POOLS.cats.forEach(function (c) {
+      if (!c.noMirror) return
+      var list = petFilter(c.list)
+      if (!list.length) return
+      sec(c.id)
+      list.forEach(function (x) { item(x, x) })
+    })
+  }
   menuBox.appendChild(el)
-  petActsPanel = el
   return el
 }
-function petActsOpen() {
+function petPanelOpen(kind) {
   if (!petOn) { try { dshwvToast('先在「角色」里切到「桌宠（动画）」') } catch (err) {} return }
-  var el = petActsEnsure()
+  var isLines = kind === 'lines'
+  var el
+  if (isLines) {
+    if (!petLinesPanel) petLinesPanel = petPanelBuild('lines')
+    el = petLinesPanel
+    if (petActsPanel) petActsPanel.style.display = 'none'
+  } else {
+    if (!petActsPanel) petActsPanel = petPanelBuild('acts')
+    el = petActsPanel
+    if (petLinesPanel) petLinesPanel.style.display = 'none'
+  }
   if (menuRootView) menuRootView.style.display = 'none'
   el.style.display = 'block'
   try { positionMenu() } catch (err) {}
 }
 function petActsClose() {
-  if (!petActsPanel) return
-  petActsPanel.style.display = 'none'
+  if (petActsPanel) petActsPanel.style.display = 'none'
+  if (petLinesPanel) petLinesPanel.style.display = 'none'
   if (menuRootView) menuRootView.style.display = ''
   try { positionMenu() } catch (err) {}
+}
+function petFillIdleSelect() {
+  try {
+    if (!petIdleSel) return
+    var names = petAnims ? Object.keys(petAnims).sort() : []
+    petIdleSel.textContent = ''
+    var o = document.createElement('option')
+    o.value = ''
+    o.textContent = '随机（默认）'
+    petIdleSel.appendChild(o)
+    for (var i = 0; i < names.length; i++) {
+      var op = document.createElement('option')
+      op.value = names[i]
+      op.textContent = names[i]
+      petIdleSel.appendChild(op)
+    }
+    petIdleSel.value = (petIdlePick && names.indexOf(petIdlePick) >= 0) ? petIdlePick : ''
+  } catch (err) {}
 }
 // 桌宠「动作」菜单：右键角色唤出（主菜单「桌宠动作」行也指向它），分类与 dsh-pet 右键级联菜单同源
 function petOpenActions() {
@@ -22030,6 +22154,7 @@ function petLoadAnims(cb) {
       for (var i = 0; i < arr.length; i++) map[arr[i]] = true
       petAnims = map
       petLoading = false
+      try { petFillIdleSelect() } catch (err) {}
       if (!map[PET_IDLE]) { try { console.warn('[dsh-whale] 桌宠素材缺失：assets/pet-video/ 里没有「' + PET_IDLE + '」') } catch (err) {} }
       if (cb) cb(!!map[PET_IDLE])
     })
@@ -22037,8 +22162,8 @@ function petLoadAnims(cb) {
 }
 // 桌宠形态：整块换成桌宠菜单 —— 只保留这些行，其余（角色下拉/记账/避让/资源/表情…）全部隐藏。
 // 切回小鲸鱼由专用行「切回小鲸鱼」承担，所以不需要保留「角色」下拉行。
-var PET_MENU_KEEP = ['切回小鲸鱼', '桌宠动作', '大小', '音效与提示', '隐藏菜单按钮']
-var PET_MENU_ONLY = ['切回小鲸鱼']
+var PET_MENU_KEEP = ['切回小鲸鱼', '桌宠动作', '桌宠台词', '待机动画', '大小', '音效与提示', '隐藏菜单按钮']
+var PET_MENU_ONLY = ['切回小鲸鱼', '桌宠动作', '桌宠台词', '待机动画']
 function petApplyMenuMode() {
   try {
     var rows = document.querySelectorAll('.dshwv-menu-row')
@@ -22056,6 +22181,9 @@ function petApplyMenuMode() {
       // 桌宠形态：不在保留名单 ⇒ 隐藏；鲸鱼形态：只隐藏桌宠专用行
       row.classList.toggle('dshwv-pet-hide', petOn ? !keep : petOnly)
     }
+    // 分组分隔线只在桌宠形态显示
+    var seps = document.querySelectorAll('.dshwv-pet-only')
+    for (var s = 0; s < seps.length; s++) seps[s].classList.toggle('dshwv-pet-hide', !petOn)
   } catch (err) {}
 }
 function petEnable(byUser) {
@@ -22066,6 +22194,7 @@ function petEnable(byUser) {
     if (!ok) { try { dshwvToast('桌宠素材缺失，已回退默认角色') } catch (err) {} return }
     petOn = true
     petFacingR = false
+    petNoMirror = false
     petTempUntil = 0
     petCur = ''
     petFirstFrame = false
@@ -22078,7 +22207,7 @@ function petEnable(byUser) {
     petApplyMenuMode()
     // 关键顺序：先把首段动画**加载到就绪**，再显示动画层并隐藏角色图。
     // 旧实现先 display:block 再异步加载 ⇒ 中间窗口是空白（用户看到的"点一下丢失"）。
-    var bootName = petPickNew(PET_POOLS.idle, '') || PET_IDLE
+    var bootName = petIdleResolve('') || PET_IDLE
     var bootVid = petVidA
     var bootDone = false
     var bootTimer = 0
@@ -22136,6 +22265,7 @@ function petDisable() {
   petTimer = 0
   petTempUntil = 0
   petWaitKey = ''
+  petNoMirror = false
   try {
     petVidA.pause(); petVidB.pause()
     petVidA.style.opacity = '0'; petVidB.style.opacity = '0'
@@ -22181,7 +22311,7 @@ function petHealTick() {
     var v = petVidCur()
     var ok = !!(v && v.readyState >= 2 && v.currentSrc && !v.paused && v.style.opacity === '1')
     if (ok) return
-    var idle = petPickNew(PET_POOLS.idle, '')
+    var idle = petIdleResolve('')
     if (!idle) return
     petFirstFrame = true
     petTempUntil = 0
