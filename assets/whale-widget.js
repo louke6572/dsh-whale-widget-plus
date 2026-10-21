@@ -2533,6 +2533,9 @@ function setUsageNavBtn(inUsage) {
     usageRecBtn.textContent = inUsage ? '‹ 返回' : '- = 小鲸鱼记账 = -'
     usageRecBtn.title = inUsage ? '返回主菜单' : '查看今日/近7天/全部消费记录'
   } catch (err) {}
+  // 桌宠形态默认隐藏这一行；但「关于/自检」「用量记录」子页的返回按钮就是它，
+  // 子页打开时必须重新露出来，否则桌宠里点版本号会进得去、出不来。
+  try { petSyncNavRow() } catch (err) {}
 }
 function showUsageSub() {
   try { if (usageHideTimer) { clearTimeout(usageHideTimer); usageHideTimer = null } } catch (err) {}
@@ -22338,6 +22341,15 @@ function petApplyMenuMode() {
     // 分组分隔线只在桌宠形态显示
     var seps = document.querySelectorAll('.dshwv-pet-only')
     for (var s = 0; s < seps.length; s++) seps[s].classList.toggle('dshwv-pet-hide', !petOn)
+    petSyncNavRow()
+  } catch (err) {}
+}
+// 底部“记账/返回”行：桌宠主菜单里隐藏；子页（关于/用量）打开时显示，充当返回按钮
+function petSyncNavRow() {
+  try {
+    if (!usageNavRow) return
+    var sub = !!(usagePanelOpen || aboutPanelOpen)
+    usageNavRow.classList.toggle('dshwv-pet-hide', !!petOn && !sub)
   } catch (err) {}
 }
 function petEnable(byUser) {
