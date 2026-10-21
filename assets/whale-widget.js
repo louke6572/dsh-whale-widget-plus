@@ -14494,17 +14494,111 @@ function bubbleFitContent(pop, tb, baseW, preview) {
     var cy = minY <= maxY ? Math.max(minY, Math.min(content.cy, maxY)) : (topMin + vp.h - 8) / 2
     pop.style.left = (baseW - w + (state && state.flip ? content.cx - cx : cx - content.cx)) + 'px'
     pop.style.top = (baseH - h + cy - content.cy) + 'px'
-    // 记住「自然落位」top：桌宠避让以它为绝对基准（增量会正反馈）。
-    // 每次 fit 都重置基准并清零已抬升量，随后由 petAutoFit() 重新避让一次。
+    // 记住「自然落位」top：气泡避让以它为绝对基准（增量会正反馈）。
+    // 每次 fit 都重置基准与已抬升量，随后由 applyBubbleAvoid() 重新避让一次。
     if (pop === bubbleBox) {
       petBubbleBaseTop = baseH - h + cy - content.cy
+      petBubbleBaseEffective = petBubbleBaseTop
       petBubbleLifted = 0
+      bubbleAvoidLift = 0
     }
   }
   // 清掉本次分行生成 span 的记录，避免布局自身触发无限重排。
   if (tb === textBox && bubbleContentObserver) bubbleContentObserver.takeRecords()
 }
 var bubbleFitPending = false
+// 气泡避让「人物不透明像素的真实顶边」。
+//// 为什么必须有：气泡盒 (`.dshwv-pop`) 与人物图都有大片透明像素，**光看盒子相交会误判**，
+// 反过来只看盒子又会漏掉真实相交（实测鲸鱼形态铁碗顶边 y=785 已经压进气泡描边 y=801 ⇒
+// 645 个不透明像素落在气泡主体内，截图里就是"碗叠在泡泡上"）。所以这里直接量**不透明像素**：
+//   1) 把当前人物（鲸鱼 img 或桌宠当前帧 video）画进 140px 宽的小 canvas，取 alpha>40 的点
+//   2) 换算成屏幕坐标，取最小 y = 人物可见内容的真实顶边
+//   3) 气泡底边（同样按可见轮廓的尾圈/主体形状算，不按盒子）落到它上方 GAP 处
+// 量像素有成本 ⇒ 只在「气泡刚 fit 完 / 切换角色 / 气泡内容变化」时算一次，并缓存顶边。
+var bubbleAvoidHead = null
+var bubbleAvoidLift = 0 // 当前已抬升量（px，0 = 未抬）
+var petBubbleBaseEffective = null // 自然落位 top（鲸鱼/桌宠共用基准）
+function measureCharTopPx() {
+  try {
+    var el = null, isVideo = false
+    if (petOn) {
+      var pv = petVidCur()
+      if (pv && pv.videoWidth > 0 && pv.readyState >= 2) { el = pv; isVideo = true }
+    }
+    if (!el) {
+      if (!(img && img.complete && img.naturalWidth > 0)) return null
+      el = img
+    }
+    var thick = isVideo ? el.videoWidth : el.naturalWidth
+    var thigh = isVideo ? el.videoHeight : el.naturalHeight
+    if (!(thick > 0) || !(thigh > 0)) return null
+    var rc = el.getBoundingClientRect()
+    if (!(rc.width > 0) || !(rc.height > 0)) return null
+    var W = 140
+    var H = Math.max(1, Math.round(W * thigh / thick))
+    var c = document.createElement('canvas')
+    c.width = W
+    c.height = H
+    var x = c.getContext('2d')
+    x.clearRect(0, 0, W, H)
+    x.drawImage(el, 0, 0, W, H)
+    var d = x.getImageData(0, 0, W, H).data
+    for (var y = 0; y < H; y++) {
+      for (var xx = 0; xx < W; xx++) {
+        if (d[(y * W + xx) * 4 + 3] > 40) return rc.top + y * rc.height / H
+      }
+    }
+    return null
+  } catch (err) { return null }
+}
+// 气泡**可见轮廓**的底边相对 pop 盒顶的高度（不按盒子：盒子尾巴下方有透明留白）
+function bubbleVisibleBottomInBox() {
+  try {
+    if (!bubbleBox) return null
+    var pr = bubbleBox.getBoundingClientRect()
+    if (!(pr.height > 0)) return null
+    var tail = bubbleBox.querySelector('.dshwv-b2') || bubbleBox.querySelector('.dshwv-b1') ||
+      bubbleBox.querySelector('.dshwv-bshape')
+    var tr = tail ? tail.getBoundingClientRect() : null
+    var vis = tr && tr.height > 0 ? tr.bottom : pr.bottom
+    var h = vis - pr.top
+    return (h > 0 && h <= pr.height) ? h : pr.height
+  } catch (err) { return null }
+}
+function applyBubbleAvoid(charTopHint) {
+  try {
+    if (!bubbleBox) return
+    // 判「气泡当前是否可见」用实测：bubbleShown 是逻辑态，切换角色/收敛过程中可能滞后于 DOM；
+    // 只要 pop 有尺寸并且带 open 类，就该避让。
+    var pr = bubbleBox.getBoundingClientRect()
+    if (!(pr.height > 0)) return
+    if (!bubbleShown && bubbleBox.className.indexOf('dshwv-pop-open') < 0) return
+    var charTop = (charTopHint !== undefined && charTopHint !== null) ? charTopHint : measureCharTopPx()
+    if (charTop === null || !isFinite(charTop)) return
+    var visH = bubbleVisibleBottomInBox() || pr.height
+    // 自然落位基准：优先用 bubbleFitContent 记录的值；它不可用（null/undefined/非有限）时，
+    // 用「当前 top + 已抬升量」反推。全程保证 baseTop 是有限数（否则会写出 NaN 的 style.top，
+    // 上一版就踩过：切到桌宠后 petBubbleBaseEffective 还是 null，style.top 变成 NaNpx 直接被浏览器丢弃）。
+    var curTop = parseFloat(bubbleBox.style.top)
+    if (!isFinite(curTop)) curTop = 0
+    if (!isFinite(bubbleAvoidLift)) bubbleAvoidLift = 0
+    var baseTop
+    if (petBubbleBaseEffective !== null && petBubbleBaseEffective !== undefined &&
+      isFinite(petBubbleBaseEffective)) baseTop = petBubbleBaseEffective
+    else baseTop = curTop + bubbleAvoidLift
+    var naturalVisBottom = pr.top + visH
+    var wantVisBottom = charTop - 4
+    var lift = Math.round(naturalVisBottom - wantVisBottom)
+    if (!(lift > 0)) lift = 0
+    // 抬升后气泡顶不能越过视口安全线
+    var maxLift = Math.round(naturalVisBottom - pr.height - (widgetTopMin() + 8))
+    if (!(maxLift > 0)) maxLift = 0
+    if (lift > maxLift) lift = maxLift
+    if (lift === bubbleAvoidLift) return
+    bubbleBox.style.top = (baseTop - lift) + 'px'
+    bubbleAvoidLift = lift
+  } catch (err) {}
+}
 function scheduleBubbleFit() {
   if (bubbleFitPending) return
   bubbleFitPending = true
@@ -14512,7 +14606,8 @@ function scheduleBubbleFit() {
     bubbleFitPending = false
     if (!bubbleShown) return
     bubbleFitContent(bubbleBox, textBox, root.clientWidth, false)
-    // 气泡尺寸/内容变了 ⇒ 底边位置跟着变 ⇒ 桌宠的「头顶避让」必须重算一次
+    // 气泡尺寸/内容变了 ⇒ 底边位置跟着变 ⇒ 人物头顶避让必须重算
+    applyBubbleAvoid()
     if (petOn) petRefitNow()
   })
 }
@@ -20955,6 +21050,12 @@ function applyRole(id, name, url) {
   setupHitTest(url)
   closeRolePanel()
   renderRolePanel()
+  // 角色图换了 ⇒ 可见内容的顶边/高度都变了 ⇒ 气泡避让必须重算
+  // （不等 load 事件：缓存命中的图可能同步完成，onload 不会再触发）
+  try {
+    if (img.complete && img.naturalWidth > 0) { applyBubbleAvoid() }
+    else { img.addEventListener('load', function () { applyBubbleAvoid() }, { once: true }) }
+  } catch (err) {}
 }
 function roleUrl(id) {
   if (id === 'default') return IMG_URL
@@ -20986,10 +21087,18 @@ function exprRoleUrlNow() { return (currentRole && currentRole.url) ? currentRol
 // 唯一的换图入口：src + 命中图重建（照 applyRole 的三步，但不碰角色状态）
 function exprApplySkin(url) {
   if (!url || petOn) return
+  var same = (img.src === url || img.currentSrc === url)
   img.src = url
   hitReady = false
   hitFailed = false
   try { setupHitTest(url) } catch (err) {}
+  // 换表情图 ⇒ 可见内容顶边可能变（大碗 vs 平头、闭眼 vs 睁眼）⇒ 气泡避让重算。
+  // 同 URL 不重算（眨眼高频切换时避免每帧量 canvas）。
+  if (same) return
+  try {
+    if (img.complete && img.naturalWidth > 0) applyBubbleAvoid()
+    else img.addEventListener('load', function () { applyBubbleAvoid() }, { once: true })
+  } catch (err) {}
 }
 // 唯一的「现在该显示哪张图」决策点
 function exprRender() {
@@ -21583,14 +21692,13 @@ function petAutoFit(v) {
     // 底边：让「当前帧的不透明底」正好落在 g.bottom
     var gapPx = m.gapRatio * petFitH
     petWrap.style.bottom = (g.rootBottom - g.bottom - gapPx).toFixed(1) + 'px'
-    // 气泡上移让位（绝对基准，不累积）
-    if (popH > 0 && popBase !== null) {
-      if (solved.lift !== petBubbleLifted) {
-        bubbleBox.style.top = (popBase - solved.lift) + 'px'
-        petBubbleLifted = solved.lift
-      }
-    }
+    // 气泡上移让位：统一交给 applyBubbleAvoid()（它按**不透明像素**量头顶，鲸鱼/桌宠同一条路径，
+    // 两套抬升逻辑共存会互相覆盖 style.top）。这里把刚算出的精确头顶直接传进去，
+    // 免去它再量一次 canvas（视频帧刚换过，重复量可能拿到另一帧的值）。
+    if (solved.lift > 0) petBubbleLifted = solved.lift
     petUpdateHit()
+    var charTopAbs = g.bottom - charH
+    applyBubbleAvoid(charTopAbs)
   } catch (err) {}
 }
 // 立即按"当前可见层"重排一次（供气泡内容变化、窗口缩放、角色切换调用）
@@ -21955,6 +22063,8 @@ function petHealTick() {
     // 标签页不可见时浏览器会强制暂停 video（paused=true 属正常），此时不判"空白"、也不重播，
     // 否则会在后台反复换段、切回前台时乱跳
     if (document.hidden) return
+    // 顺手校正气泡避让（兜底：切换角色/气泡内容变化时可能没触发到，这里每 1.5s 补一次）
+    applyBubbleAvoid()
     var v = petVidCur()
     var ok = !!(v && v.readyState >= 2 && v.currentSrc && !v.paused && v.style.opacity === '1')
     if (ok) return
