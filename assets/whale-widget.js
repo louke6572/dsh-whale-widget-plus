@@ -619,6 +619,7 @@ var css = [
   '.dshwv-petmenu .dshwv-petsec{font-size:10px;opacity:.6;margin:6px 4px 2px;user-select:none}',
   '.dshwv-petmenu .dshwv-petitem{padding:4px 6px;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;user-select:none}',
   '.dshwv-petmenu .dshwv-petitem:hover{background:rgba(32,49,112,.08)}',
+  '.dshwv-menu-row.dshwv-pet-hide{display:none !important}',
   // v751（PR #119）：光标不再写 document.body.style.cursor —— cursor 是可继承属性，写 <body> 会让 Blink
   // 失效**整棵文档树**的样式；而它在点击链路上按下/抬手各写一次，紧接着 isWhaleHit() 的
   // getBoundingClientRect() 与泡泡行测量的 getComputedStyle()/scrollWidth 会强制刷新样式+布局，
@@ -20708,6 +20709,7 @@ var menuOpen = false
 var menuClosedAt = 0 // 最近一次关闭菜单的时刻(用于避免"关掉后同一次手势又把它长按打开")
 function toggleMenu() {
   try { petCloseActions() } catch (err) {}
+  try { petApplyMenuMode() } catch (err) {}
   // v865（issue #237 后半）：打开菜单时补读一次 size 配置（别的端/别的标签改过也能立刻生效）
   try { resyncSizeCfg() } catch (err) {}
   menuOpen = !menuOpen
@@ -21465,6 +21467,49 @@ function petUpdateHit() {
     applyHitClip(buildHitClipPath())
   } catch (err) { hitFailed = true; hitReady = false; applyHitClip('') }
 }
+var petFitH = 0 // 动画层高度（只按第一段动画定一次；其余动画只调底边，避免大小跳变）
+function petMeasure(v) {
+  // 量「当前帧的不透明包围盒」：返回角色在帧内的高度占比与**底部留白占比**
+  try {
+    if (!v || !v.videoWidth || !v.videoHeight) return null
+    var W = 128
+    var H = Math.max(1, Math.round(W * v.videoHeight / v.videoWidth))
+    var c = document.createElement('canvas')
+    c.width = W
+    c.height = H
+    var ctx = c.getContext('2d')
+    ctx.clearRect(0, 0, W, H)
+    ctx.drawImage(v, 0, 0, W, H)
+    var d = ctx.getImageData(0, 0, W, H).data
+    var minY = H
+    var maxY = -1
+    for (var y = 0; y < H; y++) {
+      for (var x = 0; x < W; x++) {
+        if (d[(y * W + x) * 4 + 3] > 12) { if (y < minY) minY = y; if (y > maxY) maxY = y }
+      }
+    }
+    if (maxY < 0 || minY >= H) return null
+    return { charRatio: (maxY - minY + 1) / H, gapRatio: (H - 1 - maxY) / H }
+  } catch (err) { return null }
+}
+// 对齐：角色脚底贴容器底（与峰谷徽标同一条底线），角色高度对齐鲸鱼图高度
+function petAutoFit(v) {
+  try {
+    var m = petMeasure(v)
+    if (!m || !(m.charRatio > 0.15)) return
+    if (!petFitH) {
+      var rootH = root.getBoundingClientRect().height || 0
+      var target = 0.54 * rootH // 略小于 .dshwv-img 盒高：角色本体（非帧）视觉尺寸与鲸鱼娘相当
+      if (!(target > 20)) return
+      petFitH = target / m.charRatio
+      petWrap.style.height = petFitH.toFixed(1) + 'px'
+      petWrap.style.width = (petFitH * (v.videoWidth / v.videoHeight)).toFixed(1) + 'px'
+    }
+    // 每段动画的底部留白不同 ⇒ 每次都用当前帧把脚底压回底线
+    petWrap.style.bottom = (-(m.gapRatio * petFitH)).toFixed(1) + 'px'
+    petUpdateHit()
+  } catch (err) {}
+}
 function petMarkBroken(name) {
   try { if (petAnims) delete petAnims[name] } catch (err) {}
   if (name === PET_IDLE) { try { petDisable() } catch (err) {} }
@@ -21485,6 +21530,7 @@ function petSwitchTo(name, loop) {
       back.style.opacity = '1'
       cur.style.opacity = '0'
       if (!petFirstFrame) { petFirstFrame = true; try { img.style.visibility = 'hidden' } catch (err) {} }
+      petAutoFit(back)
       petShown = 1 - petShown
       petApplyFacing()
       setTimeout(function () {
@@ -21652,6 +21698,22 @@ function petLoadAnims(cb) {
     })
     .catch(function () { petLoading = false; if (cb) cb(false) })
 }
+var PET_MENU_HIDE = ['气泡全局开关', '峰谷徽标', '表情层', '眨眼', '表情包', '表情', '台词', '火山额度']
+function petApplyMenuMode() {
+  try {
+    var rows = document.querySelectorAll('.dshwv-menu-row')
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i]
+      var txt = String(row.textContent || '')
+      var hide = false
+      for (var k = 0; k < PET_MENU_HIDE.length; k++) {
+        if (txt.indexOf(PET_MENU_HIDE[k]) === 0) { hide = true; break }
+      }
+      // 「角色」行在桌宠形态下也隐藏（切回来用底部的桌宠动作行/角色面板）
+      row.classList.toggle('dshwv-pet-hide', !!petOn && hide)
+    }
+  } catch (err) {}
+}
 function petEnable(byUser) {
   if (petOn) return
   if (!petWrap) return
@@ -21669,6 +21731,7 @@ function petEnable(byUser) {
     petApplyFacing()
     petRunChain()
     renderRolePanel()
+    petApplyMenuMode()
     // 看门狗：部分环境（无软件解码的 Chromium / 受限 WebView）能报"支持 VP9"却一帧都解不出来，
     // 表现是宠物区域一直空白。4 秒内没有任何一层就绪 ⇒ 回退普通角色并给出明确提示。
     setTimeout(function () {
@@ -21698,7 +21761,10 @@ function petDisable() {
   } catch (err) {}
   try { petWrap.style.display = 'none' } catch (err) {}
   petFirstFrame = false
+  petFitH = 0
+  try { petWrap.style.height = ''; petWrap.style.width = ''; petWrap.style.bottom = '' } catch (err) {}
   try { img.style.visibility = '' } catch (err) {}
+  petApplyMenuMode()
   try { setupHitTest(currentRole && currentRole.url ? currentRole.url : IMG_URL) } catch (err) {}
   try { exprRender() } catch (err) {}
 }
