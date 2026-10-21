@@ -22042,17 +22042,25 @@ function petDisable() {
   petFirstFrame = false
   petFitH = 0
   try { petWrap.style.height = ''; petWrap.style.width = ''; petWrap.style.bottom = '' } catch (err) {}
-  // 退出桌宠 ⇒ 撤销气泡避让，回到自然落位（否则气泡会永远悬在半空）
+  // 退出桌宠 ⇒ 撤销气泡避让，回到自然落位；随后按新角色（鲸鱼图）重新避让一次
   try {
-    if (petBubbleLifted && bubbleBox && petBubbleBaseTop !== null) {
-      bubbleBox.style.top = petBubbleBaseTop + 'px'
+    if (bubbleBox && petBubbleBaseEffective !== null && isFinite(petBubbleBaseEffective)) {
+      bubbleBox.style.top = petBubbleBaseEffective + 'px'
     }
     petBubbleLifted = 0
+    bubbleAvoidLift = 0
   } catch (err) {}
   try { img.style.visibility = '' } catch (err) {}
   petApplyMenuMode()
   try { setupHitTest(currentRole && currentRole.url ? currentRole.url : IMG_URL) } catch (err) {}
   try { exprRender() } catch (err) {}
+  // 按新角色（鲸鱼图）重新避让一次：上面把抬升量清零了，不重算就会退回自然落位 ⇒ 重新压气泡。
+  // exprApplySkin 也可能触发一次，但那时 img 尚未解码完（naturalWidth=0），本调用是权威值。
+  var retry = 0
+  ;(function again() {
+    applyBubbleAvoid()
+    if (retry++ < 5 && (!img.complete || !img.naturalWidth)) setTimeout(again, 80)
+  })()
 }
 // 绑定双层的 ended / 首帧就绪（脚本末尾调用）
 // 自愈：桌宠形态下每 1.5s 检查一次「有没有一层在播」，没有就强制补 idle ——
