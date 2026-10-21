@@ -613,8 +613,12 @@ var css = [
   '.dshwv-img{position:absolute;right:0;bottom:0;width:59.45%;height:59.45%;display:block;pointer-events:auto;-webkit-user-drag:none;user-select:none;object-fit:contain;object-position:right bottom}',
   // 桌宠形态：与 img 完全同框同几何（命中矩形/翻转/压扁全部复用 img 那套），
   // 双层 video 做交叉淡入（切换动画零空白帧）；pointer-events:none —— 事件仍由 img 接。
-  '.dshwv-petwrap{position:absolute;right:0;bottom:0;width:59.45%;height:59.45%;display:none;pointer-events:none}',
+  '.dshwv-petwrap{position:absolute;right:0;bottom:0;height:66%;width:auto;aspect-ratio:640/360;display:none;pointer-events:none}',
   '.dshwv-petvid{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:right bottom;opacity:0;transition:opacity .22s ease;pointer-events:none;-webkit-user-drag:none;user-select:none}',
+  '.dshwv-petmenu{position:absolute;right:0;bottom:calc(66% + 6px);width:174px;max-height:58%;overflow-y:auto;background:rgba(255,255,255,.97);border:1px solid rgba(32,49,112,.22);border-radius:10px;box-shadow:0 8px 22px rgba(15,23,42,.22);padding:6px;z-index:30;font-size:12px;color:#203170}',
+  '.dshwv-petmenu .dshwv-petsec{font-size:10px;opacity:.6;margin:6px 4px 2px;user-select:none}',
+  '.dshwv-petmenu .dshwv-petitem{padding:4px 6px;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;user-select:none}',
+  '.dshwv-petmenu .dshwv-petitem:hover{background:rgba(32,49,112,.08)}',
   // v751（PR #119）：光标不再写 document.body.style.cursor —— cursor 是可继承属性，写 <body> 会让 Blink
   // 失效**整棵文档树**的样式；而它在点击链路上按下/抬手各写一次，紧接着 isWhaleHit() 的
   // getBoundingClientRect() 与泡泡行测量的 getComputedStyle()/scrollWidth 会强制刷新样式+布局，
@@ -2125,6 +2129,16 @@ soundPanelBtn.textContent = '音效/提示泡泡设置'
 soundPanelBtn.title = '提示与音效设置：按压音量/音效组、每轮消耗提示、提问提示、授权提示'
 soundPanelBtn.addEventListener('click', function (e) { e.stopPropagation(); openSoundSettingsPanel() })
 row2.appendChild(soundPanelBtn)
+var rowPet = menuRow()
+rowPet.appendChild(menuLabel('桌宠动作'))
+var petActBtn = document.createElement('button')
+petActBtn.type = 'button'
+petActBtn.className = 'dshwv-roleimport'
+petActBtn.style.flex = '1'
+petActBtn.textContent = '动作菜单'
+petActBtn.title = '桌宠形态下点播一段动画（也可右键角色唤出）；未切到桌宠形态时会提示'
+petActBtn.addEventListener('click', function (e) { e.stopPropagation(); petOpenActions() })
+rowPet.appendChild(petActBtn)
 var row6 = menuRow()
 row6.appendChild(menuLabel('气泡全局开关'))
 row6.appendChild(bubbleToggle)
@@ -2187,6 +2201,7 @@ roleFileInput.addEventListener('change', function () { onRoleFileChosen(roleFile
 menuBox.appendChild(rowRole)
 menuBox.appendChild(row1)
 menuBox.appendChild(row2)
+menuBox.appendChild(rowPet)
 menuBox.appendChild(row6)
 // —— 峰谷徽标：外置常驻徽标的状态字样式（localStorage 持久化，改完即时重绘徽标）——
 // 样式取值与峰谷模块 peakStyle 同一套：mini=峰/谷，liangwen=梁文峰/梁文谷，
@@ -20692,6 +20707,7 @@ function pressUp() {
 var menuOpen = false
 var menuClosedAt = 0 // 最近一次关闭菜单的时刻(用于避免"关掉后同一次手势又把它长按打开")
 function toggleMenu() {
+  try { petCloseActions() } catch (err) {}
   // v865（issue #237 后半）：打开菜单时补读一次 size 配置（别的端/别的标签改过也能立刻生效）
   try { resyncSizeCfg() } catch (err) {}
   menuOpen = !menuOpen
@@ -21407,6 +21423,7 @@ var petCur = ''
 var petFacingR = false // 桌宠自己的朝向（与挂件吸附翻转叠加）
 var petTimer = 0
 var petWaitKey = ''
+var petFirstFrame = false // 首帧是否就绪（就绪后才隐藏 img，避免空白）
 var petTempUntil = 0 // 临时插播（点击回应/拖拽/工作状态）到期时间：期间链不再抢播
 function petUrl(name) { return '/dsh-whale/pet-video.webm?name=' + encodeURIComponent(name) }
 function petHave(name) { return !!(petAnims && petAnims[name]) }
@@ -21467,6 +21484,7 @@ function petSwitchTo(name, loop) {
       try { var p = back.play(); if (p && p.catch) p.catch(function () {}) } catch (err) {}
       back.style.opacity = '1'
       cur.style.opacity = '0'
+      if (!petFirstFrame) { petFirstFrame = true; try { img.style.visibility = 'hidden' } catch (err) {} }
       petShown = 1 - petShown
       petApplyFacing()
       setTimeout(function () {
@@ -21555,6 +21573,68 @@ function petWork(kind) {
   petTempUntil = Date.now() + 2600
   petSwitchTo(name, false)
 }
+var petMenuEl = null
+function petCloseActions() {
+  if (!petMenuEl) return
+  try { petMenuEl.remove() } catch (err) {}
+  petMenuEl = null
+}
+function petPlayNamed(name) {
+  if (!petOn || !petHave(name)) return
+  petCloseActions()
+  if (name === PET_IDLE) { petTempUntil = Date.now() + 8000; petSwitchTo(name, true) }
+  else { petTempUntil = Date.now() + 6000; petSwitchTo(name, false) }
+}
+// 桌宠「动作」菜单：右键角色唤出（主菜单「桌宠动作」行也指向它），分类与 dsh-pet 右键级联菜单同源
+function petOpenActions() {
+  if (!petOn) { try { dshwvToast('先在「角色」里切到「桌宠（动画）」') } catch (err) {} return }
+  petCloseActions()
+  if (!petAnims) return
+  var el = document.createElement('div')
+  el.className = 'dshwv-petmenu'
+  function sec(t) { var d = document.createElement('div'); d.className = 'dshwv-petsec'; d.textContent = t; el.appendChild(d) }
+  function item(t, name) {
+    var d = document.createElement('div')
+    d.className = 'dshwv-petitem'
+    d.textContent = t
+    d.title = t
+    d.addEventListener('click', function (e) { e.stopPropagation(); petPlayNamed(name) })
+    el.appendChild(d)
+  }
+  var rand = document.createElement('div')
+  rand.className = 'dshwv-petitem'
+  rand.textContent = '🎲 随机一段'
+  rand.style.fontWeight = '600'
+  rand.addEventListener('click', function (e) { e.stopPropagation(); petCloseActions(); petRunChain() })
+  el.appendChild(rand)
+  sec('待机 / 转向 / 移动')
+  petFilter(PET_POOLS.idle).forEach(function (x) { item(x, x) })
+  petFilter(PET_POOLS.turn).forEach(function (x) { item(x, x) })
+  petFilter(PET_POOLS.moves).forEach(function (x) { item(x, x) })
+  sec('点击回应')
+  petFilter(PET_POOLS.clicks).forEach(function (x) { item(x, x) })
+  PET_POOLS.cats.forEach(function (c) {
+    var list = petFilter(c.list)
+    if (!list.length) return
+    sec(c.id)
+    list.forEach(function (x) { item(x, x) })
+  })
+  sec('工作状态')
+  Object.keys(PET_POOLS.work).forEach(function (k) {
+    var nm = PET_POOLS.work[k]
+    if (petHave(nm)) item(nm, nm)
+  })
+  root.appendChild(el)
+  petMenuEl = el
+  setTimeout(function () {
+    function off(ev) {
+      try { if (petMenuEl && petMenuEl.contains(ev.target)) return } catch (err) {}
+      document.removeEventListener('pointerdown', off, true)
+      petCloseActions()
+    }
+    document.addEventListener('pointerdown', off, true)
+  }, 0)
+}
 function petLoadAnims(cb) {
   if (petAnims) { if (cb) cb(true); return }
   if (petLoading) return
@@ -21582,7 +21662,6 @@ function petEnable(byUser) {
     petFacingR = false
     petTempUntil = 0
     petCur = ''
-    try { img.style.visibility = 'hidden' } catch (err) {}
     petWrap.style.display = 'block'
     currentRole = { id: PET_ROLE_ID, name: '桌宠', url: '' }
     setRoleBtnText('桌宠')
@@ -21618,6 +21697,7 @@ function petDisable() {
     petVidA.load(); petVidB.load()
   } catch (err) {}
   try { petWrap.style.display = 'none' } catch (err) {}
+  petFirstFrame = false
   try { img.style.visibility = '' } catch (err) {}
   try { setupHitTest(currentRole && currentRole.url ? currentRole.url : IMG_URL) } catch (err) {}
   try { exprRender() } catch (err) {}
@@ -23360,6 +23440,13 @@ function buildHitClipPath() {
   }
 }
 function isWhaleHit(e) {
+  // 桌宠形态：以动画层矩形为准（视频帧的透明边距很小，且逐帧重算凸包成本高、易错）。
+  if (petOn) {
+    try {
+      var pr = petWrap.getBoundingClientRect()
+      return pr.width > 0 && e.clientX >= pr.left && e.clientX <= pr.right && e.clientY >= pr.top && e.clientY <= pr.bottom
+    } catch (err) { return false }
+  }
   // 命中图未就绪/失败时：绝不默认“全屏都是鲸鱼”。
   // 加载中 → 返回 false（不拦截页面）；加载失败 → 退回图像矩形区域，仅挂件区域可拖。
   if (!hitCanvas || !hitReady) {
@@ -23469,6 +23556,7 @@ function onDocClickStopper(e) {
 // 右键小鲸鱼唤出菜单(仅在开启「隐藏菜单按钮」时生效;菜单位置与按钮唤出一致)
 function onDocContextMenu(e) {
   try {
+    if (petOn && isWhaleHit(e)) { e.preventDefault(); petOpenActions(); return }
     if (!menuBtnHide) return
     // 触摸端:原生 contextmenu(部分 Android 约 500ms 就补发)一律吞掉不触发,
     // 唤出时机统一由我们的长按计时决定,避免早于设定时长或重复开合
@@ -23476,8 +23564,9 @@ function onDocContextMenu(e) {
       e.preventDefault()
       return
     }
+    if (petOn && isWhaleHit(e)) { e.preventDefault(); petOpenActions(); return }
     if (e.target && e.target.closest) {
-      if (e.target.closest('.dshwv-pop') || e.target.closest('.dshwv-menu') || e.target.closest('.dshwv-menu-btn') ||
+      if (e.target.closest('.dshwv-petmenu') || e.target.closest('.dshwv-pop') || e.target.closest('.dshwv-menu') || e.target.closest('.dshwv-menu-btn') ||
           e.target.closest('.dshwv-rolelist') || e.target.closest('.dshwv-audiolist') || e.target.closest('.dshwv-cropmask') ||
           e.target.closest('.dshwv-confirmmask') || e.target.closest('.dshwv-audiomask') || e.target.closest('.dshwv-snapmask') ||
           e.target.closest('.dshwv-bubmask') || e.target.closest('.dshwv-framemask') || e.target.closest('.dshwv-qedit') || e.target.closest('.dshwv-usagepanel') || e.target.closest('.dshwv-usage-mask') ||
