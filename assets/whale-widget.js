@@ -616,6 +616,13 @@ var css = [
   '.dshwv-petwrap{position:absolute;right:0;bottom:0;height:66%;width:auto;aspect-ratio:640/360;display:none;pointer-events:none}',
   '.dshwv-petvid{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:right bottom;opacity:0;transition:opacity .22s ease;pointer-events:none;-webkit-user-drag:none;user-select:none}',
   '.dshwv-petmenu{position:absolute;right:0;bottom:calc(66% + 6px);width:174px;max-height:58%;overflow-y:auto;background:rgba(255,255,255,.97);border:1px solid rgba(32,49,112,.22);border-radius:10px;box-shadow:0 8px 22px rgba(15,23,42,.22);padding:6px;z-index:30;font-size:12px;color:#203170}',
+  // 桌宠动作面板：嵌在主菜单内（同一个 .dshwv-menu 浮层），不再另开第二套菜单
+  '.dshwv-petacts{display:none;width:100%;max-height:min(62vh,520px);overflow-y:auto;box-sizing:border-box;padding-bottom:10px;color:#203170}',
+  '.dshwv-petacts .dshwv-petacts-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px}',
+  '.dshwv-petacts .dshwv-petacts-back{border:none;background:rgba(32,49,112,.08);border-radius:6px;padding:3px 9px;cursor:pointer;font:inherit;font-size:12px;color:#203170}',
+  '.dshwv-petacts .dshwv-petacts-cat{font-size:11px;font-weight:600;opacity:.6;margin:10px 2px 4px;user-select:none}',
+  '.dshwv-petacts .dshwv-petacts-item{padding:4px 8px;border-radius:6px;cursor:pointer;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+  '.dshwv-petacts .dshwv-petacts-item:hover{background:rgba(32,49,112,.08)}',
   '.dshwv-petmenu .dshwv-petsec{font-size:10px;opacity:.6;margin:6px 4px 2px;user-select:none}',
   '.dshwv-petmenu .dshwv-petitem{padding:4px 6px;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;user-select:none}',
   '.dshwv-petmenu .dshwv-petitem:hover{background:rgba(32,49,112,.08)}',
@@ -2138,8 +2145,24 @@ petActBtn.className = 'dshwv-roleimport'
 petActBtn.style.flex = '1'
 petActBtn.textContent = '动作菜单'
 petActBtn.title = '桌宠形态下点播一段动画（也可右键角色唤出）；未切到桌宠形态时会提示'
-petActBtn.addEventListener('click', function (e) { e.stopPropagation(); petOpenActions() })
+petActBtn.addEventListener('click', function (e) { e.stopPropagation(); petActsOpen() })
 rowPet.appendChild(petActBtn)
+// —— 桌宠专用：一键切回小鲸鱼（桌宠形态下主菜单只保留桌宠相关项，角色下拉行会被隐藏）——
+var rowPetBack = menuRow()
+var petBackBtn = document.createElement('button')
+petBackBtn.type = 'button'
+petBackBtn.className = 'dshwv-roleimport'
+petBackBtn.style.flex = '1'
+petBackBtn.textContent = '切回小鲸鱼'
+petBackBtn.title = '退出桌宠形态，切回默认小鲸鱼角色'
+petBackBtn.addEventListener('click', function (e) {
+  e.stopPropagation()
+  try { applyRole('default', '小鲸鱼', IMG_URL) } catch (err) {}
+  try { toggleMenu() } catch (err) {}
+})
+rowPetBack.appendChild(menuLabel('切回小鲸鱼'))
+rowPetBack.appendChild(petBackBtn)
+menuBox.appendChild(rowPetBack)
 var row6 = menuRow()
 row6.appendChild(menuLabel('气泡全局开关'))
 row6.appendChild(bubbleToggle)
@@ -14499,8 +14522,10 @@ function bubbleFitContent(pop, tb, baseW, preview) {
     if (pop === bubbleBox) {
       petBubbleBaseTop = baseH - h + cy - content.cy
       petBubbleBaseEffective = petBubbleBaseTop
-      petBubbleLifted = 0
       bubbleAvoidLift = 0
+      // 换了内容（点泡泡切下一项）⇒ 先落到自然位置。必须**同帧**立刻重算避让，
+      // 否则要等 MutationObserver 的下一帧才抬回去：用户看到泡泡先向下掉一下再弹回（"上下闪动"）。
+      try { applyBubbleAvoid() } catch (err) {}
     }
   }
   // 清掉本次分行生成 span 的记录，避免布局自身触发无限重排。
@@ -14573,8 +14598,14 @@ function applyBubbleAvoid(charTopHint) {
     var pr = bubbleBox.getBoundingClientRect()
     if (!(pr.height > 0)) return
     if (!bubbleShown && bubbleBox.className.indexOf('dshwv-pop-open') < 0) return
-    var charTop = (charTopHint !== undefined && charTopHint !== null) ? charTopHint : measureCharTopPx()
-    if (charTop === null || !isFinite(charTop)) return
+    var charTopRaw = (charTopHint !== undefined && charTopHint !== null) ? charTopHint : measureCharTopPx()
+    if (charTopRaw === null || !isFinite(charTopRaw)) return
+    // 头顶稳定值：呼吸/眨眼等每帧不透明轮廓会差几像素，跟着量会让气泡上下抖。
+    // 只在「换角色/换动画段」时由调用方传 hint 更新；别的自测量一律沿用缓存。
+    // 点泡泡切文字时会重排气泡，此时**不能**重新量头，否则气泡会跟着那一帧的姿势上下闪。
+    if (bubbleAvoidHead === null || !isFinite(bubbleAvoidHead)) bubbleAvoidHead = charTopRaw
+    else if (charTopHint !== undefined && charTopHint !== null && Math.abs(charTopHint - bubbleAvoidHead) > 8) bubbleAvoidHead = charTopHint
+    var charTop = bubbleAvoidHead
     var visH = bubbleVisibleBottomInBox() || pr.height
     // 自然落位基准：优先用 bubbleFitContent 记录的值；它不可用（null/undefined/非有限）时，
     // 用「当前 top + 已抬升量」反推。全程保证 baseTop 是有限数（否则会写出 NaN 的 style.top，
@@ -14586,15 +14617,23 @@ function applyBubbleAvoid(charTopHint) {
     if (petBubbleBaseEffective !== null && petBubbleBaseEffective !== undefined &&
       isFinite(petBubbleBaseEffective)) baseTop = petBubbleBaseEffective
     else baseTop = curTop + bubbleAvoidLift
-    var naturalVisBottom = pr.top + visH
+    // ⚠️ 必须用「自然落位」算可见底边，不能用当前 pr.top。
+    // 旧实现用当前 top（已抬升后的位置）反推 lift，而 bubbleFitContent 每次重排又把 lift 归零 ⇒
+    // 形成正反馈：抬升 → 下次数出「已经不用抬」→ 落回 → 再抬。实测气泡底边在 786/864 间反复跳，
+    // 一半时间压在桌宠头上。以 baseTop（自然 top）为绝对基准后，结果幂等、同帧收敛。
+    var rootTop = 0
+    try { rootTop = root.getBoundingClientRect().top } catch (err) { rootTop = 0 }
+    var baseTopAbs = rootTop + baseTop
+    var naturalVisBottom = baseTopAbs + visH
     var wantVisBottom = charTop - 4
     var lift = Math.round(naturalVisBottom - wantVisBottom)
     if (!(lift > 0)) lift = 0
-    // 抬升后气泡顶不能越过视口安全线
-    var maxLift = Math.round(naturalVisBottom - pr.height - (widgetTopMin() + 8))
+    // 抬升后气泡顶不能越过视口安全线（天然 top 绝对坐标 - lift ≥ 安全线）
+    var maxLift = Math.round(baseTopAbs - (widgetTopMin() + 8))
     if (!(maxLift > 0)) maxLift = 0
     if (lift > maxLift) lift = maxLift
-    if (lift === bubbleAvoidLift) return
+    // 死区：1px 内不重写，避免亚像素级抖动
+    if (Math.abs(lift - bubbleAvoidLift) <= 1 && bubbleBox.style.top) return
     bubbleBox.style.top = (baseTop - lift) + 'px'
     bubbleAvoidLift = lift
   } catch (err) {}
@@ -14722,12 +14761,16 @@ try {
     pbStepEl.appendChild(pbStepChip)
     pbWrap.appendChild(pbStepEl)
   // 左右镜像补偿：吸附到对侧（dshwv-left）时人物贴图自身镜像、质量偏向视觉左，
-  // 徽标若留在本地 left:0 会与人物重叠。这里把徽标挂到容器右缘外侧（朝屏幕中心的空白区），
-  // 物理上与人物完全错开；不加镜像变换，文字保持正读。
+  // 徽标若留在本地 left:0 会与人物重叠。这里把徽标挂到**屏幕上的容器右缘外侧**
+  // （朝屏幕中心的空白区），并反向抵消一次镜像让文字正读。
   function pbSyncFlip() {
     try {
       if (root.classList.contains('dshwv-left')) {
-        pbWrap.style.left = 'auto'; pbWrap.style.right = '-10px'; pbWrap.style.transform = ''
+        // ⚠️ root 是 scaleX(-1)：局部 left/right 的视觉方向是反的。
+        // 想让徽标落在**屏幕上的右侧**（人物贴左后的空白区），必须写局部 left:-10；
+        // 写 right:-10 会被镜像到屏幕最左边（实测 l=-10，压在人物上并出屏）。
+        // 文字同样被 root 镜像 ⇒ 必须再 scaleX(-1) 抵消一次，才能正读。
+        pbWrap.style.left = '-10px'; pbWrap.style.right = 'auto'; pbWrap.style.transform = 'scaleX(-1)'
       } else {
         pbWrap.style.left = '0'; pbWrap.style.right = ''; pbWrap.style.transform = ''
       }
@@ -20812,6 +20855,7 @@ var menuOpen = false
 var menuClosedAt = 0 // 最近一次关闭菜单的时刻(用于避免"关掉后同一次手势又把它长按打开")
 function toggleMenu() {
   try { petCloseActions() } catch (err) {}
+  try { petActsClose() } catch (err) {}
   try { petApplyMenuMode() } catch (err) {}
   // v865（issue #237 后半）：打开菜单时补读一次 size 配置（别的端/别的标签改过也能立刻生效）
   try { resyncSizeCfg() } catch (err) {}
@@ -20838,6 +20882,7 @@ function closeMenu() {
   menuOpen = false
   menuClosedAt = Date.now()
   menuBox.classList.remove('dshwv-menu-open')
+  try { petActsClose() } catch (err) {}
   closeRolePanel()
   closeAudioGroupPanel()
   closeUsagePanel()
@@ -21041,6 +21086,7 @@ function makeNameCell(className, text) {
 function applyRole(id, name, url) {
   // 切到任何普通角色 ⇒ 退出桌宠形态（桌宠自己由 petEnable/petDisable 管理）
   if (petOn && id !== PET_ROLE_ID) { try { petDisable() } catch (err) {} }
+  bubbleAvoidHead = null // 角色变了 ⇒ 头顶缓存作废，按新角色重量
   currentRole = { id: id, name: name, url: url }
   img.src = url
   setRoleBtnText(name)
@@ -21559,10 +21605,12 @@ function petPickNew(list, avoid) {
 }
 function petVidCur() { return petShown === 0 ? petVidA : petVidB }
 function petVidBack() { return petShown === 0 ? petVidB : petVidA }
-// 朝向：root 的 dshwv-left 会把整棵子树 mirror，桌宠自己的朝向再叠一层
+// 朝向：root 的 dshwv-left 已经把整棵子树镜像了（含桌宠）。
+// 这里只叠桌宠自己的朝向（转向动画翻转），**不能**再乘 state.flip ——
+// 否则两次镜像互相抵消，贴左时桌宠跟贴右一模一样，看起来"吸附反转没生效"。
 function petApplyFacing() {
   try {
-    var k = (state && state.flip ? -1 : 1) * (petFacingR ? -1 : 1)
+    var k = petFacingR ? -1 : 1
     petWrap.style.transform = 'scaleX(' + k + ')'
   } catch (err) {}
 }
@@ -21600,104 +21648,69 @@ function petMeasure(v) {
     var d = ctx.getImageData(0, 0, W, H).data
     var minY = H
     var maxY = -1
+    var minX = W
+    var maxX = -1
     for (var y = 0; y < H; y++) {
       for (var x = 0; x < W; x++) {
-        if (d[(y * W + x) * 4 + 3] > 12) { if (y < minY) minY = y; if (y > maxY) maxY = y }
+        if (d[(y * W + x) * 4 + 3] > 12) {
+          if (y < minY) minY = y
+          if (y > maxY) maxY = y
+          if (x < minX) minX = x
+          if (x > maxX) maxX = x
+        }
       }
     }
     if (maxY < 0 || minY >= H) return null
-    return { charRatio: (maxY - minY + 1) / H, gapRatio: (H - 1 - maxY) / H }
+    // 四边留白占比：定位用「不透明包围盒」的底/右贴到挂件底/右，而不是整帧贴边。
+    // 鲸鱼 PNG 的左下是透明的，所以能压住徽标；桌宠整帧透明边不同，必须按不透明区对齐，
+    // 否则会出现"人踩在徽标上"或"气泡压头"两套互相打架的布局。
+    return {
+      charRatio: (maxY - minY + 1) / H,
+      gapRatio: (H - 1 - maxY) / H,
+      topRatio: minY / H,
+      rightGapRatio: (W - 1 - maxX) / W,
+      leftGapRatio: minX / W,
+      widthRatio: (maxX - minX + 1) / W
+    }
   } catch (err) { return null }
 }
-// 地面线：**只看脚底**，与气泡完全解耦（气泡是让开的一方，不是测量基准）。
-//   · 脚底站在**徽标上沿**（再往下就会盖住梁文峰/倒计时标签 —— 桌宠不透明区比鲸鱼 PNG 宽得多，
-//     鲸鱼靠 PNG 透明边距能压住徽标，桌宠不能）
-//
-// ⚠️ 2026-10-21 实测修正（用户报"重叠、位置一模一样"的根因）：
-//   旧实现脚底对齐徽标上沿、角色高度取 root×0.46，两者互相独立 ⇒ 空隙只有 88px 而角色有 181px，
-//   头顶必然向上溢出 94px 钻进气泡 = 视觉上的"重叠"。
-//   修法（优先级明确）：① 角色保持 root×0.46 该有的尺寸 → ② **气泡整体上移**给头顶让位 →
-//   ③ 只有气泡已经顶到视口安全线、仍让不开时，才把角色按剩余空间收缩（下限 60px）。
-function petGroundLine() {
-  try {
-    var rootRect = root.getBoundingClientRect()
-    var badge = pbWrap ? pbWrap.getBoundingClientRect() : null
-    var bottom = badge && badge.height > 0 ? badge.top - 3 : rootRect.bottom - 30
-    var top = rootRect.top + rootRect.height * 0.35
-    if (!(bottom - top > 40)) top = bottom - 120
-    return { top: top, bottom: bottom, rootBottom: rootRect.bottom }
-  } catch (err) { return null }
-}
-// 布局求解：返回 { charH, lift }，纯函数式（不写 DOM），便于自检与复用。
-var petBubbleLifted = 0
+// 桌宠定位：与鲸鱼 img **完全同一套锚点** —— 不透明区的「底边贴挂件底边、右边贴挂件右边」。
+// 不再有"脚底踩徽标上沿"的地面线：徽标始终在左下，鲸鱼本身就是靠 PNG 左下透明区让开徽标；
+// 桌宠按不透明包围盒右对齐后，同样落在徽标右侧，不会压标签。
+// 尺寸只按第一段动画定一次（逐段大小不跳），底边每段动画量一次（各段底部留白不同）。
 var petBubbleBaseTop = null // bubbleFitContent 算出的自然 top（相对 .dshwv-body）
-function petSolveLayout(feetAbs, wantH, popH, naturalPopTopAbs, lowestPopTopAbs) {
-  var GAP = 4
-  var res = { charH: wantH, lift: 0 }
-  if (!(popH > 0)) return res // 没气泡：只按 wantH
-  var charTop = feetAbs - wantH
-  var needPopTop = charTop - GAP - popH
-  if (needPopTop >= lowestPopTopAbs) {
-    res.lift = Math.max(0, Math.round(naturalPopTopAbs - needPopTop))
-    return res
-  }
-  // 气泡已被顶到安全线：让不开 ⇒ 角色按剩余空间收缩
-  res.lift = Math.max(0, Math.round(naturalPopTopAbs - lowestPopTopAbs))
-  var availTop = lowestPopTopAbs + popH + GAP
-  var shrunk = feetAbs - availTop
-  if (shrunk > 60 && shrunk < wantH) res.charH = shrunk
-  return res
-}
+var petRightPad = 0
+var petFrameW = 0
+var petRootH = 0
 function petAutoFit(v) {
   try {
     var m = petMeasure(v)
     if (!m || !(m.charRatio > 0.15)) return
-    var g = petGroundLine()
-    if (!g) return
     var rootRect = root.getBoundingClientRect()
     var rootH2 = rootRect.height || 400
-    var wantH = rootH2 * 0.46
-    if (!(wantH > 40) || !(wantH < 600)) wantH = 180
-    // 气泡几何（只在显示时参与）
-    //
-    // ⚠️ 必须用**可见轮廓**（尾圈 `.dshwv-b2` 的底边）而不是 `.dshwv-pop` 盒子的底边：
-    //    pop 盒是 1026:700 定比画布，尾巴下方还有大片透明留白（实测盒底 784、尾圈底 769）。
-    //    按盒子算会多抬 15px，叠加后视觉上出现"气泡飘太高"的大空档。
-    var popH = 0, naturalPopTopAbs = 0, popBase = null, popTailBottom = 0
-    if (bubbleBox && bubbleShown) {
-      var popRect = bubbleBox.getBoundingClientRect()
-      if (popRect.height > 0) {
-        popH = popRect.height
-        popBase = petBubbleBaseTop == null ? (parseFloat(bubbleBox.style.top) || 0) : petBubbleBaseTop
-        // 可见底边：优先取尾巴末圈 b2，退而求其次取 b1 / 主体形状
-        var tailEl = bubbleBox.querySelector('.dshwv-b2') || bubbleBox.querySelector('.dshwv-b1') ||
-          bubbleBox.querySelector('.dshwv-bshape')
-        var tailRect = tailEl ? tailEl.getBoundingClientRect() : null
-        var visBottom = tailRect && tailRect.height > 0 ? tailRect.bottom : popRect.bottom
-        // 换算成"相对 pop 盒顶的可见高度"，供 petSolveLayout 按盒顶推算
-        popTailBottom = visBottom - popRect.top
-        naturalPopTopAbs = rootRect.top + popBase
-      }
-    }
-    // 用可见轮廓高度代替盒高来求 lift，最后再折回盒 top
-    var solvePopH = popH > 0 && popTailBottom > 0 && popTailBottom < popH ? popTailBottom : popH
-    var solved = petSolveLayout(g.bottom, wantH, solvePopH, naturalPopTopAbs, widgetTopMin() + 8)
-    var charH = solved.charH
-    // 尺寸只在第一段动画定（逐段只调底边，避免大小跳变）；仅在求解值明显变化时重设
-    if (!petFitH || Math.abs(petFitH * m.charRatio - charH) > 4) {
-      petFitH = charH / m.charRatio
+    // 与鲸鱼 img 同高：img 占挂件 59.45% 且不透明角色几乎填满该框 ⇒ 桌宠可见高度也取 59.45%，
+    // 这样脚底/头顶与鲸鱼完全同区间，气泡位置自然一致，不需要另算一套避让。
+    var wantH = rootH2 * 0.5945
+    if (!(wantH > 40) || !(wantH < 600)) wantH = 230
+    // 窗口/缩放变化 ⇒ 重新定尺寸；同一尺寸下只按首段动画锁一次，避免逐段跳大小
+    if (!petFitH || Math.abs(petRootH - rootH2) > 4) {
+      petRootH = rootH2
+      petFitH = wantH / m.charRatio
+      petFrameW = petFitH * (v.videoWidth / v.videoHeight)
+      // 不透明区右边贴挂件右边（留 2px 安全边）——这就是"像小鲸鱼一样靠右"。
+      // ⚠️ 帧内右侧/底部有透明留白 ⇒ 要让**不透明边**贴住挂件边，wrap 必须向外（负方向）让出留白。
+      // 留 10px 安全边：首帧量到的右侧留白与后续姿势不一定一致，贴 2px 时实测会溢出挂件 7px
+      petRightPad = 10 - m.rightGapRatio * petFrameW
       petWrap.style.height = petFitH.toFixed(1) + 'px'
-      petWrap.style.width = (petFitH * (v.videoWidth / v.videoHeight)).toFixed(1) + 'px'
+      petWrap.style.width = petFrameW.toFixed(1) + 'px'
+      petWrap.style.right = petRightPad.toFixed(1) + 'px'
     }
-    // 底边：让「当前帧的不透明底」正好落在 g.bottom
-    var gapPx = m.gapRatio * petFitH
-    petWrap.style.bottom = (g.rootBottom - g.bottom - gapPx).toFixed(1) + 'px'
-    // 气泡上移让位：统一交给 applyBubbleAvoid()（它按**不透明像素**量头顶，鲸鱼/桌宠同一条路径，
-    // 两套抬升逻辑共存会互相覆盖 style.top）。这里把刚算出的精确头顶直接传进去，
-    // 免去它再量一次 canvas（视频帧刚换过，重复量可能拿到另一帧的值）。
-    if (solved.lift > 0) petBubbleLifted = solved.lift
+    // 底边：不透明脚底贴挂件底边（各段底部留白不同，逐段校正；负值 = wrap 下探出挂件）
+    petWrap.style.bottom = (0 - m.gapRatio * petFitH).toFixed(1) + 'px'
     petUpdateHit()
-    var charTopAbs = g.bottom - charH
+    // 气泡完全复用鲸鱼路径：本段动画开播时把不透明头顶算准后传 hint，
+    // 之后同一段内气泡位置锁死（点泡泡切文字不会因为某一帧姿势变化而上下抖）。
+    var charTopAbs = petWrap.getBoundingClientRect().top + m.topRatio * petFitH
     applyBubbleAvoid(charTopAbs)
   } catch (err) {}
 }
@@ -21758,6 +21771,10 @@ function petSwitchTo(name, loop) {
       petMarkBroken(name)
       if (petOn && petAnims) petRunChain()
     }
+    // ⚠️ 关键：换段必须给隐藏层设置新的 src。旧实现只 load() 不赋 src ⇒ 换段永远加载同一段
+    // （菜单里点任何动作都"没反应"的真因）。首段能播是因为 petEnable 单独设过 bootVid.src。
+    var nextSrc = petUrl(name)
+    if (back.getAttribute('src') !== nextSrc) back.setAttribute('src', nextSrc)
     back.load()
   } catch (err) {}
 }
@@ -21872,6 +21889,85 @@ function petPlayNamed(name) {
   if (name === PET_IDLE) { petTempUntil = Date.now() + 8000; petSwitchTo(name, true) }
   else { petTempUntil = Date.now() + 6000; petSwitchTo(name, false) }
 }
+// 桌宠动作面板：**嵌在主菜单内部**（同一个 .dshwv-menu 浮层），分类与 dsh-pet 右键级联菜单同源。
+// 之前另开一个 .dshwv-petmenu 浮层 ⇒ 用户看到"两套菜单"；现在右键角色直接打开主菜单，
+// 「桌宠动作」行在菜单内切换到本面板，返回键回主菜单。
+var petActsPanel = null
+function petActsEnsure() {
+  if (petActsPanel) return petActsPanel
+  var el = document.createElement('div')
+  el.className = 'dshwv-petacts'
+  el.addEventListener('pointerdown', function (e) { e.stopPropagation() })
+  el.addEventListener('click', function (e) { e.stopPropagation() })
+  var head = document.createElement('div')
+  head.className = 'dshwv-petacts-head'
+  var title = document.createElement('span')
+  title.textContent = '桌宠动作'
+  var back = document.createElement('button')
+  back.type = 'button'
+  back.className = 'dshwv-petacts-back'
+  back.textContent = '‹ 返回'
+  back.addEventListener('click', function (e) { e.stopPropagation(); petActsClose() })
+  head.appendChild(title)
+  head.appendChild(back)
+  el.appendChild(head)
+  function sec(t) { var d = document.createElement('div'); d.className = 'dshwv-petacts-cat'; d.textContent = t; el.appendChild(d) }
+  function item(t, name) {
+    var d = document.createElement('div')
+    d.className = 'dshwv-petacts-item'
+    d.textContent = t
+    d.title = t
+    d.addEventListener('click', function (e) {
+      e.stopPropagation()
+      petPlayNamed(name)
+      try { closeMenu() } catch (err) {}
+    })
+    el.appendChild(d)
+  }
+  var rand = document.createElement('div')
+  rand.className = 'dshwv-petacts-item'
+  rand.style.fontWeight = '600'
+  rand.textContent = '🎲 随机一段'
+  rand.addEventListener('click', function (e) {
+    e.stopPropagation()
+    petRunChain()
+    try { closeMenu() } catch (err) {}
+  })
+  el.appendChild(rand)
+  sec('待机 / 转向 / 移动')
+  petFilter(PET_POOLS.idle).forEach(function (x) { item(x, x) })
+  petFilter(PET_POOLS.turn).forEach(function (x) { item(x, x) })
+  petFilter(PET_POOLS.moves).forEach(function (x) { item(x, x) })
+  sec('点击回应')
+  petFilter(PET_POOLS.clicks).forEach(function (x) { item(x, x) })
+  PET_POOLS.cats.forEach(function (c) {
+    var list = petFilter(c.list)
+    if (!list.length) return
+    sec(c.id)
+    list.forEach(function (x) { item(x, x) })
+  })
+  sec('工作状态')
+  Object.keys(PET_POOLS.work).forEach(function (k) {
+    var nm = PET_POOLS.work[k]
+    if (petHave(nm)) item(nm, nm)
+  })
+  menuBox.appendChild(el)
+  petActsPanel = el
+  return el
+}
+function petActsOpen() {
+  if (!petOn) { try { dshwvToast('先在「角色」里切到「桌宠（动画）」') } catch (err) {} return }
+  var el = petActsEnsure()
+  if (menuRootView) menuRootView.style.display = 'none'
+  el.style.display = 'block'
+  try { positionMenu() } catch (err) {}
+}
+function petActsClose() {
+  if (!petActsPanel) return
+  petActsPanel.style.display = 'none'
+  if (menuRootView) menuRootView.style.display = ''
+  try { positionMenu() } catch (err) {}
+}
 // 桌宠「动作」菜单：右键角色唤出（主菜单「桌宠动作」行也指向它），分类与 dsh-pet 右键级联菜单同源
 function petOpenActions() {
   if (!petOn) { try { dshwvToast('先在「角色」里切到「桌宠（动画）」') } catch (err) {} return }
@@ -21939,19 +22035,26 @@ function petLoadAnims(cb) {
     })
     .catch(function () { petLoading = false; if (cb) cb(false) })
 }
-var PET_MENU_HIDE = ['气泡全局开关', '峰谷徽标', '表情层', '眨眼', '表情包', '表情', '台词', '火山额度']
+// 桌宠形态：整块换成桌宠菜单 —— 只保留这些行，其余（角色下拉/记账/避让/资源/表情…）全部隐藏。
+// 切回小鲸鱼由专用行「切回小鲸鱼」承担，所以不需要保留「角色」下拉行。
+var PET_MENU_KEEP = ['切回小鲸鱼', '桌宠动作', '大小', '音效与提示', '隐藏菜单按钮']
+var PET_MENU_ONLY = ['切回小鲸鱼']
 function petApplyMenuMode() {
   try {
     var rows = document.querySelectorAll('.dshwv-menu-row')
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i]
       var txt = String(row.textContent || '')
-      var hide = false
-      for (var k = 0; k < PET_MENU_HIDE.length; k++) {
-        if (txt.indexOf(PET_MENU_HIDE[k]) === 0) { hide = true; break }
+      var keep = false
+      for (var k = 0; k < PET_MENU_KEEP.length; k++) {
+        if (txt.indexOf(PET_MENU_KEEP[k]) === 0) { keep = true; break }
       }
-      // 「角色」行在桌宠形态下也隐藏（切回来用底部的桌宠动作行/角色面板）
-      row.classList.toggle('dshwv-pet-hide', !!petOn && hide)
+      var petOnly = false
+      for (var j = 0; j < PET_MENU_ONLY.length; j++) {
+        if (txt.indexOf(PET_MENU_ONLY[j]) === 0) { petOnly = true; break }
+      }
+      // 桌宠形态：不在保留名单 ⇒ 隐藏；鲸鱼形态：只隐藏桌宠专用行
+      row.classList.toggle('dshwv-pet-hide', petOn ? !keep : petOnly)
     }
   } catch (err) {}
 }
@@ -21966,6 +22069,7 @@ function petEnable(byUser) {
     petTempUntil = 0
     petCur = ''
     petFirstFrame = false
+    bubbleAvoidHead = null // 换成桌宠 ⇒ 头顶缓存作废
     currentRole = { id: PET_ROLE_ID, name: '桌宠', url: '' }
     setRoleBtnText('桌宠')
     try { localStorage.setItem('dshw-role', PET_ROLE_ID) } catch (err) {}
@@ -22041,14 +22145,15 @@ function petDisable() {
   try { petWrap.style.display = 'none' } catch (err) {}
   petFirstFrame = false
   petFitH = 0
-  try { petWrap.style.height = ''; petWrap.style.width = ''; petWrap.style.bottom = '' } catch (err) {}
+  petRootH = 0
+  try { petWrap.style.height = ''; petWrap.style.width = ''; petWrap.style.bottom = ''; petWrap.style.right = '' } catch (err) {}
   // 退出桌宠 ⇒ 撤销气泡避让，回到自然落位；随后按新角色（鲸鱼图）重新避让一次
   try {
     if (bubbleBox && petBubbleBaseEffective !== null && isFinite(petBubbleBaseEffective)) {
       bubbleBox.style.top = petBubbleBaseEffective + 'px'
     }
-    petBubbleLifted = 0
     bubbleAvoidLift = 0
+    bubbleAvoidHead = null
   } catch (err) {}
   try { img.style.visibility = '' } catch (err) {}
   petApplyMenuMode()
@@ -22088,8 +22193,10 @@ function petHealTick() {
 function petBindVideos() {
   try {
     ;[petVidA, petVidB].forEach(function (v) {
-      v.addEventListener('ended', petOnEnded)
-      v.addEventListener('loadeddata', function () { if (petOn) petUpdateHit() })
+      // 只有**当前可见层**播完才推进动画链。隐藏层（已淡出的旧段）也会播到 ended，
+      // 不拦的话会把用户刚点播的动作顶掉，表现成"菜单里点了没反应"。
+      v.addEventListener('ended', function (e) { if (petOn && e.target === petVidCur()) petOnEnded() })
+      v.addEventListener('loadeddata', function () { if (petOn && v === petVidCur()) petUpdateHit() })
     })
   } catch (err) {}
 }
@@ -23939,7 +24046,8 @@ function onDocClickStopper(e) {
 // 右键小鲸鱼唤出菜单(仅在开启「隐藏菜单按钮」时生效;菜单位置与按钮唤出一致)
 function onDocContextMenu(e) {
   try {
-    if (petOn && isWhaleHit(e)) { e.preventDefault(); petOpenActions(); return }
+    // 桌宠形态：右键直接打开**同一个主菜单**（不再弹独立的 petmenu 浮层）
+    if (petOn && isWhaleHit(e)) { e.preventDefault(); toggleMenu(); return }
     if (!menuBtnHide) return
     // 触摸端:原生 contextmenu(部分 Android 约 500ms 就补发)一律吞掉不触发,
     // 唤出时机统一由我们的长按计时决定,避免早于设定时长或重复开合
@@ -23947,7 +24055,7 @@ function onDocContextMenu(e) {
       e.preventDefault()
       return
     }
-    if (petOn && isWhaleHit(e)) { e.preventDefault(); petOpenActions(); return }
+    if (petOn && isWhaleHit(e)) { e.preventDefault(); toggleMenu(); return }
     if (e.target && e.target.closest) {
       if (e.target.closest('.dshwv-petmenu') || e.target.closest('.dshwv-pop') || e.target.closest('.dshwv-menu') || e.target.closest('.dshwv-menu-btn') ||
           e.target.closest('.dshwv-rolelist') || e.target.closest('.dshwv-audiolist') || e.target.closest('.dshwv-cropmask') ||
