@@ -627,6 +627,8 @@ var css = [
   '.dshwv-petmenu .dshwv-petitem{padding:4px 6px;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;user-select:none}',
   '.dshwv-petmenu .dshwv-petitem:hover{background:rgba(32,49,112,.08)}',
   '.dshwv-pet-hide{display:none !important}',
+  // 菜单打开时先让气泡淡出：否则下拉菜单会压在气泡文字上，两边都看不清
+  '.dshwv-root.dshwv-menu-shown .dshwv-pop{opacity:0 !important;pointer-events:none !important}',
   // v751（PR #119）：光标不再写 document.body.style.cursor —— cursor 是可继承属性，写 <body> 会让 Blink
   // 失效**整棵文档树**的样式；而它在点击链路上按下/抬手各写一次，紧接着 isWhaleHit() 的
   // getBoundingClientRect() 与泡泡行测量的 getComputedStyle()/scrollWidth 会强制刷新样式+布局，
@@ -2137,16 +2139,17 @@ soundPanelBtn.textContent = '音效/提示泡泡设置'
 soundPanelBtn.title = '提示与音效设置：按压音量/音效组、每轮消耗提示、提问提示、授权提示'
 soundPanelBtn.addEventListener('click', function (e) { e.stopPropagation(); openSoundSettingsPanel() })
 row2.appendChild(soundPanelBtn)
+var PET_SEL_CSS = 'flex:1;min-width:0;font-size:12px;line-height:1.4;height:24px;border:1px solid rgba(32,49,112,.25);border-radius:6px;background:#fff;color:#203170;padding:0 4px;box-sizing:border-box'
 var rowPet = menuRow()
 rowPet.appendChild(menuLabel('桌宠动作'))
-var petActBtn = document.createElement('button')
-petActBtn.type = 'button'
-petActBtn.className = 'dshwv-roleimport'
-petActBtn.style.flex = '1'
-petActBtn.textContent = '动作菜单'
-petActBtn.title = '桌宠形态下点播一段动画（也可右键角色唤出）；未切到桌宠形态时会提示'
-petActBtn.addEventListener('click', function (e) { e.stopPropagation(); petPanelOpen('acts') })
-rowPet.appendChild(petActBtn)
+var petActSel = document.createElement('select')
+petActSel.style.cssText = PET_SEL_CSS
+petActSel.title = '下拉即切换；选中具体动作 = 固定循环，选中「自动随机」= 恢复自动轮播'
+petActSel.addEventListener('change', function (e) {
+  e.stopPropagation()
+  petOnSelectAction(petActSel.value)
+})
+rowPet.appendChild(petActSel)
 // —— 桌宠专用：一键切回小鲸鱼（桌宠形态下主菜单只保留桌宠相关项，角色下拉行会被隐藏）——
 var rowPetBack = menuRow()
 var petBackBtn = document.createElement('button')
@@ -2232,20 +2235,20 @@ menuBox.appendChild(petSep1)
 menuBox.appendChild(rowPet)
 // —— 桌宠台词：带文字的动作单独成行，不再和纯动作混在同一个面板 ——
 var rowPetLines = menuRow()
-var petLinesBtn = document.createElement('button')
-petLinesBtn.type = 'button'
-petLinesBtn.className = 'dshwv-roleimport'
-petLinesBtn.style.flex = '1'
-petLinesBtn.textContent = '台词菜单'
-petLinesBtn.title = '桌宠形态下播放带文字的台词动作（文字始终保持正读）'
-petLinesBtn.addEventListener('click', function (e) { e.stopPropagation(); petPanelOpen('lines') })
 rowPetLines.appendChild(menuLabel('桌宠台词'))
-rowPetLines.appendChild(petLinesBtn)
+var petLineSel = document.createElement('select')
+petLineSel.style.cssText = PET_SEL_CSS
+petLineSel.title = '下拉即切换；选中具体台词 = 固定循环，选中「自动随机」= 恢复自动轮播'
+petLineSel.addEventListener('change', function (e) {
+  e.stopPropagation()
+  petOnSelectLine(petLineSel.value)
+})
+rowPetLines.appendChild(petLineSel)
 menuBox.appendChild(rowPetLines)
 // —— 待机动画：随机（默认）或指定某一段，localStorage 持久化 ——
 var rowPetIdle = menuRow()
 var petIdleSel = document.createElement('select')
-petIdleSel.style.cssText = 'flex:1;min-width:0;font-size:12px;line-height:1.4;height:24px;border:1px solid rgba(32,49,112,.25);border-radius:6px;background:#fff;color:#203170;padding:0 4px;box-sizing:border-box'
+petIdleSel.style.cssText = PET_SEL_CSS
 petIdleSel.title = '选择桌宠的待机动画；「随机」= 沿用默认待机池'
 petIdleSel.addEventListener('change', function (e) {
   e.stopPropagation()
@@ -20911,8 +20914,13 @@ function toggleMenu() {
     try { lineLoadPool(function () { lineFillSelect() }) } catch (err) {}
   }
   if (menuOpen) positionMenu()
-  if (menuOpen) { try { petFillIdleSelect() } catch (err) {} }
+  if (menuOpen) {
+    try { petFillIdleSelect() } catch (err) {}
+    try { petFillActionSelect() } catch (err) {}
+    try { petFillLineSelect() } catch (err) {}
+  }
   menuBox.classList.toggle('dshwv-menu-open', menuOpen)
+  try { root.classList.toggle('dshwv-menu-shown', menuOpen) } catch (err) {}
   if (menuOpen && !menuBtnHide) menuBtn.classList.add('dshwv-menu-btn-visible')
   // 汉堡按钮关闭菜单时同样复位用量子界面(用量态时滑回主菜单态,
   // 主菜单态时 hideUsageSub 守卫直接返回),避免下次打开仍停留在用量视图
@@ -20922,6 +20930,7 @@ function closeMenu() {
   menuOpen = false
   menuClosedAt = Date.now()
   menuBox.classList.remove('dshwv-menu-open')
+  try { root.classList.remove('dshwv-menu-shown') } catch (err) {}
   try { petActsClose() } catch (err) {}
   closeRolePanel()
   closeAudioGroupPanel()
@@ -21635,6 +21644,10 @@ function petSurfaceIdle(name) {
   if (!name || !petHave(name)) return
   petIdlePick = name
   try { localStorage.setItem('dshw-pet-idle', name) } catch (err) {}
+  // 选待机 = 取消「固定动作/分类」，回到待机语义
+  petPin = null
+  try { petPinSave() } catch (err) {}
+  try { petSyncPinSelects() } catch (err) {}
   try { petFillIdleSelect() } catch (err) {}
   // 选了就立刻切过去给用户看（菜单不用关）
   try {
@@ -21644,6 +21657,155 @@ function petSurfaceIdle(name) {
       petSwitchTo(name, true)
       petTimer = setTimeout(petRunChain, PET_IDLE_MIN_MS + Math.random() * PET_IDLE_SPAN_MS)
     }
+  } catch (err) {}
+}
+// ===== 动作/台词固定（下拉选择）=====
+// petPin = null（自动轮播）| {type:'action', value:动画名} | {type:'category', value:分类名}
+var petPin = null
+try {
+  var rawPin = localStorage.getItem('dshw-pet-pin')
+  if (rawPin) {
+    var jp = JSON.parse(rawPin)
+    if (jp && (jp.type === 'action' || jp.type === 'category') && typeof jp.value === 'string') petPin = jp
+  }
+} catch (err) { petPin = null }
+function petPinSave() {
+  try {
+    if (petPin) localStorage.setItem('dshw-pet-pin', JSON.stringify(petPin))
+    else localStorage.removeItem('dshw-pet-pin')
+  } catch (err) {}
+}
+function petCategoryList(id) {
+  if (id === '待机') return PET_POOLS.idle
+  if (id === '转向') return PET_POOLS.turn
+  if (id === '移动') return PET_POOLS.moves
+  if (id === '点击回应') return PET_POOLS.clicks
+  if (id === '工作状态') {
+    var w = []
+    Object.keys(PET_POOLS.work).forEach(function (k) { if (PET_POOLS.work[k]) w.push(PET_POOLS.work[k]) })
+    return w
+  }
+  for (var i = 0; i < PET_POOLS.cats.length; i++) if (PET_POOLS.cats[i].id === id) return PET_POOLS.cats[i].list
+  return null
+}
+function petPinBootName() {
+  if (petPin && petPin.type === 'action' && petHave(petPin.value)) return petPin.value
+  if (petPin && petPin.type === 'category') {
+    var l = petCategoryList(petPin.value)
+    var n = l ? petPickNew(l, '') : ''
+    if (n) return n
+  }
+  return petIdleResolve('')
+}
+function petPinApply() {
+  try {
+    if (!petOn) return
+    clearTimeout(petTimer)
+    petTimer = 0
+    petTempUntil = 0
+    if (!petPin) { petRunChain(); return }
+    if (petPin.type === 'action') {
+      if (!petHave(petPin.value)) { petPin = null; petPinSave(); petRunChain(); return }
+      petSwitchTo(petPin.value, true)
+      petTimer = setTimeout(petRunChain, 30000)
+      return
+    }
+    var list = petCategoryList(petPin.value)
+    var name = list ? petPickNew(list, petCur) : ''
+    if (!name) { petPin = null; petPinSave(); petRunChain(); return }
+    petSwitchTo(name, petPin.value === '待机')
+    if (petPin.value === '待机') petTimer = setTimeout(petRunChain, PET_IDLE_MIN_MS + Math.random() * PET_IDLE_SPAN_MS)
+  } catch (err) {}
+}
+function petOnSelectAction(v) {
+  if (v === 'auto') {
+    petPin = null
+  } else if (v.indexOf('auto:') === 0) {
+    petPin = { type: 'category', value: v.slice(5) }
+  } else {
+    petPin = { type: 'action', value: v }
+  }
+  petPinSave()
+  try { petSyncPinSelects() } catch (err) {}
+  petPinApply()
+}
+function petOnSelectLine(v) {
+  if (v === 'auto') {
+    petPin = null
+  } else if (v.indexOf('auto:') === 0) {
+    petPin = { type: 'category', value: v.slice(5) }
+  } else {
+    petPin = { type: 'action', value: v }
+  }
+  petPinSave()
+  try { petSyncPinSelects() } catch (err) {}
+  petPinApply()
+}
+function petFillGroupedSelect(sel, groups, placeholder) {
+  try {
+    if (!sel) return
+    sel.textContent = ''
+    var auto = document.createElement('option')
+    auto.value = 'auto'
+    auto.textContent = placeholder || '🔄 自动随机（全部轮播）'
+    sel.appendChild(auto)
+    for (var g = 0; g < groups.length; g++) {
+      var id = groups[g][0]
+      var list = petFilter(groups[g][1])
+      if (!list.length) continue
+      var og = document.createElement('optgroup')
+      og.label = id
+      var ga = document.createElement('option')
+      ga.value = 'auto:' + id
+      ga.textContent = '🔄 自动随机（' + id + '）'
+      og.appendChild(ga)
+      for (var i = 0; i < list.length; i++) {
+        var op = document.createElement('option')
+        op.value = list[i]
+        op.textContent = list[i]
+        og.appendChild(op)
+      }
+      sel.appendChild(og)
+    }
+    petSyncPinSelects()
+  } catch (err) {}
+}
+function petFillActionSelect() {
+  var groups = [
+    ['待机', PET_POOLS.idle],
+    ['转向', PET_POOLS.turn],
+    ['移动', PET_POOLS.moves],
+    ['点击回应', PET_POOLS.clicks]
+  ]
+  PET_POOLS.cats.forEach(function (c) { if (!c.noMirror) groups.push([c.id, c.list]) })
+  var work = []
+  Object.keys(PET_POOLS.work).forEach(function (k) { if (PET_POOLS.work[k]) work.push(PET_POOLS.work[k]) })
+  groups.push(['工作状态', work])
+  petFillGroupedSelect(petActSel, groups, '🔄 自动随机（全部）')
+}
+function petFillLineSelect() {
+  var groups = []
+  PET_POOLS.cats.forEach(function (c) { if (c.noMirror) groups.push([c.id, c.list]) })
+  petFillGroupedSelect(petLineSel, groups, '🔄 自动随机（全部）')
+}
+function petSetSelValue(sel, v) {
+  try {
+    if (!sel) return
+    sel.value = v
+    // 目标选项不在这个下拉里（例如把台词动作同步到动作下拉）⇒ 回落到自动
+    if (sel.value !== v) sel.value = 'auto'
+  } catch (err) {}
+}
+function petSyncPinSelects() {
+  try {
+    var av = 'auto'
+    var lv = 'auto'
+    if (petPin) {
+      if (petPin.type === 'action') { av = petPin.value; lv = petPin.value }
+      else if (petPin.type === 'category') { av = 'auto:' + petPin.value; lv = 'auto:' + petPin.value }
+    }
+    petSetSelValue(petActSel, av)
+    petSetSelValue(petLineSel, lv)
   } catch (err) {}
 }
 var petOn = false // 是否处于桌宠形态
@@ -21872,6 +22034,27 @@ function petRunChain() {
     } catch (err) {}
     petTimer = setTimeout(petRunChain, 350)
     return
+  }
+  // —— 固定动作/分类（下拉选择）优先：固定动作循环播放；固定分类只在该分类内轮播 ——
+  if (petPin) {
+    if (petPin.type === 'action') {
+      if (!petHave(petPin.value)) { petPin = null; petPinSave() } else {
+        var pv = petVidCur()
+        if (petCur !== petPin.value || !pv || pv.readyState < 2 || pv.paused) petSwitchTo(petPin.value, true)
+        petTimer = setTimeout(petRunChain, 30000)
+        return
+      }
+    } else if (petPin.type === 'category') {
+      var plist = petCategoryList(petPin.value)
+      var pname = plist ? petPickNew(plist, petCur) : ''
+      if (pname) {
+        petSwitchTo(pname, petPin.value === '待机')
+        if (petPin.value === '待机') petTimer = setTimeout(petRunChain, PET_IDLE_MIN_MS + Math.random() * PET_IDLE_SPAN_MS)
+        return
+      }
+      petPin = null
+      petPinSave()
+    }
   }
   var w = PET_POOLS.weights
   var r = Math.random() * 100
@@ -22155,6 +22338,8 @@ function petLoadAnims(cb) {
       petAnims = map
       petLoading = false
       try { petFillIdleSelect() } catch (err) {}
+      try { petFillActionSelect() } catch (err) {}
+      try { petFillLineSelect() } catch (err) {}
       if (!map[PET_IDLE]) { try { console.warn('[dsh-whale] 桌宠素材缺失：assets/pet-video/ 里没有「' + PET_IDLE + '」') } catch (err) {} }
       if (cb) cb(!!map[PET_IDLE])
     })
@@ -22207,7 +22392,7 @@ function petEnable(byUser) {
     petApplyMenuMode()
     // 关键顺序：先把首段动画**加载到就绪**，再显示动画层并隐藏角色图。
     // 旧实现先 display:block 再异步加载 ⇒ 中间窗口是空白（用户看到的"点一下丢失"）。
-    var bootName = petIdleResolve('') || PET_IDLE
+    var bootName = petPinBootName() || PET_IDLE
     var bootVid = petVidA
     var bootDone = false
     var bootTimer = 0
@@ -22311,7 +22496,13 @@ function petHealTick() {
     var v = petVidCur()
     var ok = !!(v && v.readyState >= 2 && v.currentSrc && !v.paused && v.style.opacity === '1')
     if (ok) return
-    var idle = petIdleResolve('')
+    var idle = ''
+    if (petPin && petPin.type === 'action' && petHave(petPin.value)) idle = petPin.value
+    else if (petPin && petPin.type === 'category') {
+      var hl = petCategoryList(petPin.value)
+      idle = hl ? petPickNew(hl, '') : ''
+    }
+    if (!idle) idle = petIdleResolve('')
     if (!idle) return
     petFirstFrame = true
     petTempUntil = 0
