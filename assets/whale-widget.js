@@ -21492,21 +21492,40 @@ function petMeasure(v) {
     return { charRatio: (maxY - minY + 1) / H, gapRatio: (H - 1 - maxY) / H }
   } catch (err) { return null }
 }
-// 对齐：角色脚底贴容器底（与峰谷徽标同一条底线），角色高度对齐鲸鱼图高度
+// 地面线 = 「气泡下沿 ↔ 峰谷徽标上沿」之间那条带子：
+//   · 脚底站在**徽标上沿**（再往下就会盖住梁文峰/倒计时标签 —— 桌宠不透明区比鲸鱼 PNG 宽得多，
+//     鲸鱼靠 PNG 透明边距能压住徽标，桌宠不能）
+//   · 头顶不越过气泡下沿（气泡尾巴正好指向角色头部）
+//   · 角色高度按这条带子反算，尺寸只在第一段动画定一次（逐段只调底边，避免大小跳变）
+function petGroundLine() {
+  try {
+    var rootRect = root.getBoundingClientRect()
+    var badge = pbWrap ? pbWrap.getBoundingClientRect() : null
+    var bubble = bubbleBox ? bubbleBox.getBoundingClientRect() : null
+    var top = bubble && bubble.height > 0 ? bubble.bottom + 2 : rootRect.top + rootRect.height * 0.35
+    var bottom = badge && badge.height > 0 ? badge.top - 3 : rootRect.bottom - 30
+    if (!(bottom - top > 40)) bottom = top + 120
+    return { top: top, bottom: bottom, rootBottom: rootRect.bottom }
+  } catch (err) { return null }
+}
 function petAutoFit(v) {
   try {
     var m = petMeasure(v)
     if (!m || !(m.charRatio > 0.15)) return
+    var g = petGroundLine()
+    if (!g) return
     if (!petFitH) {
-      var rootH = root.getBoundingClientRect().height || 0
-      var target = 0.54 * rootH // 略小于 .dshwv-img 盒高：角色本体（非帧）视觉尺寸与鲸鱼娘相当
-      if (!(target > 20)) return
-      petFitH = target / m.charRatio
+      // 尺寸看 root 高度（不跟气泡抢空间），视觉上与鲸鱼娘（238px 盒）同一档
+      var rootH2 = root.getBoundingClientRect().height || 400
+      var charH = rootH2 * 0.46
+      if (!(charH > 40) || !(charH < 600)) charH = 180
+      petFitH = charH / m.charRatio
       petWrap.style.height = petFitH.toFixed(1) + 'px'
       petWrap.style.width = (petFitH * (v.videoWidth / v.videoHeight)).toFixed(1) + 'px'
     }
-    // 每段动画的底部留白不同 ⇒ 每次都用当前帧把脚底压回底线
-    petWrap.style.bottom = (-(m.gapRatio * petFitH)).toFixed(1) + 'px'
+    // 底边：让「当前帧的不透明底」正好落在 g.bottom
+    var gapPx = m.gapRatio * petFitH
+    petWrap.style.bottom = (g.rootBottom - g.bottom - gapPx).toFixed(1) + 'px'
     petUpdateHit()
   } catch (err) {}
 }
@@ -21530,7 +21549,7 @@ function petSwitchTo(name, loop) {
       back.style.opacity = '1'
       cur.style.opacity = '0'
       if (!petFirstFrame) { petFirstFrame = true; try { img.style.visibility = 'hidden' } catch (err) {} }
-      petAutoFit(back)
+      setTimeout(function () { petAutoFit(back) }, 0)
       petShown = 1 - petShown
       petApplyFacing()
       setTimeout(function () {
