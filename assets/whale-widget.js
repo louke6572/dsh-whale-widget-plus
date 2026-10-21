@@ -2286,8 +2286,47 @@ function dshwPbLabelGet() {
   return d
 }
 function dshwPbLabelSet(v) { try { localStorage.setItem('dshw-pblabel', JSON.stringify(v)) } catch (err) {} }
+// 峰谷时段显示位置：badge=常驻徽标（默认）、bubble=气泡内（上游原版）、hidden=都不显示
+function dshwPbModeGet() {
+  try {
+    var m = localStorage.getItem('dshw-pbmode')
+    return (m === 'bubble' || m === 'hidden') ? m : 'badge'
+  } catch (err) { return 'badge' }
+}
+function dshwPbModeApply(refreshBubble) {
+  var m = dshwPbModeGet()
+  try { if (typeof pbWrap !== 'undefined' && pbWrap) pbWrap.style.display = (m === 'badge') ? '' : 'none' } catch (err) {}
+  // 气泡正开着时切换：重开一次让过滤条件立即生效
+  if (refreshBubble) {
+    try {
+      if (typeof bubbleShown !== 'undefined' && bubbleShown) { hideBubble(); showBubble() }
+    } catch (err) {}
+  }
+}
+function dshwPbModeSet(m) {
+  try { localStorage.setItem('dshw-pbmode', m) } catch (err) {}
+  dshwPbModeApply(true)
+}
+// 峰谷时段显示位置：常驻徽标 / 气泡内（上游原版）/ 隐藏
+var rowPbMode = menuRow()
+rowPbMode.appendChild(menuLabel('峰谷显示'))
+var pbModeSel = document.createElement('select')
+pbModeSel.style.cssText = PET_SEL_CSS
+;[['badge', '常驻徽标'], ['bubble', '气泡内'], ['hidden', '隐藏']].forEach(function (o) {
+  var op = document.createElement('option')
+  op.value = o[0]
+  op.textContent = o[1]
+  pbModeSel.appendChild(op)
+})
+pbModeSel.value = dshwPbModeGet()
+pbModeSel.addEventListener('change', function (e) {
+  e.stopPropagation()
+  dshwPbModeSet(pbModeSel.value)
+})
+rowPbMode.appendChild(pbModeSel)
+menuBox.appendChild(rowPbMode)
 var rowPb = menuRow()
-rowPb.appendChild(menuLabel('峰谷徽标'))
+rowPb.appendChild(menuLabel('徽标样式'))
 var pbSel = document.createElement('select')
 pbSel.className = 'dshwv-sound'
 ;[['mini', '峰/谷'], ['liangwen', '梁文峰/梁文谷'], ['gaofeng', '高峰/低谷'], ['custom', '自定义']].forEach(function (o) {
@@ -14859,6 +14898,7 @@ try {
     }
   }
   try { window.__dshwPbRender = pbRender } catch (err) {}
+  try { dshwPbModeApply(false) } catch (err) {}
   // 延迟到 IIFE 主体执行完毕（state 等就绪），然后交给气泡自己的渲染器（keepPeak=true 见该函数）
   setTimeout(pbRender, 0)
   if (typeof ResizeObserver === 'function') {
@@ -19268,7 +19308,10 @@ function bubbleRowsTo(parentEl, mods, keepPeak) {
   if (!parentEl || !Array.isArray(mods)) return
   // v0.4.3：峰谷/倒计时已外移为常驻徽标（.dshwv-peakbadge）。气泡内渲染一律过滤掉峰谷模块；
   // 外部常驻徽标传 keepPeak=true 走同一套渲染管线（样式与气泡内完全一致）。
-  if (!keepPeak) { try { mods = mods.filter(function (m) { return m && m.type !== 'peak' && m.type !== 'nextpeak' }) } catch (err) {} }
+  // 「气泡内」模式恢复上游原版：保留配置里的峰谷模块；常驻/隐藏模式仍在气泡里过滤掉。
+  var pbInline = false
+  try { pbInline = (dshwPbModeGet() === 'bubble') } catch (err) { pbInline = false }
+  if (!keepPeak && !pbInline) { try { mods = mods.filter(function (m) { return m && m.type !== 'peak' && m.type !== 'nextpeak' }) } catch (err) {} }
   var old = parentEl.querySelectorAll('.dshwv-trow, .dshwv-mimg')
   for (var i = 0; i < old.length; i++) { try { parentEl.removeChild(old[i]) } catch (err) {} }
   var ROW_MAX = 6 // 泡泡行数上限(维持旧版)
@@ -22319,7 +22362,7 @@ function petLoadAnims(cb) {
 }
 // 桌宠形态：整块换成桌宠菜单 —— 只保留这些行，其余（角色下拉/记账/避让/资源/表情…）全部隐藏。
 // 切回小鲸鱼由专用行「切回小鲸鱼」承担，所以不需要保留「角色」下拉行。
-var PET_MENU_KEEP = ['切回小鲸鱼', '待机', '转向', '移动', '点击回应', '小动作', '玩耍', '吃什么', '时节', '文字', '工作状态', '大小', '音效与提示', '隐藏菜单按钮']
+var PET_MENU_KEEP = ['切回小鲸鱼', '待机', '转向', '移动', '点击回应', '小动作', '玩耍', '吃什么', '时节', '文字', '工作状态', '峰谷显示', '大小', '音效与提示', '隐藏菜单按钮']
 var PET_MENU_ONLY = ['切回小鲸鱼', '待机', '转向', '移动', '点击回应', '小动作', '玩耍', '吃什么', '时节', '文字', '工作状态']
 function petApplyMenuMode() {
   try {
