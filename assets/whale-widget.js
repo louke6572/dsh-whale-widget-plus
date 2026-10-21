@@ -21534,30 +21534,49 @@ function petMarkBroken(name) {
   if (name === PET_IDLE) { try { petDisable() } catch (err) {} }
 }
 // 切换动画：新的一层先加载再交叉淡入（旧层淡出后暂停并释放），切换零空白帧
+// 换段：**先加载成功再切可见层**，失败/中断都不动旧层 ⇒ 任何时刻都至少有一层在播（不出现空白）
+var petSwitchToken = 0
 function petSwitchTo(name, loop) {
   if (!petOn || !name) return
   var back = petVidBack()
   var cur = petVidCur()
+  var token = ++petSwitchToken
   petCur = name
   try {
     back.loop = !!loop
-    back.src = petUrl(name)
     back.oncanplay = function () {
+      if (token !== petSwitchToken) return // 期间又换了目标：这次加载作废，别抢可见层
       back.oncanplay = null
       try { back.currentTime = 0 } catch (err) {}
-      try { var p = back.play(); if (p && p.catch) p.catch(function () {}) } catch (err) {}
+      var okPlay = false
+      try { var pr = back.play(); okPlay = true; if (pr && pr.catch) pr.catch(function () {}) } catch (err) {}
+      if (!okPlay && back.readyState < 2) { // 还播不了：保持旧层可见
+        petMarkBroken(name)
+        if (petOn) petRunChain()
+        return
+      }
       back.style.opacity = '1'
       cur.style.opacity = '0'
       if (!petFirstFrame) { petFirstFrame = true; try { img.style.visibility = 'hidden' } catch (err) {} }
       setTimeout(function () { petAutoFit(back) }, 0)
       petShown = 1 - petShown
       petApplyFacing()
+      // 旧层延迟释放：只释放「既不是当前可见层、也不在播」的那一个
       setTimeout(function () {
-        try { if (cur && cur !== back) { cur.pause(); cur.removeAttribute('src'); cur.load() } } catch (err) {}
-      }, 260)
+        try {
+          if (!cur || cur === back) return
+          if (cur.style.opacity === '1' || cur.readyState >= 2) return // 还在用：留着
+          cur.pause(); cur.removeAttribute('src'); cur.load()
+        } catch (err) {}
+      }, 280)
       setTimeout(petUpdateHit, 130)
     }
-    back.onerror = function () { back.onerror = null; petMarkBroken(name); if (petOn && petAnims) petRunChain() }
+    back.onerror = function () {
+      back.onerror = null
+      if (token !== petSwitchToken) return
+      petMarkBroken(name)
+      if (petOn && petAnims) petRunChain()
+    }
     back.load()
   } catch (err) {}
 }
@@ -21566,7 +21585,18 @@ function petRunChain() {
   if (!petOn || !petAnims) return
   clearTimeout(petTimer)
   petTimer = 0
-  if (Date.now() < petTempUntil) { petTimer = setTimeout(petRunChain, 350); return }
+  if (Date.now() < petTempUntil) {
+    // 临时插播窗口内：如果可见层其实没在播（加载失败/被清空），立刻补一段 idle，绝不留空白
+    try {
+      var cv = petVidCur()
+      if (!cv || cv.readyState < 2 || cv.paused || !cv.currentSrc) {
+        var idleb = petPickNew(PET_POOLS.idle, petCur)
+        if (idleb) { petTempUntil = 0; petSwitchTo(idleb, true); petTimer = setTimeout(petRunChain, 12000) }
+      }
+    } catch (err) {}
+    petTimer = setTimeout(petRunChain, 350)
+    return
+  }
   var w = PET_POOLS.weights
   var r = Math.random() * 100
   var acted = false
@@ -21606,6 +21636,7 @@ function petRunChain() {
 // 单次动画播完 → 回链（turn 播完翻转朝向）
 function petOnEnded() {
   if (!petOn) return
+  petTempUntil = 0 // 临时插播播完即结束，链立刻恢复
   if (petCur === PET_POOLS.turn[0]) petFacingR = !petFacingR
   clearTimeout(petTimer)
   petTimer = 0
@@ -21614,19 +21645,26 @@ function petOnEnded() {
 // 点击回应：临时插播一段（不打断链，播完自然回链）
 function petClickReact() {
   if (!petOn) return
-  petTempUntil = Date.now() + 2200
   var name = petPickNew(PET_POOLS.clicks, petCur)
-  if (name) petSwitchTo(name, false)
+  if (!name) return
+  // 点击回应是"插播"：播一次后由 ended 事件回链。**不设 petTempUntil** ——
+  // 之前设了它，链在 2.2s 内拒绝调度；若这段动画加载慢/失败，就变成两层都不是可见播状态（空白）
+  clearTimeout(petTimer)
+  petTimer = 0
+  petSwitchTo(name, false)
 }
 // 拖拽：播放被拎起悬空反馈（循环），松手回链
 function petDragStart() {
   if (!petOn) return
+  if (!petHave(PET_POOLS.drag[0])) return
   petTempUntil = Date.now() + 60000
   var name = petPickNew(PET_POOLS.drag, petCur)
   if (name) petSwitchTo(name, true)
 }
-function petDragEnd() {
+function petDragEnd(wasMoved) {
   if (!petOn) return
+  // 单击（没拖动过）不算拖拽结束：交给 whaleClick → petClickReact，否则会把点击回应顶掉
+  if (wasMoved === false) { petTempUntil = 0; return }
   petTempUntil = 0
   petRunChain()
 }
@@ -21635,9 +21673,12 @@ function petWork(kind) {
   if (!petOn || !petAnims) return
   var name = PET_POOLS.work[kind]
   if (!name || !petHave(name)) return
-  petTempUntil = Date.now() + 2600
+  clearTimeout(petTimer)
+  petTimer = 0
+  petTempUntil = 0
   petSwitchTo(name, false)
 }
+var petDragArmed = false
 var petMenuEl = null
 function petCloseActions() {
   if (!petMenuEl) return
@@ -21743,26 +21784,64 @@ function petEnable(byUser) {
     petFacingR = false
     petTempUntil = 0
     petCur = ''
-    petWrap.style.display = 'block'
+    petFirstFrame = false
     currentRole = { id: PET_ROLE_ID, name: '桌宠', url: '' }
     setRoleBtnText('桌宠')
     try { localStorage.setItem('dshw-role', PET_ROLE_ID) } catch (err) {}
     petApplyFacing()
-    petRunChain()
     renderRolePanel()
     petApplyMenuMode()
-    // 看门狗：部分环境（无软件解码的 Chromium / 受限 WebView）能报"支持 VP9"却一帧都解不出来，
-    // 表现是宠物区域一直空白。4 秒内没有任何一层就绪 ⇒ 回退普通角色并给出明确提示。
-    setTimeout(function () {
-      if (!petOn) return
-      var ok = false
-      try { ok = (petVidA.readyState >= 2) || (petVidB.readyState >= 2) } catch (err) { ok = false }
-      if (!ok) {
+    // 关键顺序：先把首段动画**加载到就绪**，再显示动画层并隐藏角色图。
+    // 旧实现先 display:block 再异步加载 ⇒ 中间窗口是空白（用户看到的"点一下丢失"）。
+    var bootName = petPickNew(PET_POOLS.idle, '') || PET_IDLE
+    var bootVid = petVidA
+    var bootDone = false
+    var bootTimer = 0
+    function showLayer() {
+      if (bootDone || !petOn) return
+      bootDone = true
+      clearTimeout(bootTimer)
+      petWrap.style.display = 'block'
+      petShown = 0
+      bootVid.style.opacity = '1'
+      petVidB.style.opacity = '0'
+      petFirstFrame = true
+      try { img.style.visibility = 'hidden' } catch (err) {}
+      try { var pp = bootVid.play(); if (pp && pp.catch) pp.catch(function () {}) } catch (err) {}
+      petAutoFit(bootVid)
+      petUpdateHit()
+      petRunChain()
+    }
+    try {
+      bootVid.loop = true
+      bootVid.oncanplay = function () { bootVid.oncanplay = null; showLayer() }
+      bootVid.onerror = function () {
+        bootVid.onerror = null
+        // 首段素材坏了：判为环境不支持 —— 回退普通角色（不留空白）
+        if (!petOn || bootDone) return
+        bootDone = true
+        clearTimeout(bootTimer)
         try { petDisable() } catch (err) {}
-        try { applyRole('default', '小鲸鱼', IMG_URL) } catch (err) {} // 回退默认角色并清掉 dshw-role=pet
-        try { dshwvToast('当前环境无法播放透明动画（webm/VP9 解码不可用），已回退普通角色；桌面版通常可用') } catch (err) {}
+        try { applyRole('default', '小鲸鱼', IMG_URL) } catch (err) {}
+        try { dshwvToast('透明动画无法播放（解码不可用），已回退普通角色；桌面版通常可用') } catch (err) {}
       }
-    }, 4000)
+      bootVid.src = petUrl(bootName)
+      petCur = bootName
+      bootVid.load()
+    } catch (err) {}
+    // 看门狗：只在「确实解不出来」时回退。判据用 error 或连续 12s 仍 readyState<1
+    //（首次加载慢≠解不了；之前 4s 就回退，正常慢加载会被误判）
+    bootTimer = setTimeout(function () {
+      if (!petOn || bootDone) return
+      var err = null
+      try { err = bootVid.error ? bootVid.error.code : null } catch (e) {}
+      if (err) return // onerror 会处理
+      if (bootVid.readyState >= 1) { showLayer(); return }
+      bootDone = true
+      try { petDisable() } catch (e) {}
+      try { applyRole('default', '小鲸鱼', IMG_URL) } catch (e) {}
+      try { dshwvToast('透明动画加载超时，已回退普通角色') } catch (e) {}
+    }, 12000)
   })
 }
 function petDisable() {
@@ -21788,6 +21867,26 @@ function petDisable() {
   try { exprRender() } catch (err) {}
 }
 // 绑定双层的 ended / 首帧就绪（脚本末尾调用）
+// 自愈：桌宠形态下每 1.5s 检查一次「有没有一层在播」，没有就强制补 idle ——
+// 这是最后一道防线：任何加载失败/竞态都不能让宠物区域永久空白。
+function petHealTick() {
+  try {
+    if (!petOn || !petAnims) return
+    // 标签页不可见时浏览器会强制暂停 video（paused=true 属正常），此时不判"空白"、也不重播，
+    // 否则会在后台反复换段、切回前台时乱跳
+    if (document.hidden) return
+    var v = petVidCur()
+    var ok = !!(v && v.readyState >= 2 && v.currentSrc && !v.paused && v.style.opacity === '1')
+    if (ok) return
+    var idle = petPickNew(PET_POOLS.idle, '')
+    if (!idle) return
+    petFirstFrame = true
+    petTempUntil = 0
+    petWrap.style.display = 'block'
+    petSwitchTo(idle, true)
+    petTimer = setTimeout(petRunChain, 12000)
+  } catch (err) {}
+}
 function petBindVideos() {
   try {
     ;[petVidA, petVidB].forEach(function (v) {
@@ -23595,7 +23694,7 @@ function onDocPointerDown(e) {
   drag = { active: true, startX: e.clientX, startY: e.clientY, origLeft: rect.left, origTop: rect.top, w: rect.width, h: rect.height, moved: false, vp: vp }
   root.classList.add('dshwv-dragging')
   pressDown()
-  if (petOn) petDragStart()
+  petDragArmed = !!petOn // 记一笔：等真正移动时才播"被拎起"动画
   setWidgetCursor('grabbing')
   document.addEventListener('pointermove', onDocPointerMove, true)
   document.addEventListener('pointerup', onDocPointerUp, true)
@@ -23606,6 +23705,7 @@ function onDocPointerMove(e) {
   var dx = e.clientX - drag.startX
   var dy = e.clientY - drag.startY
   if (dx * dx + dy * dy >= CLICK_SQ) drag.moved = true
+  if (petDragArmed && drag.moved) { petDragArmed = false; try { petDragStart() } catch (err) {} }
   // Keep the pre-drag flip orientation while dragging (state.h/v stay as they
   // were); on release endDrag() recomputes the anchors and settle() flips the
   // class with a smooth transition instead of reverting instantly.
@@ -23839,7 +23939,7 @@ function endDrag(e, clickAllowed, cancelled) {
   document.removeEventListener('pointerup', onDocPointerUp, true)
   document.removeEventListener('pointercancel', onDocPointerCancel, true)
   pressUp()
-  if (petOn) petDragEnd()
+  if (petOn) petDragEnd(drag && drag.moved === true)
   root.classList.remove('dshwv-dragging')
   // issue #79 缺陷2：pointercancel（Android 把手势判成页面滚动、或系统抢走手势时派发）的
   // clientX/clientY 常常是 0，而 endDrag 又是「按坐标收尾 + saveConfig() 落盘」——
@@ -23953,6 +24053,23 @@ loadAudio()
 // 表情素材层：绑定连点/悬停/空闲与图片错误降级，并按配置决定是否启用（实现见 exprInit）
 try { exprInit() } catch (err) {}
 try { petBindVideos() } catch (err) {}
+try { setInterval(petHealTick, 1500) } catch (err) {}
+try {
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden || !petOn) return
+    // 回到前台：把可见层重新拉起来（后台被冻结过），并校正一次脚底线
+    try {
+      var v = petVidCur()
+      if (v && v.currentSrc) {
+        var pr = v.play()
+        if (pr && pr.catch) pr.catch(function () {})
+        petAutoFit(v)
+      } else {
+        petHealTick()
+      }
+    } catch (err) {}
+  })
+} catch (err) {}
 // 用量设置(任务结束音/预警/预算)加载,并据此初始化主菜单“任务结束”行
 loadUsageSettings(function () {
   try {
