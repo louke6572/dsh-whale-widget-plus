@@ -2140,16 +2140,9 @@ soundPanelBtn.title = '提示与音效设置：按压音量/音效组、每轮�
 soundPanelBtn.addEventListener('click', function (e) { e.stopPropagation(); openSoundSettingsPanel() })
 row2.appendChild(soundPanelBtn)
 var PET_SEL_CSS = 'flex:1;min-width:0;font-size:12px;line-height:1.4;height:24px;border:1px solid rgba(32,49,112,.25);border-radius:6px;background:#fff;color:#203170;padding:0 4px;box-sizing:border-box'
-var rowPet = menuRow()
-rowPet.appendChild(menuLabel('桌宠动作'))
-var petActSel = document.createElement('select')
-petActSel.style.cssText = PET_SEL_CSS
-petActSel.title = '下拉即切换；选中具体动作 = 固定循环，选中「自动随机」= 恢复自动轮播'
-petActSel.addEventListener('change', function (e) {
-  e.stopPropagation()
-  petOnSelectAction(petActSel.value)
-})
-rowPet.appendChild(petActSel)
+// 桌宠分类（与 PET_POOLS 的分类名一一对应；「待机」由下面的待机动画下拉承担）
+var PET_CAT_NAMES = ['转向', '移动', '点击回应', '小动作', '玩耍', '吃什么', '时节', '文字', '工作状态']
+var petCatSels = {}
 // —— 桌宠专用：一键切回小鲸鱼（桌宠形态下主菜单只保留桌宠相关项，角色下拉行会被隐藏）——
 var rowPetBack = menuRow()
 var petBackBtn = document.createElement('button')
@@ -2228,41 +2221,47 @@ roleFileInput.addEventListener('change', function () { onRoleFileChosen(roleFile
 menuBox.appendChild(rowRole)
 menuBox.appendChild(row1)
 menuBox.appendChild(row2)
-// 桌宠形态下的分组分隔线：上半 = 显示设置，中间 = 动作/台词/待机，下半 = 通用项
+// 桌宠形态下的分组分隔线：上半 = 显示设置，中间 = 待机/各分类动作，下半 = 通用项
 var petSep1 = document.createElement('div')
 petSep1.className = 'dshwv-menu-sep dshwv-pet-only'
 menuBox.appendChild(petSep1)
-menuBox.appendChild(rowPet)
-// —— 桌宠台词：带文字的动作单独成行，不再和纯动作混在同一个面板 ——
-var rowPetLines = menuRow()
-rowPetLines.appendChild(menuLabel('桌宠台词'))
-var petLineSel = document.createElement('select')
-petLineSel.style.cssText = PET_SEL_CSS
-petLineSel.title = '下拉即切换；选中具体台词 = 固定循环，选中「自动随机」= 恢复自动轮播'
-petLineSel.addEventListener('change', function (e) {
-  e.stopPropagation()
-  petOnSelectLine(petLineSel.value)
-})
-rowPetLines.appendChild(petLineSel)
-menuBox.appendChild(rowPetLines)
-// —— 待机动画：随机（默认）或指定某一段，localStorage 持久化 ——
+// —— 待机：随机（默认）或指定某一段，localStorage 持久化 ——
 var rowPetIdle = menuRow()
 var petIdleSel = document.createElement('select')
 petIdleSel.style.cssText = PET_SEL_CSS
-petIdleSel.title = '选择桌宠的待机动画；「随机」= 沿用默认待机池'
+petIdleSel.title = '选择待机动画；「随机（默认）」= 恢复全局自动轮播'
 petIdleSel.addEventListener('change', function (e) {
   e.stopPropagation()
   var v = petIdleSel.value
   if (!v) {
     petIdlePick = ''
     try { localStorage.removeItem('dshw-pet-idle') } catch (err) {}
+    // 选「随机」= 取消固定，回到全局自动轮播
+    petPin = null
+    try { petPinSave() } catch (err) {}
+    try { petSyncCategorySelects() } catch (err) {}
     return
   }
   petSurfaceIdle(v)
 })
-rowPetIdle.appendChild(menuLabel('待机动画'))
+rowPetIdle.appendChild(menuLabel('待机'))
 rowPetIdle.appendChild(petIdleSel)
 menuBox.appendChild(rowPetIdle)
+// —— 每个分类单独一行下拉：转向 / 移动 / 点击回应 / 小动作 / 玩耍 / 吃什么 / 时节 / 文字 / 工作状态 ——
+PET_CAT_NAMES.forEach(function (name) {
+  var crow = menuRow()
+  crow.appendChild(menuLabel(name))
+  var csel = document.createElement('select')
+  csel.style.cssText = PET_SEL_CSS
+  csel.title = name + '：下拉即切换；选具体动作 = 固定循环，选「自动随机」= 自动轮播'
+  csel.addEventListener('change', function (e) {
+    e.stopPropagation()
+    petOnSelectCategory(name, csel.value)
+  })
+  crow.appendChild(csel)
+  menuBox.appendChild(crow)
+  petCatSels[name] = csel
+})
 var petSep2 = document.createElement('div')
 petSep2.className = 'dshwv-menu-sep dshwv-pet-only'
 menuBox.appendChild(petSep2)
@@ -20916,8 +20915,7 @@ function toggleMenu() {
   if (menuOpen) positionMenu()
   if (menuOpen) {
     try { petFillIdleSelect() } catch (err) {}
-    try { petFillActionSelect() } catch (err) {}
-    try { petFillLineSelect() } catch (err) {}
+    try { petFillCategorySelects() } catch (err) {}
   }
   menuBox.classList.toggle('dshwv-menu-open', menuOpen)
   try { root.classList.toggle('dshwv-menu-shown', menuOpen) } catch (err) {}
@@ -21647,7 +21645,7 @@ function petSurfaceIdle(name) {
   // 选待机 = 取消「固定动作/分类」，回到待机语义
   petPin = null
   try { petPinSave() } catch (err) {}
-  try { petSyncPinSelects() } catch (err) {}
+  try { petSyncCategorySelects() } catch (err) {}
   try { petFillIdleSelect() } catch (err) {}
   // 选了就立刻切过去给用户看（菜单不用关）
   try {
@@ -21717,95 +21715,72 @@ function petPinApply() {
     if (petPin.value === '待机') petTimer = setTimeout(petRunChain, PET_IDLE_MIN_MS + Math.random() * PET_IDLE_SPAN_MS)
   } catch (err) {}
 }
-function petOnSelectAction(v) {
+function petCategoryOfAction(name) {
+  if (PET_POOLS.idle.indexOf(name) >= 0) return '待机'
+  if (PET_POOLS.turn.indexOf(name) >= 0) return '转向'
+  if (PET_POOLS.moves.indexOf(name) >= 0) return '移动'
+  if (PET_POOLS.clicks.indexOf(name) >= 0) return '点击回应'
+  var wk = Object.keys(PET_POOLS.work)
+  for (var w = 0; w < wk.length; w++) if (PET_POOLS.work[wk[w]] === name) return '工作状态'
+  for (var i = 0; i < PET_POOLS.cats.length; i++) {
+    if (PET_POOLS.cats[i].list.indexOf(name) >= 0) return PET_POOLS.cats[i].id
+  }
+  return ''
+}
+function petOnSelectCategory(id, v) {
   if (v === 'auto') {
     petPin = null
   } else if (v.indexOf('auto:') === 0) {
-    petPin = { type: 'category', value: v.slice(5) }
+    petPin = { type: 'category', value: id }
   } else {
     petPin = { type: 'action', value: v }
   }
   petPinSave()
-  try { petSyncPinSelects() } catch (err) {}
+  try { petSyncCategorySelects() } catch (err) {}
   petPinApply()
 }
-function petOnSelectLine(v) {
-  if (v === 'auto') {
-    petPin = null
-  } else if (v.indexOf('auto:') === 0) {
-    petPin = { type: 'category', value: v.slice(5) }
-  } else {
-    petPin = { type: 'action', value: v }
-  }
-  petPinSave()
-  try { petSyncPinSelects() } catch (err) {}
-  petPinApply()
-}
-function petFillGroupedSelect(sel, groups, placeholder) {
+function petFillCategorySelect(sel, id) {
   try {
     if (!sel) return
+    var list = petFilter(petCategoryList(id) || [])
     sel.textContent = ''
-    var auto = document.createElement('option')
-    auto.value = 'auto'
-    auto.textContent = placeholder || '自动随机（全部）'
-    sel.appendChild(auto)
-    for (var g = 0; g < groups.length; g++) {
-      var id = groups[g][0]
-      var list = petFilter(groups[g][1])
-      if (!list.length) continue
-      var og = document.createElement('optgroup')
-      og.label = id
-      var ga = document.createElement('option')
-      ga.value = 'auto:' + id
-      ga.textContent = '自动随机（' + id + '）'
-      og.appendChild(ga)
-      for (var i = 0; i < list.length; i++) {
-        var op = document.createElement('option')
-        op.value = list[i]
-        op.textContent = list[i]
-        og.appendChild(op)
-      }
-      sel.appendChild(og)
+    var a = document.createElement('option')
+    a.value = 'auto'
+    a.textContent = '自动随机'
+    sel.appendChild(a)
+    var ca = document.createElement('option')
+    ca.value = 'auto:' + id
+    ca.textContent = '本类随机'
+    sel.appendChild(ca)
+    for (var i = 0; i < list.length; i++) {
+      var op = document.createElement('option')
+      op.value = list[i]
+      op.textContent = list[i]
+      sel.appendChild(op)
     }
-    petSyncPinSelects()
   } catch (err) {}
 }
-function petFillActionSelect() {
-  var groups = [
-    ['待机', PET_POOLS.idle],
-    ['转向', PET_POOLS.turn],
-    ['移动', PET_POOLS.moves],
-    ['点击回应', PET_POOLS.clicks]
-  ]
-  PET_POOLS.cats.forEach(function (c) { if (!c.noMirror) groups.push([c.id, c.list]) })
-  var work = []
-  Object.keys(PET_POOLS.work).forEach(function (k) { if (PET_POOLS.work[k]) work.push(PET_POOLS.work[k]) })
-  groups.push(['工作状态', work])
-  petFillGroupedSelect(petActSel, groups, '自动随机（全部）')
-}
-function petFillLineSelect() {
-  var groups = []
-  PET_POOLS.cats.forEach(function (c) { if (c.noMirror) groups.push([c.id, c.list]) })
-  petFillGroupedSelect(petLineSel, groups, '自动随机（全部）')
+function petFillCategorySelects() {
+  PET_CAT_NAMES.forEach(function (id) { petFillCategorySelect(petCatSels[id], id) })
+  petSyncCategorySelects()
 }
 function petSetSelValue(sel, v) {
   try {
     if (!sel) return
     sel.value = v
-    // 目标选项不在这个下拉里（例如把台词动作同步到动作下拉）⇒ 回落到自动
     if (sel.value !== v) sel.value = 'auto'
   } catch (err) {}
 }
-function petSyncPinSelects() {
+function petSyncCategorySelects() {
   try {
-    var av = 'auto'
-    var lv = 'auto'
-    if (petPin) {
-      if (petPin.type === 'action') { av = petPin.value; lv = petPin.value }
-      else if (petPin.type === 'category') { av = 'auto:' + petPin.value; lv = 'auto:' + petPin.value }
-    }
-    petSetSelValue(petActSel, av)
-    petSetSelValue(petLineSel, lv)
+    PET_CAT_NAMES.forEach(function (id) {
+      var v = 'auto'
+      if (petPin) {
+        if (petPin.type === 'action' && petCategoryOfAction(petPin.value) === id) v = petPin.value
+        else if (petPin.type === 'category' && petPin.value === id) v = 'auto:' + id
+      }
+      petSetSelValue(petCatSels[id], v)
+    })
   } catch (err) {}
 }
 var petOn = false // 是否处于桌宠形态
@@ -22338,8 +22313,7 @@ function petLoadAnims(cb) {
       petAnims = map
       petLoading = false
       try { petFillIdleSelect() } catch (err) {}
-      try { petFillActionSelect() } catch (err) {}
-      try { petFillLineSelect() } catch (err) {}
+      try { petFillCategorySelects() } catch (err) {}
       if (!map[PET_IDLE]) { try { console.warn('[dsh-whale] 桌宠素材缺失：assets/pet-video/ 里没有「' + PET_IDLE + '」') } catch (err) {} }
       if (cb) cb(!!map[PET_IDLE])
     })
@@ -22347,8 +22321,8 @@ function petLoadAnims(cb) {
 }
 // 桌宠形态：整块换成桌宠菜单 —— 只保留这些行，其余（角色下拉/记账/避让/资源/表情…）全部隐藏。
 // 切回小鲸鱼由专用行「切回小鲸鱼」承担，所以不需要保留「角色」下拉行。
-var PET_MENU_KEEP = ['切回小鲸鱼', '桌宠动作', '桌宠台词', '待机动画', '大小', '音效与提示', '隐藏菜单按钮']
-var PET_MENU_ONLY = ['切回小鲸鱼', '桌宠动作', '桌宠台词', '待机动画']
+var PET_MENU_KEEP = ['切回小鲸鱼', '待机', '转向', '移动', '点击回应', '小动作', '玩耍', '吃什么', '时节', '文字', '工作状态', '大小', '音效与提示', '隐藏菜单按钮']
+var PET_MENU_ONLY = ['切回小鲸鱼', '待机', '转向', '移动', '点击回应', '小动作', '玩耍', '吃什么', '时节', '文字', '工作状态']
 function petApplyMenuMode() {
   try {
     var rows = document.querySelectorAll('.dshwv-menu-row')
