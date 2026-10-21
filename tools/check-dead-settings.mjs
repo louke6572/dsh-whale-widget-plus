@@ -102,7 +102,10 @@ export function audit({ clientPath, hostPath }) {
   let runtime = client
   let runtimeHost = host
   for (const f of WRITE_ONLY_FUNCS) { runtime = stripFunc(runtime, f); runtimeHost = stripFunc(runtimeHost, f) }
-  const both = stripCommentsAndStrings(runtime + '\n' + runtimeHost)
+  // ⚠️ 必须**分别**剥离两个文件后再拼接：客户端里有形如 `/*` 的字符串/正则片段，
+  // 若先拼接再整体剥注释，会把客户端里未配对的 `/*` 与宿主里的 `*/` 配成一段注释，
+  // 把中间整块运行时代码吞掉 ⇒ 误报大量"死键"（CI 长期红就是这个原因）。
+  const both = stripCommentsAndStrings(runtime) + '\n' + stripCommentsAndStrings(runtimeHost)
   // —— 判定（读点数按**键名**统计；行按 (kind,key) 逐条列出，便于白名单精确到路径）——
   const rows = []
   const dead = []
