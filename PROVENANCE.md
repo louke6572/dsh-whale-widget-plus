@@ -25,6 +25,7 @@
 | `bubble-money1.gif` | 内置泡泡图（余额预警默认内容的配图）。 |
 | `Ya1.mp3` / `Ya2.mp3`、`D1.mp3` / `D2.mp3` | 内置音效（按压 / 松开）。 |
 | `minecraft-exp-orb.wav`、`task-end-a.wav` | 内置任务结束音（Minecraft·经验球 / 预设 A）。 |
+| `assets/pet-video/`（106 段透明 webm 动画，桌宠形态用） | **第三方素材，非本仓库原创**：来自 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)（MIT License，© 2026 PC2005-cloud），随包原样分发，未做二次修改。仅用于本插件的「桌宠（动画）」角色形态；dsh-pet 的完整功能（桌面透明窗、抛掷物理、右键点播、碎碎念/对话）**未**包含在本插件中。 |
 | `assets/v1/` ~ `assets/v5/`（五套表情素材，共 133 张 PNG） | **本仓库的表情素材包**：从本仓库既有素材归档整理而来，与 `DSniang1.png` 属同一角色系列（AI 工具生成，生成工具与原始出处同样**已不可考**），按 as-is 随包提供。五套分别为 18 / 32 / 32 / 33 / 18 张，用于「表情素材包」切换；`v5` 为维护者基于同一角色系列自行校色整理的衍生版（「第五版」），文件名转为 ASCII、显示名见各包 `pack.json` 的 `labels`。 |
 | `docs/assets-第N版/`、`docs/screenshots/` | 上述素材的**中文命名归档**与各版总览截图，仅为便于比对与选择版本。不随 npm 包发布（不在 `package.json` 的 `files` 里）。 |
 

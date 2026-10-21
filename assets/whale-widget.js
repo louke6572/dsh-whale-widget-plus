@@ -611,6 +611,10 @@ var css = [
   // 代价是 img 的**矩形**（含透明边距）会吞掉点击 → 由 setupHitTest() 用命中图的**凸包**做 clip-path
   // 裁掉透明区（凸包包含全部不透明像素，不会裁到角色本身），"点到透明处穿透到下层"的行为得以保留。
   '.dshwv-img{position:absolute;right:0;bottom:0;width:59.45%;height:59.45%;display:block;pointer-events:auto;-webkit-user-drag:none;user-select:none;object-fit:contain;object-position:right bottom}',
+  // 桌宠形态：与 img 完全同框同几何（命中矩形/翻转/压扁全部复用 img 那套），
+  // 双层 video 做交叉淡入（切换动画零空白帧）；pointer-events:none —— 事件仍由 img 接。
+  '.dshwv-petwrap{position:absolute;right:0;bottom:0;width:59.45%;height:59.45%;display:none;pointer-events:none}',
+  '.dshwv-petvid{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:right bottom;opacity:0;transition:opacity .22s ease;pointer-events:none;-webkit-user-drag:none;user-select:none}',
   // v751（PR #119）：光标不再写 document.body.style.cursor —— cursor 是可继承属性，写 <body> 会让 Blink
   // 失效**整棵文档树**的样式；而它在点击链路上按下/抬手各写一次，紧接着 isWhaleHit() 的
   // getBoundingClientRect() 与泡泡行测量的 getComputedStyle()/scrollWidth 会强制刷新样式+布局，
@@ -1379,7 +1383,8 @@ img.className = 'dshwv-img'
 var initRoleUrl = IMG_URL
 try {
   var initRoleId = localStorage.getItem('dshw-role') || ''
-  if (initRoleId && initRoleId !== 'default') initRoleUrl = '/dsh-whale/role-image.png?id=' + encodeURIComponent(initRoleId)
+  if (initRoleId === 'pet') { /* 桌宠形态：由 loadRoles 后的 petEnable 接管，img 先保持默认 */ }
+  else if (initRoleId && initRoleId !== 'default') initRoleUrl = '/dsh-whale/role-image.png?id=' + encodeURIComponent(initRoleId)
 } catch (err) {}
 img.src = initRoleUrl
 img.alt = 'DeepSeek 余额'
@@ -1955,6 +1960,7 @@ function bubbleSessionText(m) {
 // v778：`opts` = { sel?, vol? } —— 传入 sel 表示"播这个绑定音效"（绕过 taskEnd 开关，因为它自带 on）；
 //   不传 sel = 路径 A（每轮结束音），按 usageSet.taskEnd 的门控与选择。
 function playTaskEndSound(opts) {
+  if (petOn) petWork('success')
   try {
     var o = opts || {}
     if (soundOn === false) return
@@ -14548,6 +14554,22 @@ function clampWidgetTop(v, maxT) {
 var body = document.createElement('div')
 body.className = 'dshwv-body'
 body.appendChild(img)
+// 桌宠形态的动画层（默认隐藏；选中「桌宠」角色时 img 转 visibility:hidden、这层显示）。
+// 用 visibility 而不是 display:none 保住 img 的布局盒 —— 命中矩形、泡泡锚点、命中图几何全部照旧。
+var petWrap = document.createElement('div')
+petWrap.className = 'dshwv-petwrap'
+var petVidA = document.createElement('video')
+var petVidB = document.createElement('video')
+;[petVidA, petVidB].forEach(function (v) {
+  v.className = 'dshwv-petvid'
+  v.muted = true
+  v.playsInline = true
+  v.preload = 'auto'
+  v.setAttribute('playsinline', '')
+  v.setAttribute('webkit-playsinline', '')
+  petWrap.appendChild(v)
+})
+body.appendChild(petWrap)
 body.appendChild(bubbleBox)
 root.appendChild(body)
 root.appendChild(menuBtn)
@@ -19460,6 +19482,7 @@ function bubblePreviewInto(container, mods, widthPx, opts) {
 //  - 正显示第 1 次点击泡泡:不切换内容,仅重置留存计时
 function whaleClick() {
   try {
+    if (petOn) petClickReact()
     if (!bubbleOn) return
     if (bubbleScene && (bubbleScene.kind === 'cost' || bubbleScene.kind === 'alert')) return // 消耗/预警提醒期间点鲸鱼不动作(点泡泡才关)
     if (!bubbleShown) {
@@ -20789,6 +20812,7 @@ function loadRoles() {
         // 恢复上次选择的角色
         var saved = ''
         try { saved = localStorage.getItem('dshw-role') || '' } catch (err) {}
+        if (saved === PET_ROLE_ID) { petEnable(false); return }
         var found = null
         for (var i = 0; i < roleList.length; i++) {
           if (roleList[i].id === saved) { found = roleList[i]; break }
@@ -20894,6 +20918,8 @@ function makeNameCell(className, text) {
   return outer
 }
 function applyRole(id, name, url) {
+  // 切到任何普通角色 ⇒ 退出桌宠形态（桌宠自己由 petEnable/petDisable 管理）
+  if (petOn && id !== PET_ROLE_ID) { try { petDisable() } catch (err) {} }
   currentRole = { id: id, name: name, url: url }
   img.src = url
   setRoleBtnText(name)
@@ -20933,7 +20959,7 @@ function exprFileOk(pack, name) {
 function exprRoleUrlNow() { return (currentRole && currentRole.url) ? currentRole.url : IMG_URL }
 // 唯一的换图入口：src + 命中图重建（照 applyRole 的三步，但不碰角色状态）
 function exprApplySkin(url) {
-  if (!url) return
+  if (!url || petOn) return
   img.src = url
   hitReady = false
   hitFailed = false
@@ -20941,6 +20967,7 @@ function exprApplySkin(url) {
 }
 // 唯一的「现在该显示哪张图」决策点
 function exprRender() {
+  if (petOn) return // 桌宠形态：外观交给动画层，表情层不参与
   var pack = exprActivePack()
   if (!exprOn || !pack) { exprApplySkin(exprRoleUrlNow()); return }
   var now = Date.now()
@@ -20963,6 +20990,7 @@ function exprRender() {
 // 在新表情层里按其架构补回：pointerdown → exprPressStart，pointerup → exprPressEnd。
 // 文件取当前素材包 blink.closed（该槽缺失的包自动无此效果）；60s 安全上限防 pointerup 丢失贴死。
 function exprPressStart() {
+  if (petOn) return // 桌宠形态：点击回应由动画链负责
   var pack = exprActivePack()
   if (!exprOn || !pack || !exprFileOk(pack, pack.blink.closed)) return
   exprPressFile = pack.blink.closed
@@ -21347,6 +21375,263 @@ function exprInit() {
   }, 10000)
   if (exprOn) exprLoadPacks(function () { exprRender(); exprRestartTimers() })
 }
+// ===== 桌宠形态（角色「桌宠」）=====
+// 把 dsh-pet（MIT，© PC2005-cloud）的**透明动画链**内置成一种角色形态，随包带 106 段 webm。
+// 只移植播放引擎（双缓冲交叉淡入 + 加权动画链 + 命中图取帧），不移植它的屏幕漫游 / 抛掷物理 /
+// 右键点播菜单 —— 本挂件的位置由拖拽吸附系统管理，养两套位置引擎必然互相打架。
+// 动画池与权重照抄 dsh-pet 的 assets/config.jsonc（idle 10 / turn 5 / move 5 / 分类 80）。
+var PET_ROLE_ID = 'pet'
+var PET_IDLE = '待机呼吸休闲'
+var PET_POOLS = {
+  idle: ['待机呼吸休闲'],
+  turn: ['东张西望'],
+  drag: ['被鼠标拖拽悬空反馈'],
+  clicks: ['点击回应-开心跃动', '点击回应-害羞惊讶', '点击回应-傲娇生气', '点击回应-挠痒咯咯笑', '点击回应-元气挥手'],
+  moves: ['螃蟹走路', '原地漂浮踏步', '原地左转奔跑'],
+  cats: [
+    { id: '小动作', w: 20, list: ['悠闲哼歌', '超大伸懒腰', '原地敲击桌面互动', '原地重力下蹲压缩', '哈欠连天', '原地小憩沉眠', '女仆屈膝礼仪', '被吓一跳', '小幅度原地360度旋转展示', '偷吃零食被抓住', '用鲸鱼尾巴拍打地面', '打瞌睡被惊醒', '照镜子', '整体换装试色', '轻快记录', '写代码', '摇扇纳凉', '晨间刷牙'] },
+    { id: '玩耍', w: 20, list: ['原地专心玩魔方', '原地蹲下玩玩具汽车', '鲸鱼吐泡泡特效', '原地跳跃抓碎头顶物品', '玩游戏气急败坏', '玩水枪', '小提琴演奏', '蓝鲸现世', '优雅女仆舞', '轻快摇摆舞', '可爱宅舞', '吹气球', '动物环绕', '放风筝', '拆礼物', '变鸽子', '扑克魔术', '抽陀螺', '吹笛子', '蝴蝶蜜蜂环绕头顶开花', '撸猫', '凭空生花', '骑木马', '三球抛接', '踢毽子', '下五子棋', '荡秋千'] },
+    { id: '吃什么', w: 16, list: ['吃白饭', '大口吃零食', '吃Token', '吃早餐', '吃午餐', '吃晚餐', '吃冰淇淋融化', '吃大闸蟹', '吃糖葫芦', '吃长寿面', '吃西瓜', '涮火锅'] },
+    { id: '时节', w: 14, list: ['被落叶淹没', '中秋赏月吃月饼', '堆雪人', '放烟花', '吃粽子', '吃年糕', '吃青团', '吃腊八粥', '吃重阳糕', '收红包', '写福字', '穿针乞巧', '舞狮头', '讨糖南瓜灯', '插茱萸赏菊', '放河灯', '萌化小幽灵', '装点圣诞树', '放孔明灯', '吃汤圆', '吃饺子'] },
+    // noMirror：带文字，镜像会颠倒 —— 宠物朝右（被镜像）时不抽这一类（与 dsh-pet 同规则）
+    { id: '文字', w: 10, noMirror: true, list: ['是啊，吃什么', '深度思考碎碎念'] }
+  ],
+  weights: { idle: 10, turn: 5, move: 5 },
+  work: { waiting: '工作状态-原地踱步张望', success: '工作状态-雀跃庆祝' }
+}
+var petOn = false // 是否处于桌宠形态
+var petAnims = null // 宿主清单：name -> true（null = 还没拉过）
+var petLoading = false
+var petShown = 0 // 0/1：当前显示的是 A 还是 B 层
+var petCur = ''
+var petFacingR = false // 桌宠自己的朝向（与挂件吸附翻转叠加）
+var petTimer = 0
+var petWaitKey = ''
+var petTempUntil = 0 // 临时插播（点击回应/拖拽/工作状态）到期时间：期间链不再抢播
+function petUrl(name) { return '/dsh-whale/pet-video.webm?name=' + encodeURIComponent(name) }
+function petHave(name) { return !!(petAnims && petAnims[name]) }
+function petFilter(list) {
+  var out = []
+  for (var i = 0; i < (list || []).length; i++) if (petHave(list[i])) out.push(list[i])
+  return out
+}
+function petPickNew(list, avoid) {
+  var f = petFilter(list)
+  if (!f.length) return ''
+  if (avoid) { var g = f.filter(function (n) { return n !== avoid }); if (g.length) f = g }
+  return f[Math.floor(Math.random() * f.length)] || ''
+}
+function petVidCur() { return petShown === 0 ? petVidA : petVidB }
+function petVidBack() { return petShown === 0 ? petVidB : petVidA }
+// 朝向：root 的 dshwv-left 会把整棵子树 mirror，桌宠自己的朝向再叠一层
+function petApplyFacing() {
+  try {
+    var k = (state && state.flip ? -1 : 1) * (petFacingR ? -1 : 1)
+    petWrap.style.transform = 'scaleX(' + k + ')'
+  } catch (err) {}
+}
+// 命中图取「当前帧」：把正在播的 video 画进 610×610 命中画布（与 img 同一套 contain/右下对齐），
+// 于是点的永远是角色身体、透明处穿透（isWhaleHit 原样复用，含左右翻转的坐标换算）。
+function petUpdateHit() {
+  try {
+    var v = petVidCur()
+    if (!v || !v.videoWidth || !v.videoHeight) return
+    if (!hitCanvas) { hitCanvas = document.createElement('canvas'); hitCanvas.width = 610; hitCanvas.height = 610 }
+    var ctx = hitCanvas.getContext('2d')
+    var sc = Math.min(610 / v.videoWidth, 610 / v.videoHeight)
+    var dw = v.videoWidth * sc
+    var dh = v.videoHeight * sc
+    ctx.clearRect(0, 0, 610, 610)
+    ctx.drawImage(v, 610 - dw, 610 - dh, dw, dh)
+    hitReady = true
+    hitFailed = false
+    applyHitClip(buildHitClipPath())
+  } catch (err) { hitFailed = true; hitReady = false; applyHitClip('') }
+}
+function petMarkBroken(name) {
+  try { if (petAnims) delete petAnims[name] } catch (err) {}
+  if (name === PET_IDLE) { try { petDisable() } catch (err) {} }
+}
+// 切换动画：新的一层先加载再交叉淡入（旧层淡出后暂停并释放），切换零空白帧
+function petSwitchTo(name, loop) {
+  if (!petOn || !name) return
+  var back = petVidBack()
+  var cur = petVidCur()
+  petCur = name
+  try {
+    back.loop = !!loop
+    back.src = petUrl(name)
+    back.oncanplay = function () {
+      back.oncanplay = null
+      try { back.currentTime = 0 } catch (err) {}
+      try { var p = back.play(); if (p && p.catch) p.catch(function () {}) } catch (err) {}
+      back.style.opacity = '1'
+      cur.style.opacity = '0'
+      petShown = 1 - petShown
+      petApplyFacing()
+      setTimeout(function () {
+        try { if (cur && cur !== back) { cur.pause(); cur.removeAttribute('src'); cur.load() } } catch (err) {}
+      }, 260)
+      setTimeout(petUpdateHit, 130)
+    }
+    back.onerror = function () { back.onerror = null; petMarkBroken(name); if (petOn && petAnims) petRunChain() }
+    back.load()
+  } catch (err) {}
+}
+// 动画链：权重抽一类 → 抽一段 → 播完接着抽（idle 循环 + 定时器换段，与 dsh-pet 同观感）
+function petRunChain() {
+  if (!petOn || !petAnims) return
+  clearTimeout(petTimer)
+  petTimer = 0
+  if (Date.now() < petTempUntil) { petTimer = setTimeout(petRunChain, 350); return }
+  var w = PET_POOLS.weights
+  var r = Math.random() * 100
+  var acted = false
+  if (r < w.idle) {
+    var idle = petPickNew(PET_POOLS.idle, petCur)
+    if (idle) { petSwitchTo(idle, true); acted = true; petTimer = setTimeout(petRunChain, 8000 + Math.random() * 12000) }
+  } else if (r < w.idle + w.turn) {
+    var turn = petPickNew(PET_POOLS.turn, petCur)
+    if (turn) { petSwitchTo(turn, false); acted = true }
+  } else if (r < w.idle + w.turn + w.move) {
+    var mv = petPickNew(PET_POOLS.moves, petCur)
+    if (mv) { petSwitchTo(mv, false); acted = true }
+  } else {
+    // 分类池：按 weight 抽（noMirror 类在朝右时跳过）
+    var cats = []
+    var total = 0
+    for (var i = 0; i < PET_POOLS.cats.length; i++) {
+      var c = PET_POOLS.cats[i]
+      if (c.noMirror && petFacingR) continue
+      if (!petFilter(c.list).length) continue
+      cats.push(c)
+      total += c.w
+    }
+    if (cats.length) {
+      var x = Math.random() * total
+      var acc = 0
+      var chosen = cats[cats.length - 1]
+      for (var k = 0; k < cats.length; k++) { acc += cats[k].w; if (x < acc) { chosen = cats[k]; break } }
+      var name = petPickNew(chosen.list, petCur)
+      if (name) { petSwitchTo(name, false); acted = true }
+    }
+  }
+  if (!acted) { // 池子全空（素材缺失）：退回 idle
+    if (petHave(PET_IDLE)) { petSwitchTo(PET_IDLE, true); petTimer = setTimeout(petRunChain, 12000) }
+  }
+}
+// 单次动画播完 → 回链（turn 播完翻转朝向）
+function petOnEnded() {
+  if (!petOn) return
+  if (petCur === PET_POOLS.turn[0]) petFacingR = !petFacingR
+  clearTimeout(petTimer)
+  petTimer = 0
+  petRunChain()
+}
+// 点击回应：临时插播一段（不打断链，播完自然回链）
+function petClickReact() {
+  if (!petOn) return
+  petTempUntil = Date.now() + 2200
+  var name = petPickNew(PET_POOLS.clicks, petCur)
+  if (name) petSwitchTo(name, false)
+}
+// 拖拽：播放被拎起悬空反馈（循环），松手回链
+function petDragStart() {
+  if (!petOn) return
+  petTempUntil = Date.now() + 60000
+  var name = petPickNew(PET_POOLS.drag, petCur)
+  if (name) petSwitchTo(name, true)
+}
+function petDragEnd() {
+  if (!petOn) return
+  petTempUntil = 0
+  petRunChain()
+}
+// 工作状态联动（复用挂件已有的轮询点：等待提问/授权 → 踱步；一轮结束 → 雀跃）
+function petWork(kind) {
+  if (!petOn || !petAnims) return
+  var name = PET_POOLS.work[kind]
+  if (!name || !petHave(name)) return
+  petTempUntil = Date.now() + 2600
+  petSwitchTo(name, false)
+}
+function petLoadAnims(cb) {
+  if (petAnims) { if (cb) cb(true); return }
+  if (petLoading) return
+  petLoading = true
+  fetch('/dsh-whale/pet-animations.json', { cache: 'no-store' })
+    .then(function (r) { return r.json() })
+    .then(function (d) {
+      var map = {}
+      var arr = (d && d.ok && Array.isArray(d.animations)) ? d.animations : []
+      for (var i = 0; i < arr.length; i++) map[arr[i]] = true
+      petAnims = map
+      petLoading = false
+      if (!map[PET_IDLE]) { try { console.warn('[dsh-whale] 桌宠素材缺失：assets/pet-video/ 里没有「' + PET_IDLE + '」') } catch (err) {} }
+      if (cb) cb(!!map[PET_IDLE])
+    })
+    .catch(function () { petLoading = false; if (cb) cb(false) })
+}
+function petEnable(byUser) {
+  if (petOn) return
+  if (!petWrap) return
+  petLoadAnims(function (ok) {
+    if (petOn) return
+    if (!ok) { try { dshwvToast('桌宠素材缺失，已回退默认角色') } catch (err) {} return }
+    petOn = true
+    petFacingR = false
+    petTempUntil = 0
+    petCur = ''
+    try { img.style.visibility = 'hidden' } catch (err) {}
+    petWrap.style.display = 'block'
+    currentRole = { id: PET_ROLE_ID, name: '桌宠', url: '' }
+    setRoleBtnText('桌宠')
+    try { localStorage.setItem('dshw-role', PET_ROLE_ID) } catch (err) {}
+    petApplyFacing()
+    petRunChain()
+    renderRolePanel()
+    // 看门狗：部分环境（无软件解码的 Chromium / 受限 WebView）能报"支持 VP9"却一帧都解不出来，
+    // 表现是宠物区域一直空白。4 秒内没有任何一层就绪 ⇒ 回退普通角色并给出明确提示。
+    setTimeout(function () {
+      if (!petOn) return
+      var ok = false
+      try { ok = (petVidA.readyState >= 2) || (petVidB.readyState >= 2) } catch (err) { ok = false }
+      if (!ok) {
+        try { petDisable() } catch (err) {}
+        try { applyRole('default', '小鲸鱼', IMG_URL) } catch (err) {} // 回退默认角色并清掉 dshw-role=pet
+        try { dshwvToast('当前环境无法播放透明动画（webm/VP9 解码不可用），已回退普通角色；桌面版通常可用') } catch (err) {}
+      }
+    }, 4000)
+  })
+}
+function petDisable() {
+  if (!petOn) return
+  petOn = false
+  clearTimeout(petTimer)
+  petTimer = 0
+  petTempUntil = 0
+  petWaitKey = ''
+  try {
+    petVidA.pause(); petVidB.pause()
+    petVidA.style.opacity = '0'; petVidB.style.opacity = '0'
+    petVidA.removeAttribute('src'); petVidB.removeAttribute('src')
+    petVidA.load(); petVidB.load()
+  } catch (err) {}
+  try { petWrap.style.display = 'none' } catch (err) {}
+  try { img.style.visibility = '' } catch (err) {}
+  try { setupHitTest(currentRole && currentRole.url ? currentRole.url : IMG_URL) } catch (err) {}
+  try { exprRender() } catch (err) {}
+}
+// 绑定双层的 ended / 首帧就绪（脚本末尾调用）
+function petBindVideos() {
+  try {
+    ;[petVidA, petVidB].forEach(function (v) {
+      v.addEventListener('ended', petOnEnded)
+      v.addEventListener('loadeddata', function () { if (petOn) petUpdateHit() })
+    })
+  } catch (err) {}
+}
+
 // ===== 手动台词：从官方泡泡配置的随机句池里挑一条「立刻显示」=====
 // 官方 v0.4.0 的泡泡编辑器已有可编辑的加权随机句池（`m.lines=[{t,w}]`，落盘 /dsh-whale/bubble.json），
 // 所以本层**不另存一份台词**，只把用户已有的池子列出来手动挑；显示走官方既有的系统泡泡队列
@@ -21518,6 +21803,37 @@ function closeRolePanel() {
 function renderRolePanel() {
   try {
     rolePanel.innerHTML = ''
+    // —— 内置「桌宠（动画）」形态：素材随包，不依赖任何外部插件 ——
+    try {
+      var petItem = document.createElement('div')
+      petItem.className = 'dshwv-roleitem' + (petOn ? ' dshwv-roleitem-cur' : '')
+      var petThumb = document.createElement('video')
+      petThumb.className = 'dshwv-rolethumb'
+      petThumb.muted = true
+      petThumb.autoplay = true
+      petThumb.loop = true
+      petThumb.setAttribute('playsinline', '')
+      petThumb.src = petUrl(PET_IDLE)
+      petItem.appendChild(petThumb)
+      var petNameWrap = document.createElement('span')
+      petNameWrap.className = 'dshwv-rolenamewrap'
+      var petTag = document.createElement('span')
+      petTag.className = 'dshwv-roleGifTag'
+      petTag.textContent = 'PET'
+      petNameWrap.appendChild(petTag)
+      var petNameEl = document.createElement('span')
+      petNameEl.textContent = '桌宠（动画）'
+      petNameWrap.appendChild(petNameEl)
+      petItem.appendChild(petNameWrap)
+      petItem.title = '内置桌宠形态：106 段透明动画（待机/玩耍/吃东西/时节/工作状态），素材源自 dsh-pet（MIT）'
+      petItem.addEventListener('click', function (e) {
+        e.stopPropagation()
+        closeRolePanel()
+        if (petOn) applyRole('default', '小鲸鱼', IMG_URL)
+        else petEnable(true)
+      })
+      rolePanel.appendChild(petItem)
+    } catch (err) {}
     roleList.forEach(function (r) {
       var item = document.createElement('div')
       item.className = 'dshwv-roleitem' + (currentRole.id === r.id ? ' dshwv-roleitem-cur' : '')
@@ -23107,6 +23423,7 @@ function onDocPointerDown(e) {
   drag = { active: true, startX: e.clientX, startY: e.clientY, origLeft: rect.left, origTop: rect.top, w: rect.width, h: rect.height, moved: false, vp: vp }
   root.classList.add('dshwv-dragging')
   pressDown()
+  if (petOn) petDragStart()
   setWidgetCursor('grabbing')
   document.addEventListener('pointermove', onDocPointerMove, true)
   document.addEventListener('pointerup', onDocPointerUp, true)
@@ -23348,6 +23665,7 @@ function endDrag(e, clickAllowed, cancelled) {
   document.removeEventListener('pointerup', onDocPointerUp, true)
   document.removeEventListener('pointercancel', onDocPointerCancel, true)
   pressUp()
+  if (petOn) petDragEnd()
   root.classList.remove('dshwv-dragging')
   // issue #79 缺陷2：pointercancel（Android 把手势判成页面滚动、或系统抢走手势时派发）的
   // clientX/clientY 常常是 0，而 endDrag 又是「按坐标收尾 + saveConfig() 落盘」——
@@ -23460,6 +23778,7 @@ loadRoles()
 loadAudio()
 // 表情素材层：绑定连点/悬停/空闲与图片错误降级，并按配置决定是否启用（实现见 exprInit）
 try { exprInit() } catch (err) {}
+try { petBindVideos() } catch (err) {}
 // 用量设置(任务结束音/预警/预算)加载,并据此初始化主菜单“任务结束”行
 loadUsageSettings(function () {
   try {
@@ -23657,6 +23976,7 @@ function pollWaitState() {
           // 什么都不做：既不显示，也不清 waitSeenId（同一挂起不重复响）
         } else {
           if (ev.bubbleOn !== false && typeof showWaitBubble === 'function') showWaitBubble(kind, p)
+        if (petOn && key !== petWaitKey) { petWaitKey = key; petWork('waiting') }
         }
         // v771：**每秒都把泡泡与宿主的挂起状态对齐一次**（showWaitBubble 幂等：同类直接返回 false，
         // 不会重渲染）。旧实现只在"新 id"时才调显示，于是一旦出现瞬时不同步（换类型 / 泡泡被别的

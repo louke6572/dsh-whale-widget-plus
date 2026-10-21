@@ -487,9 +487,11 @@ curl http://127.0.0.1:3080/dsh-whale/expr-packs.json
 - `/dsh-whale/platform-usage.json` → 200 JSON：DeepSeek **Platform 官方用量**（`{ok:true, currency, today:{tokens,cost}, month:{tokens,cost,requests}, models:[…]}`），数据来自 `platform.deepseek.com/api/v0/usage/amount|cost`，凭据是 `DEEPSEEK_USER_TOKEN`（平台网页 token，见「记账」章节）。未配置时返回 `{ok:false, code:'NO_TOKEN'}`，前端静默回落余额差口径
 - `/dsh-whale/platform-token.json` → `PUT {token}` 保存平台 token 并立即同步一次；`DELETE` 清除。token 存 DSH 凭据服务，不落配置文件
 - `/dsh-whale/last-step.json` → 200 JSON：**逐步骤**金额（每次模型调用完成即 `seq`+1，`{ok:true, seq, amount, tokens, model, ts}`），用于峰谷徽标上方「-x.xx」向上滚动的实时提示
+- `/dsh-whale/pet-video.webm?name=<动画名>` → 200 `video/webm`（桌宠形态的 106 段透明动画；支持 Range 与 ETag）
+- `/dsh-whale/pet-animations.json` → 200 JSON：桌宠动画清单 `{ok:true, animations:[名字…]}`
 - 浏览器 F5 后右下角出现挂件
 
-> ⚠️ **关于上面这些 `curl`**：全部 **31 个** `/dsh-whale/*` 路由都已接入 **DSH 浏览器信任栅栏**（`connection.requestRejection`）。
+> ⚠️ **关于上面这些 `curl`**：全部 **33 个** `/dsh-whale/*` 路由都已接入 **DSH 浏览器信任栅栏**（`connection.requestRejection`）。
 > 因此**不带会话凭据的裸 `curl` 会返回 401**（伪造 `Host` 头则是 403）—— 这是预期行为，不是接口坏了。
 > 想验证接口是否存活，看返回 **401/403** 即说明路由已注册且栅栏在工作；在浏览器里访问同一条路径（带会话）才是 200。
 > 另外**自 0.3.15 起，写请求（`POST`/`PUT`/`PATCH`/`DELETE`）还必须是本机来源**（Host 为 `127.0.0.1`/`localhost`/`[::1]`），否则 403 —— 详见上方「安全边界」。
