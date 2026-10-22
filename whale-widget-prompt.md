@@ -44,6 +44,7 @@
 | `/dsh-whale/size.json` | GET / PUT | 挂件配置持久化：GET 返回 `{scale, sound, vol, soundSet, usageMode, peakMode, bubbleOn, turnCostOn, turnCostCloseMs}`；PUT 读 body 写盘（优先 `$DSH_HOME/.dshw-size.json`，回退 `$DSH_HOME/profiles/web/` 与本机旧路径），带 CORS 头。`usageMode` 变化时清除余额缓存。 |
 | `/dsh-whale/sound/press.mp3` | GET | 按 `?set=duck|fx1` 返回对应按压音效（`Ya1.mp3` / `D1.mp3`），每请求读盘、`no-store`。 |
 | `/dsh-whale/sound/release.mp3` | GET | 同上，松手音效（`Ya2.mp3` / `D2.mp3`）。 |
+| `/dsh-whale/sound/voice.mp3` | GET | 桌宠语音：`?name=bing|heng|weiqu|qtan` → `assets/voice-*.mp3`，`no-store`；未知 name 返回 404。 |
 | `/dsh-whale/widget.js` | GET | 返回页面挂件源码（原生 JS），`Content-Type: application/javascript; charset=utf-8`、`Cache-Control: no-store`。 |
 | `tapIndex` | — | 对每次 index.html 注入 `<script defer src="/dsh-whale/widget.js"></script>`（置于 `</body>` 前，幂等判断 `html.indexOf('/dsh-whale/widget.js') !== -1` 则跳过）。 |
 

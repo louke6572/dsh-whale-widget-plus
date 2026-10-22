@@ -14756,13 +14756,34 @@ var petBubbleBaseEffective = null // 自然落位 top（鲸鱼/桌宠共用基�
 // 点击分身时把共用的气泡整体平移到那只分身上方（不复制 DOM，不破坏原有 fit/避让链路）。
 // transform 只在「分身锚定」期间存在；主宠点击/气泡关闭都会复位。
 var bubbleCloneAnchor = null
+// 锚定代次：每次重新锚定 / 复位 / 延迟复位都自增，用来作废已排期的旧复位定时器
+var petBubbleAnchorTok = 0
 function petBubbleAnchorReset() {
+  petBubbleAnchorTok++
   bubbleCloneAnchor = null
   try { if (bubbleBox) bubbleBox.style.transform = '' } catch (err) {}
+}
+// 气泡收起：锚点立刻解绑（后续点击按主宠处理），但**保留现有偏移直到收起动画结束**。
+// 否则泡泡会在 200~500ms 的淡出过渡里瞬间跳回主宠位置，看起来像「主宠闪了一下气泡」。
+function petBubbleAnchorRelease() {
+  petBubbleAnchorTok++
+  bubbleCloneAnchor = null
+  var tok = petBubbleAnchorTok
+  try {
+    setTimeout(function () {
+      try {
+        if (tok !== petBubbleAnchorTok) return
+        if (bubbleShown) return
+        if (bubbleBox) bubbleBox.style.transform = ''
+      } catch (err) {}
+    }, 520)
+  } catch (err) {}
 }
 function petBubbleAnchorApply() {
   try {
     if (!bubbleCloneAnchor || !bubbleShown || !bubbleBox) return
+    // 重新锚定 ⇒ 作废上一轮"延迟复位"（它不能再清掉这次新锚定的偏移）
+    petBubbleAnchorTok++
     var c = bubbleCloneAnchor
     var cr = c.el ? c.el.getBoundingClientRect() : null
     if (!cr || !(cr.width > 0)) return
@@ -18410,7 +18431,8 @@ function bubbleCloseVisual() {
   // 之后 showWaitBubble 会误判"已经在显示等待泡泡"（历史上正是这类不同步把等待泡泡卡死的）。
   waitShown = false
   bubbleRoundSize = null
-  try { petBubbleAnchorReset() } catch (err) {}
+  // 分身锚定的偏移留到淡出结束再清（否则泡泡会在收起途中跳回主宠位置）
+  try { petBubbleAnchorRelease() } catch (err) {}
   try { bubbleBox.classList.remove('dshwv-pop-open') } catch (err) {}
   try { textBox.style.transition = ''; textBox.style.opacity = '' } catch (err) {}
   try { hintEl.style.transition = ''; hintEl.style.opacity = '' } catch (err) {}
@@ -19913,10 +19935,15 @@ function bubblePreviewInto(container, mods, widthPx, opts) {
 //  - 正显示第 2 次及以后的泡泡:回到序列开头(重开第 1 次点击泡泡)
 //  - 正显示第 1 次点击泡泡:不切换内容,仅重置留存计时
 function whaleClick() {
-  // 主宠点击：清掉上一轮「分身锚定」，气泡回到主宠上方
-  try { petBubbleAnchorReset() } catch (err) {}
   try { if (petOn) petClickReact() } catch (err) {}
+  var wasShown = bubbleShown
   whaleBubbleTap()
+  // 气泡仍在显示（打开/翻到下一项）⇒ 归位到主宠；这次点击把气泡收起了 ⇒ 偏移留到淡出结束，
+  // 否则正在淡出的泡泡会瞬间跳到主宠位置（分身锚定后点主宠也适用）
+  try {
+    if (bubbleShown || !wasShown) petBubbleAnchorReset()
+    else petBubbleAnchorRelease()
+  } catch (err) {}
 }
 // 只走「点角色 → 气泡队列」这一段：供分身点击复用，不触发主宠的点击回应/Q 弹
 function whaleBubbleTap() {
@@ -20996,6 +21023,34 @@ function soundSlotUrls(slot, groupId) {
   if (!frag) return { url: legacy, alt: '', empty: false }
   return { url: '/dsh-whale/audio-fragment?id=' + encodeURIComponent(frag), alt: legacy, empty: false }
 }
+// ===== 桌宠语音（点击回应 / 拖拽甩出 / 硬落地 / Q 弹落地）=====
+// 音量跟随「按压音量」soundVol，总开关跟随 soundOn；与按压/松开“咔哒”互斥：
+// 桌宠形态下不再播咔哒，由这里按行为播对应语音。
+var PET_VOICE_KEYS = ['qtan', 'heng', 'weiqu', 'bing']
+var petVoiceEls = {}
+function petVoiceUrl(key) { return '/dsh-whale/sound/voice.mp3?name=' + encodeURIComponent(key) }
+function petVoiceUrls() {
+  var out = []
+  for (var i = 0; i < PET_VOICE_KEYS.length; i++) out.push(petVoiceUrl(PET_VOICE_KEYS[i]))
+  return out
+}
+function playPetVoice(key) {
+  try {
+    if (typeof soundOn !== 'undefined' && soundOn === false) return false
+    if (PET_VOICE_KEYS.indexOf(key) < 0) return false
+    var el = petVoiceEls[key]
+    if (!el) {
+      el = dshwvSound(petVoiceUrl(key))
+      el.preload = 'auto'
+      petVoiceEls[key] = el
+    }
+    el.volume = Number(soundVol) || 0
+    try { el.pause() } catch (err) {}
+    try { el.currentTime = 0 } catch (err) {}
+    try { el.play() } catch (err) {}
+    return true
+  } catch (err) { return false }
+}
 function applySoundSet() {
   try {
     // v729：切音效组 / 开关音效时把本轮播放状态一并复位，
@@ -21022,7 +21077,26 @@ function applySoundSet() {
     // ⚠️ 不变式：这里预热的 URL 必须与上面建元素用的 URL **逐字符相同**（同一个变量，不再各写一遍字面量）——
     //    一旦"预热 A、播放 B"，点按就会退回异步解码路径，手感立刻变钝（0.3.3 那次"变钝"的根因）。
     dshwvWarm([pu.empty ? '' : pu.url, ru.empty ? '' : ru.url])
+    // 桌宠语音也预热（四条合计约 100KB；与音效组无关，固定 URL）
+    try { dshwvWarm(petVoiceUrls()) } catch (err) {}
   } catch (err) {}
+}
+// 桌宠点击回应：直接播**当前按压音效组**的按压音（冰冰冰只是其中一个预设组）。
+// 为什么不用 playPress()：它带「松手音排期」状态机（onended 里可能补播 release），
+// 而桌宠形态的松手本来就不该响，直接复用同一份 pressAudio 元素、摘掉 onended 更干净。
+function petClickPressSound() {
+  try {
+    if (typeof soundOn !== 'undefined' && soundOn === false) return false
+    if (pressOn === false) return false
+    if (!pressAudio) return false
+    pressAudio.onended = null
+    try { pressAudio.pause() } catch (err) {}
+    try { pressAudio.currentTime = 0 } catch (err) {}
+    pressAudio.volume = Number(soundVol) || 0
+    var p = pressAudio.play()
+    if (p && typeof p.catch === 'function') p.catch(function () {})
+    return true
+  } catch (err) { return false }
 }
 function playPress() {
   if (!soundOn) return
@@ -21092,6 +21166,8 @@ function pressDown() {
   // v868（用户报"取消勾选按压音效没效果"）：pressOn 以前只是存了个状态、**没接到播放上**。
   //   闸门放在这里（真实点按的唯一入口），试听走 playPress() 直接调用 ⇒ 试听始终有声。
   if (pressOn === false) return
+  // 桌宠形态：按下不播“咔哒”，由点击/甩出/落地语音接管
+  if (petOn) return
   playPress()
 }
 function pressUp() {
@@ -21109,6 +21185,11 @@ function pressUp() {
   try { exprPressEnd() } catch (err) {}
   // v868：静音按压时松开音也不响（顺手把 releasePlayed 标记收干净，避免下次误触发）
   if (pressOn === false) {
+    try { releasePlayed = true } catch (err) {}
+    return
+  }
+  // 桌宠形态：松开也不播“咔哒”（同一次手势的语音在点击/甩出时播）
+  if (petOn) {
     try { releasePlayed = true } catch (err) {}
     return
   }
@@ -22398,9 +22479,11 @@ function petStopThrow() {
   petThrowImpulse = null
   petMoveClassSync()
 }
-function petStartThrow(vx, vy) {
+function petStartThrow(vx, vy, silent) {
   try {
     if (!petOn) return
+    // 甩出语音（哼不理你了）；碰撞触发的弹飞不播，避免连锁碰撞刷音
+    if (silent !== true) { try { playPetVoice('heng') } catch (err) {} }
     petStopRoam()
     petStopThrow()
     var w = root.offsetWidth || root.getBoundingClientRect().width || 0
@@ -22413,6 +22496,7 @@ function petStartThrow(vx, vy) {
     petThrowActive = true
     petMoveClassSync()
     var throwStartedAt = performance.now()
+    var voiceLanded = false
     function step(ts) {
       if (token !== petThrowToken || !petOn) { petThrowActive = false; petMoveClassSync(); petThrowRaf = 0; return }
       // 安全阀：正常重力下 2s 内必然落地；超过 8s 说明被碰撞反复激活，强制定格
@@ -22446,7 +22530,14 @@ function petStartThrow(vx, vy) {
       state.top = st.y
       petPosApply()
       var grounded = st.y >= b.maxY - 1
-      if (res.bounced && grounded && !prevGrounded) petStartSquash(petLandingSquash(fallVy))
+      if (res.bounced && grounded && !prevGrounded) {
+        petStartSquash(petLandingSquash(fallVy))
+        // 落地语音：重摔=委屈，轻落=Q弹；每次飞行只播一次
+        if (!voiceLanded) {
+          voiceLanded = true
+          try { playPetVoice(Math.abs(fallVy) >= 900 ? 'weiqu' : 'qtan') } catch (err) {}
+        }
+      }
       prevGrounded = grounded
       if (res.atRest) {
         petThrowRaf = 0
@@ -22783,9 +22874,11 @@ function petCloneStopThrow(c) {
   if (c.throwRaf) { try { cancelAnimationFrame(c.throwRaf) } catch (err) {} }
   c.throwRaf = 0
 }
-function petCloneThrow(c, vx, vy) {
+function petCloneThrow(c, vx, vy, silent) {
   try {
     if (!petOn) return
+    var voiceOn = silent !== true
+    if (voiceOn) { try { playPetVoice('heng') } catch (err) {} }
     petCloneStopRoam(c)
     petCloneStopThrow(c)
     var tk = ++c.throwTok
@@ -22794,6 +22887,7 @@ function petCloneThrow(c, vx, vy) {
     var last = performance.now()
     var prevGrounded = c.y >= Math.max(0, viewport().h - c.h) - 1
     var throwStartedAt = performance.now()
+    var voiceLanded = false
     function step(ts) {
       if (tk !== c.throwTok || !petOn) { c.throwRaf = 0; return }
       // 安全阀：被互撞反复激活时，8s 后强制定格，避免无限弹跳
@@ -22819,7 +22913,13 @@ function petCloneThrow(c, vx, vy) {
       petCloneCollide(c)
       petCloneApply(c)
       var grounded = c.y >= b.maxY - 1
-      if (res.bounced && grounded && !prevGrounded) petCloneSquash(c, petLandingSquash(fallVy))
+      if (res.bounced && grounded && !prevGrounded) {
+        petCloneSquash(c, petLandingSquash(fallVy))
+        if (!voiceLanded && voiceOn) {
+          voiceLanded = true
+          try { playPetVoice(Math.abs(fallVy) >= 900 ? 'weiqu' : 'qtan') } catch (err) {}
+        }
+      }
       prevGrounded = grounded
       if (res.atRest) { c.throwRaf = 0; petCloneSaveAll(); return }
       c.throwRaf = requestAnimationFrame(step)
@@ -22905,7 +23005,7 @@ function petCollideMain(st, w, h) {
       st.vy = res.ay
       if (c.throwRaf) { c.vx = res.bx; c.vy = res.by } // 已在飞：原地改速度
       else if (Math.sqrt(res.bx * res.bx + res.by * res.by) > PET_COLLIDE_MIN) {
-        petCloneThrow(c, res.bx, res.by)
+        petCloneThrow(c, res.bx, res.by, true)
       }
       break // 一帧只处理一次碰撞
     }
@@ -22941,7 +23041,7 @@ function petCloneCollide(c) {
               // 主宠已在飞：交给下一帧的抛掷循环就地生效，不重启 rAF
               petThrowImpulse = { vx: res.bx, vy: res.by }
             } else if (!(drag && drag.active) && Math.sqrt(res.bx * res.bx + res.by * res.by) > PET_COLLIDE_MIN) {
-              petStartThrow(res.bx, res.by)
+              petStartThrow(res.bx, res.by, true)
             }
           }
         }
@@ -22967,7 +23067,7 @@ function petCloneCollide(c) {
       c.vy = res2.ay
       if (o.throwRaf) { o.vx = res2.bx; o.vy = res2.by }
       else if (Math.sqrt(res2.bx * res2.bx + res2.by * res2.by) > PET_COLLIDE_MIN) {
-        petCloneThrow(o, res2.bx, res2.by)
+        petCloneThrow(o, res2.bx, res2.by, true)
       }
       break
     }
@@ -23015,9 +23115,7 @@ function petCloneDragStart(c, e) {
     e.preventDefault()
     e.stopPropagation()
   } catch (err) {}
-  // 按压音效：与主宠 pressDown 同样的时机（pointerdown 手势内）触发，
-  // 保证 AudioContext 已解锁。只播声音，不动主宠的 body / 表情。
-  try { if (pressOn !== false) playPress() } catch (err) {}
+  // 桌宠形态的点击/拖拽语音统一在 petCloneClick / petCloneThrow 里播，这里不再叠“咔哒”
   // 飞行中的分身被按下：同样触发积分粒子 + 分数卡片
   try {
     if (c.throwRaf) {
@@ -23082,7 +23180,6 @@ function petCloneDragStep(ts) {
 function petCloneDragUp(e) {
   var d = petCloneDrag
   if (!d) return
-  try { petCloneReleaseSound() } catch (err) {}
   petCloneDrag = null
   document.removeEventListener('pointermove', petCloneDragMove, true)
   document.removeEventListener('pointerup', petCloneDragUp, true)
@@ -23106,31 +23203,23 @@ function petCloneDragUp(e) {
 }
 function petCloneClick(c) {
   petCloneSquash(c, 0.55)
+  try { petClickPressSound() } catch (err) {}
   var name = petPickNew(PET_POOLS.clicks, c.cur)
   if (name) petClonePlay(c, name, false)
   // 与主宠点击一致：弹出消息气泡，并锚定到**这只分身**上方
   try {
     bubbleCloneAnchor = c
     whaleBubbleTap()
-    if (!bubbleShown || (bubbleScene && (bubbleScene.kind === 'cost' || bubbleScene.kind === 'alert' || bubbleScene.kind === 'wait'))) {
+    if (!bubbleShown) {
+      // 这次点击把气泡收起了：偏移先留着走完淡出，不能立刻弹回主宠位置
+      petBubbleAnchorRelease()
+    } else if (bubbleScene && (bubbleScene.kind === 'cost' || bubbleScene.kind === 'alert' || bubbleScene.kind === 'wait')) {
       petBubbleAnchorReset()
     } else {
       petBubbleAnchorSchedule()
     }
   } catch (err) { try { petBubbleAnchorReset() } catch (e) {} }
   try { refresh(true) } catch (err) {}
-}
-// 分身松手音：照抄主宠 pressUp 的排期（按压音结束前 RELEASE_LEAD_MS 起播），
-// 保证「按下有音、松开也有音」，而不是只靠 playPress 的 onended 兜底。
-function petCloneReleaseSound() {
-  try {
-    if (pressOn === false) return
-    var remain = 0
-    var dur = pressAudio ? pressAudio.duration : NaN
-    if (isFinite(dur) && dur > 0) remain = Math.max(0, dur - (pressAudio.currentTime || 0) - RELEASE_LEAD_MS / 1000)
-    if (remain > 0.01) playReleaseAt(remain)
-    else playRelease()
-  } catch (err) {}
 }
 function petCloneRemoveAll() {
   try {
@@ -23537,6 +23626,8 @@ function petClickReact() {
   if (!petOn) return
   // 飞行中命中已触发积分：本次不再重复播普通点击回应（与 dsh-pet 一致）
   if (petScoreFired) { petScoreFired = false; return }
+  // 点击回应：播当前「按压音效组」的按压音（选冰冰冰即冰冰冰，选 Q弹 即 Q弹）
+  try { petClickPressSound() } catch (err) {}
   // Q 弹：点击立刻压扁再回弹（与 dsh-pet 的点击回应同一手感），不依赖动画素材是否命中
   petStartSquash(0.55)
   var name = petPickNew(PET_POOLS.clicks, petCur)
@@ -24641,9 +24732,14 @@ function loadAudio() {
       .catch(function () {})
   } catch (err) {}
 }
+// 预设组的兜底显示名（audio.json 还没回来时也要显示正确名字，不能露出内部 id）
+var AUDIO_GROUP_NAME_FALLBACK = {
+  duck: '小黄鸭', fx1: '音效1', duck2: '小黄鸭-卟呲卟呲',
+  voice_bing: '冰冰冰', voice_heng: '哼不理你了', voice_qtan: 'Q弹', voice_weiqu: '委屈',
+}
 function audioGroupName(id) {
   for (var i = 0; i < audioGroups.length; i++) if (audioGroups[i].id === id) return audioGroups[i].name
-  return id === 'duck' ? '小黄鸭' : (id === 'fx1' ? '音效1' : id)
+  return AUDIO_GROUP_NAME_FALLBACK[id] || id
 }
 // 组槽位是否显式留空('' = 该事件静音);null/undefined/预设=视为有声
 function audioGroupSlotEmpty(id, slot) {
