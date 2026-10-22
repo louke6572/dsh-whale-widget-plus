@@ -613,8 +613,20 @@ var css = [
   '.dshwv-img{position:absolute;right:0;bottom:0;width:59.45%;height:59.45%;display:block;pointer-events:auto;-webkit-user-drag:none;user-select:none;object-fit:contain;object-position:right bottom}',
   // 桌宠形态：与 img 完全同框同几何（命中矩形/翻转/压扁全部复用 img 那套），
   // 双层 video 做交叉淡入（切换动画零空白帧）；pointer-events:none —— 事件仍由 img 接。
-  '.dshwv-petwrap{position:absolute;right:0;bottom:0;height:66%;width:auto;aspect-ratio:640/360;display:none;pointer-events:none}',
+  '.dshwv-petwrap{position:absolute;right:0;bottom:0;height:66%;width:auto;aspect-ratio:640/360;display:none;pointer-events:none;transform-origin:50% 100%}',
   '.dshwv-petvid{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:right bottom;opacity:0;transition:opacity .22s ease;pointer-events:none;-webkit-user-drag:none;user-select:none}',
+  // 拖拽弹簧 / 甩抛 / 漫游期间禁用 root 的 left/top 过渡，否则逐帧写位置会被过渡拖成"果冻"
+  '.dshwv-root.dshwv-pet-move{transition:none}',
+  // 分身：独立 fixed 容器（不参与主挂件的吸附/气泡/菜单），只复用同一套透明动画素材
+  '.dshwv-petclone{position:fixed;z-index:9998;pointer-events:none;display:none;transition:opacity .25s ease}',
+  '.dshwv-petclvid{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:right bottom;opacity:0;transition:opacity .22s ease;pointer-events:none;-webkit-user-drag:none;user-select:none;transform-origin:50% 100%}',
+  // 点击积分（飞行中命中）：粒子 + 分数卡片（纯 DOM，不吞指针）
+  '.dshwv-petscoreburst{position:fixed;z-index:10002;pointer-events:none;left:0;top:0;width:0;height:0}',
+  '.dshwv-petscore-p{position:absolute;left:0;top:0;width:8px;height:8px;border-radius:50%;animation:dshwvPetP .62s ease-out forwards}',
+  '@keyframes dshwvPetP{0%{transform:translate(-50%,-50%) scale(1);opacity:1}100%{transform:translate(calc(-50% + var(--dx)),calc(-50% + var(--dy))) scale(.2);opacity:0}}',
+  '.dshwv-petscore-card{position:fixed;z-index:10002;pointer-events:none;transform:translate(-50%,-100%);background:rgba(24,32,64,.92);color:#ffd75e;padding:6px 10px;border-radius:10px;font:700 16px/1.1 system-ui,sans-serif;box-shadow:0 6px 18px rgba(0,0,0,.25);animation:dshwvPetScore .95s ease-out forwards;white-space:nowrap}',
+  '.dshwv-petscore-card small{display:block;font-size:10px;font-weight:400;color:#cfd8ff;margin-top:2px}',
+  '@keyframes dshwvPetScore{0%{opacity:0;transform:translate(-50%,-82%) scale(.8)}18%{opacity:1;transform:translate(-50%,-118%) scale(1.08)}100%{opacity:0;transform:translate(-50%,-190%) scale(1)}}',
   '.dshwv-petmenu{position:absolute;right:0;bottom:calc(66% + 6px);width:174px;max-height:58%;overflow-y:auto;background:rgba(255,255,255,.97);border:1px solid rgba(32,49,112,.22);border-radius:10px;box-shadow:0 8px 22px rgba(15,23,42,.22);padding:6px;z-index:30;font-size:12px;color:#203170}',
   // 桌宠动作面板：嵌在主菜单内（同一个 .dshwv-menu 浮层），不再另开第二套菜单
   '.dshwv-petacts{display:none;width:100%;max-height:min(62vh,520px);overflow-y:auto;box-sizing:border-box;padding-bottom:10px;color:#203170}',
@@ -2262,6 +2274,122 @@ PET_CAT_NAMES.forEach(function (name) {
   menuBox.appendChild(crow)
   petCatSels[name] = csel
 })
+// —— 桌宠物理：屏幕漫游 / 分身数量 / 回到初始位置 ——
+var rowPetRoam = menuRow()
+rowPetRoam.appendChild(menuLabel('屏幕漫游'))
+var petRoamSel = document.createElement('select')
+petRoamSel.style.cssText = PET_SEL_CSS
+petRoamSel.title = '开：移动类动画会真的横向走一段；关：只在原地播放'
+;['1', '0'].forEach(function (v, i) {
+  var op = document.createElement('option')
+  op.value = v
+  op.textContent = i === 0 ? '开' : '关'
+  petRoamSel.appendChild(op)
+})
+try { petRoamSel.value = localStorage.getItem('dshw-pet-roam') === '0' ? '0' : '1' } catch (err) {}
+petRoamSel.addEventListener('change', function (e) {
+  e.stopPropagation()
+  try { petSetRoamOn(petRoamSel.value === '1') } catch (err) {}
+})
+rowPetRoam.appendChild(petRoamSel)
+menuBox.appendChild(rowPetRoam)
+var rowPetClone = menuRow()
+rowPetClone.appendChild(menuLabel('分身'))
+var petCloneSel = document.createElement('select')
+petCloneSel.style.cssText = PET_SEL_CSS
+petCloneSel.title = '同屏多只桌宠（最多 3 只）；各自独立漫游、可拖拽甩抛，互相会碰撞'
+;['0', '1', '2', '3'].forEach(function (v, i) {
+  var op = document.createElement('option')
+  op.value = v
+  op.textContent = i === 0 ? '关闭' : (v + ' 只')
+  petCloneSel.appendChild(op)
+})
+try {
+  var pccSel = parseInt(localStorage.getItem('dshw-pet-clones'), 10)
+  petCloneSel.value = String(isFinite(pccSel) ? Math.max(0, Math.min(3, pccSel)) : 0)
+} catch (err) {}
+petCloneSel.addEventListener('change', function (e) {
+  e.stopPropagation()
+  try { petCloneSetCount(parseInt(petCloneSel.value, 10) || 0) } catch (err) {}
+})
+rowPetClone.appendChild(petCloneSel)
+menuBox.appendChild(rowPetClone)
+// —— 分身动作：自动随机 / 跟随主宠 / 固定分类（下拉即生效）——
+var rowPetCloneAct = menuRow()
+rowPetCloneAct.appendChild(menuLabel('分身动作'))
+var petCloneActSel = document.createElement('select')
+petCloneActSel.style.cssText = PET_SEL_CSS
+petCloneActSel.title = '分身演什么：自动随机、跟随主宠当前动画，或固定在某个分类内轮播'
+var petCloneActOpts = [
+  { v: 'auto', t: '自动随机（默认）' },
+  { v: 'follow', t: '跟随主宠' }
+]
+PET_CAT_NAMES.forEach(function (id) { petCloneActOpts.push({ v: id, t: id }) })
+petCloneActOpts.forEach(function (o) {
+  var op = document.createElement('option')
+  op.value = o.v
+  op.textContent = o.t
+  petCloneActSel.appendChild(op)
+})
+try {
+  var pcPinSel = localStorage.getItem('dshw-pet-clone-pin') || 'auto'
+  var hasAct = false
+  for (var pai = 0; pai < petCloneActOpts.length; pai++) if (petCloneActOpts[pai].v === pcPinSel) hasAct = true
+  petCloneActSel.value = hasAct ? pcPinSel : 'auto'
+} catch (err) {}
+petCloneActSel.addEventListener('change', function (e) {
+  e.stopPropagation()
+  try { petCloneSetPin(petCloneActSel.value) } catch (err) {}
+})
+rowPetCloneAct.appendChild(petCloneActSel)
+menuBox.appendChild(rowPetCloneAct)
+// —— 每只分身独立大小：仅显示当前存在的分身；以脚底为基准缩放 ——
+var petCloneSizeSels = []
+var petCloneSizeOpts = ['0.4', '0.5', '0.6', '0.7', '0.78', '0.9', '1.0', '1.1', '1.2']
+for (var csi = 0; csi < 3; csi++) {
+  var crowS = menuRow()
+  crowS.appendChild(menuLabel('分身' + (csi + 1) + '大小'))
+  var cselS = document.createElement('select')
+  cselS.style.cssText = PET_SEL_CSS
+  cselS.title = '第 ' + (csi + 1) + ' 只分身的大小（以脚底为基准缩放；跟随主宠 = 与主宠同尺寸）'
+  ;['follow'].concat(petCloneSizeOpts).forEach(function (v) {
+    var op = document.createElement('option')
+    op.value = v
+    op.textContent = v === 'follow' ? '跟随主宠' : (Math.round(Number(v) * 100) + '%')
+    cselS.appendChild(op)
+  })
+  try {
+    var savedScale = localStorage.getItem('dshw-pet-clone-scale-' + csi)
+    if (savedScale === 'follow') cselS.value = 'follow'
+    else {
+      var savedNum = Number(savedScale)
+      cselS.value = (isFinite(savedNum) && savedNum >= 0.4 && savedNum <= 1.2) ? String(savedNum) : '0.78'
+    }
+  } catch (err) { cselS.value = '0.78' }
+  ;(function (idx, sel) {
+    sel.addEventListener('change', function (e) {
+      e.stopPropagation()
+      try { petCloneSetScale(idx, sel.value) } catch (err) {}
+    })
+  })(csi, cselS)
+  crowS.appendChild(cselS)
+  menuBox.appendChild(crowS)
+  petCloneSizeSels.push({ row: crowS, sel: cselS })
+}
+var rowPetHome = menuRow()
+rowPetHome.appendChild(menuLabel('回到初始位置'))
+var petHomeBtn = document.createElement('button')
+petHomeBtn.type = 'button'
+petHomeBtn.className = 'dshwv-roleimport'
+petHomeBtn.style.flex = '1'
+petHomeBtn.textContent = '回到右下角'
+petHomeBtn.title = '把桌宠放回屏幕右下角（并清除飞行/漫游状态）'
+petHomeBtn.addEventListener('click', function (e) {
+  e.stopPropagation()
+  try { petGoHome() } catch (err) {}
+})
+rowPetHome.appendChild(petHomeBtn)
+menuBox.appendChild(rowPetHome)
 var petSep2 = document.createElement('div')
 petSep2.className = 'dshwv-menu-sep dshwv-pet-only'
 menuBox.appendChild(petSep2)
@@ -14732,11 +14860,13 @@ function scheduleBubbleFit() {
   bubbleFitPending = true
   requestAnimationFrame(function () {
     bubbleFitPending = false
+    // root 缩放/窗口变化必须让桌宠重新按 root 高度定尺寸 —— 不能因为气泡没开就跳过，
+    // 否则会出现「拖主宠大小滑块只有分身在变、主宠本身不变」的错位。
+    if (petOn) { try { petRefitNow() } catch (err) {} }
     if (!bubbleShown) return
     bubbleFitContent(bubbleBox, textBox, root.clientWidth, false)
     // 气泡尺寸/内容变了 ⇒ 底边位置跟着变 ⇒ 人物头顶避让必须重算
     applyBubbleAvoid()
-    if (petOn) petRefitNow()
   })
 }
 // 覆盖接口刷新、自定义余额应用/取消、数字滚动及异步图片加载；同帧多次变化只测一次。
@@ -20643,6 +20773,10 @@ function setScale(v) {
   }
   state.top = clampWidgetTop(Math.min(Math.max(fy - r2.height, 0), Math.max(0, vp.h - r2.height)))
   express()
+  // 主宠改「大小」：先把主宠自身按新 root 尺寸重排，再让分身跟随（顺序不能反）
+  try { if (petOn) petRefitNow() } catch (err) {}
+  // 分身一起重算：固定百分比按新主宠尺寸等比变，「跟随主宠」保持与主宠同尺寸
+  try { petCloneRefit() } catch (err) {}
   // 恢复过渡必须延迟到下一帧：本帧 left/top 已在 none 下设置并提交，
   // 立即恢复会让浏览器对「刚改过的 left/top」重新评估并播放过渡动画
   // （翻转时叠加 transform .3s 更明显，表现为抽搐）。
@@ -21878,8 +22012,1158 @@ function petApplyFacing() {
   try {
     var k = petNoMirror ? 1 : (petFacingR ? -1 : 1)
     if (petNoMirror && state && state.flip) k = -1
-    petWrap.style.transform = 'scaleX(' + k + ')'
+    petWrap.style.transform = 'scaleX(' + k + ') scaleY(' + petSquashSY + ')'
   } catch (err) {}
+}
+// ===== Q 弹挤压（点击回应 / 抛掷落地）=====
+// 曲线与参数照抄 dsh-pet shared/physics.ts：下压段 ease-in，回弹段 easeOutBack 过冲。
+// 只压 scaleY（transform-origin 底部），scaleX 的朝向由 petApplyFacing 合并进去。
+var petSquashSY = 1
+var petSquashRaf = 0
+var petSquashToken = 0
+var PET_SQ_DURATION_MS = 220
+function petSquashCurve(u, squash) {
+  if (u < 0.45) {
+    var p = u / 0.45
+    return 1 - (1 - squash) * p * p
+  }
+  var q = (u - 0.45) / 0.55
+  var c1 = 1.70158
+  var c3 = c1 + 1
+  var f = 1 + c3 * Math.pow(q - 1, 3) + c1 * Math.pow(q - 1, 2)
+  return Math.min(1.12, squash + (1 - squash) * Math.max(f, 0))
+}
+function petLandingSquash(impactSpeed) {
+  var t = Math.min(Math.max((Math.abs(impactSpeed) - 300) / (1500 - 300), 0), 1)
+  return Math.min(0.8, 1 - t * (1 - 0.55))
+}
+function petStartSquash(depth) {
+  try {
+    if (!petOn || !petWrap) return
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    var d = (typeof depth === 'number' && isFinite(depth)) ? depth : 0.55
+    var token = ++petSquashToken
+    if (petSquashRaf) { try { cancelAnimationFrame(petSquashRaf) } catch (err) {} petSquashRaf = 0 }
+    var t0 = 0
+    function step(ts) {
+      if (token !== petSquashToken || !petOn) { petSquashRaf = 0; return }
+      if (!t0) t0 = ts
+      var u = Math.min(1, (ts - t0) / PET_SQ_DURATION_MS)
+      petSquashSY = petSquashCurve(u, d)
+      petApplyFacing()
+      if (u < 1) { petSquashRaf = requestAnimationFrame(step) }
+      else { petSquashRaf = 0; petSquashSY = 1; petApplyFacing() }
+    }
+    petSquashRaf = requestAnimationFrame(step)
+  } catch (err) {}
+}
+// ===== 物理：弹簧跟手 + 甩抛（默认值与 dsh-pet shared/physics.ts 一致）=====
+var PET_PHYS = {
+  K: 200,
+  C: 30,
+  GRAVITY: 1400,
+  RESTITUTION: 0.78,
+  FRICTION: 2.5,
+  REST_VY: 40,
+  REST_VX: 15,
+  MAX_STEP: 0.05,
+  DEAD_ZONE: 500,
+  MAX_THROW: 3600
+}
+function petSpringStep(v, x, target, dt) {
+  return v + ((target - x) * PET_PHYS.K - v * PET_PHYS.C) * dt
+}
+function petSoftClamp(speed) {
+  if (!(speed > 0)) return 0
+  return PET_PHYS.MAX_THROW * (1 - Math.exp(-speed / PET_PHYS.MAX_THROW))
+}
+// ===== 点击积分（飞行中命中）+ 双击弹弓 =====
+// 与 dsh-pet 同一套判定：按下瞬间读取飞行速度，≥400px/s 即积分；双击的第二下按住拖 = 弹弓。
+var petThrowState = null // 当前飞行状态（供 pointerdown 读取抓取速度）
+var petLastPressAt = 0
+var petScoreFired = false
+var PET_SCORE_MIN_SPEED = 400
+var PET_SLING_DOUBLE_MS = 320
+var PET_SLING_REF_RATIO = 0.6
+var PET_THROW_ANCHOR = 1200
+function petMainSizePx() {
+  try { return root.getBoundingClientRect().width || 0 } catch (err) { return 0 }
+}
+function petScoreBurst(x, y, score, speed) {
+  try {
+    var layer = document.createElement('div')
+    layer.className = 'dshwv-petscoreburst'
+    layer.style.left = x + 'px'
+    layer.style.top = y + 'px'
+    document.body.appendChild(layer)
+    var colors = ['#ffd54a', '#ff8a65', '#4fc3f7', '#b39ddb', '#81c784']
+    for (var i = 0; i < 12; i++) {
+      var s = document.createElement('i')
+      s.className = 'dshwv-petscore-p'
+      var a = Math.random() * Math.PI * 2
+      var d = 40 + Math.random() * 70
+      s.style.setProperty('--dx', (Math.cos(a) * d).toFixed(0) + 'px')
+      s.style.setProperty('--dy', (Math.sin(a) * d).toFixed(0) + 'px')
+      s.style.background = colors[i % colors.length]
+      s.style.boxShadow = '0 0 6px ' + colors[i % colors.length]
+      s.style.animationDelay = (Math.random() * 80).toFixed(0) + 'ms'
+      layer.appendChild(s)
+    }
+    setTimeout(function () { try { layer.remove() } catch (err) {} }, 900)
+    var card = document.createElement('div')
+    card.className = 'dshwv-petscore-card'
+    card.style.left = x + 'px'
+    card.style.top = y + 'px'
+    card.appendChild(document.createTextNode('+' + score))
+    var sub = document.createElement('small')
+    sub.textContent = '速度 ' + Math.round(speed) + ' px/s'
+    card.appendChild(sub)
+    document.body.appendChild(card)
+    setTimeout(function () { try { card.remove() } catch (err) {} }, 1000)
+  } catch (err) {}
+}
+function petThrowStep(s, dtRaw, b) {
+  var dt = Math.min(Math.max(dtRaw, 0), PET_PHYS.MAX_STEP)
+  var x = s.x, y = s.y, vx = s.vx, vy = s.vy
+  vy += PET_PHYS.GRAVITY * dt
+  x += vx * dt
+  y += vy * dt
+  var bounced = false
+  if (x < b.minX) {
+    x = b.minX
+    vx = Math.abs(vx) * PET_PHYS.RESTITUTION
+    bounced = true
+  } else if (x > b.maxX) {
+    x = b.maxX
+    vx = -Math.abs(vx) * PET_PHYS.RESTITUTION
+    bounced = true
+  }
+  if (y < b.minY) {
+    y = b.minY
+    vy = Math.abs(vy) * PET_PHYS.RESTITUTION
+    bounced = true
+  } else if (y >= b.maxY) {
+    y = b.maxY
+    vx *= Math.max(0, 1 - PET_PHYS.FRICTION * dt)
+    if (Math.abs(vy) < PET_PHYS.REST_VY) vy = 0
+    else vy = -Math.abs(vy) * PET_PHYS.RESTITUTION
+    bounced = true
+  }
+  var speed = Math.sqrt(vx * vx + vy * vy)
+  var atRest = (y >= b.maxY - 1 && Math.abs(vy) < 1 && Math.abs(vx) < PET_PHYS.REST_VX) ||
+    (bounced && speed < PET_PHYS.REST_VY && Math.abs(vy) < 1)
+  return { x: x, y: y, vx: vx, vy: vy, bounced: bounced, atRest: atRest }
+}
+function petThrowSubsteps(vx, vy, dt) {
+  var move = Math.sqrt(vx * vx + vy * vy) * dt
+  return Math.max(1, Math.min(10, Math.ceil(move / 24)))
+}
+// 拖拽轨迹（最近 220ms），用于估算松手初速
+function petTrailPush(trail, e) {
+  try {
+    var now = performance.now()
+    trail.push({ t: now, x: e.clientX, y: e.clientY })
+    while (trail.length && now - trail[0].t > 220) trail.shift()
+  } catch (err) {}
+}
+function petTrailVelocity(trail) {
+  try {
+    if (!trail || !trail.length) return null
+    var now = performance.now()
+    if (now - trail[trail.length - 1].t > 150) return null
+    var win = []
+    for (var i = 0; i < trail.length; i++) if (now - trail[i].t <= 150) win.push(trail[i])
+    if (win.length < 2) return null
+    var a = win[0], z = win[win.length - 1]
+    var span = z.t - a.t
+    if (span < 20) return null
+    var vx = (z.x - a.x) / span * 1000
+    var vy = (z.y - a.y) / span * 1000
+    var speed = Math.sqrt(vx * vx + vy * vy)
+    if (speed < 1e-6) return null
+    var peak = speed
+    var px = a.x, py = a.y, pt = a.t
+    for (var j = 1; j < win.length; j++) {
+      var dt = win[j].t - pt
+      if (dt >= 8) {
+        var sp = Math.sqrt(Math.pow(win[j].x - px, 2) + Math.pow(win[j].y - py, 2)) / dt * 1000
+        if (sp > peak) peak = sp
+        px = win[j].x; py = win[j].y; pt = win[j].t
+      }
+    }
+    var clamped = petSoftClamp(speed * 0.5 + peak * 0.5)
+    if (clamped < PET_PHYS.DEAD_ZONE) return null
+    return { vx: vx / speed * clamped, vy: vy / speed * clamped }
+  } catch (err) { return null }
+}
+// 位置写入：物理/漫游逐帧调用。不走 express()（它会强制重排分级），只节流重排气泡。
+var petPosFitAt = 0
+function petPosApply() {
+  try {
+    root.style.right = 'auto'
+    root.style.bottom = 'auto'
+    root.style.left = state.left + 'px'
+    root.style.top = state.top + 'px'
+    root.classList.toggle('dshwv-left', !!state.flip)
+    if (petOn) petApplyFacing()
+    var now = Date.now()
+    if (now - petPosFitAt > 120) { petPosFitAt = now; scheduleBubbleFit() }
+  } catch (err) {}
+}
+function petCommitFreePos() {
+  try {
+    state.h = null
+    state.v = null
+    state.hOff = state.left
+    state.vOff = state.top
+    saveAnchorPos()
+  } catch (err) {}
+}
+// 回到初始位置：清掉飞行/漫游，把主宠放到右下角；分身排到它左侧
+function petGoHome() {
+  try {
+    try { petStopRoam(); petStopThrow(); petDragFollowStop() } catch (err) {}
+    var vp = viewport()
+    var w = root.offsetWidth || root.getBoundingClientRect().width || 0
+    var h = root.offsetHeight || root.getBoundingClientRect().height || 0
+    state.h = 'right'
+    state.hOff = 0
+    state.v = 'bottom'
+    state.vOff = 0
+    state.flip = false
+    state.left = clamp(vp.w - w - rightGap(), 0, Math.max(0, vp.w - w))
+    state.top = clampWidgetTop(vp.h - h, Math.max(0, vp.h - h))
+    settle()
+    saveConfig()
+    if (petClones.length) {
+      var rr = root.getBoundingClientRect()
+      for (var i = 0; i < petClones.length; i++) {
+        var c = petClones[i]
+        petCloneStopRoam(c)
+        petCloneStopThrow(c)
+        c.x = clamp(rr.left - c.w * 0.55 * (i + 1), 0, Math.max(0, vp.w - c.w))
+        c.y = clamp(rr.top + rr.height - c.h, 0, Math.max(0, vp.h - c.h))
+        petCloneApply(c)
+      }
+      petCloneSaveAll()
+    }
+  } catch (err) {}
+}
+// ===== 屏幕漫游：移动类动画不再原地踏步，而是真的横向位移（照抄 dsh-pet planMove 的语义）=====
+var petRoamOn = true
+try { if (localStorage.getItem('dshw-pet-roam') === '0') petRoamOn = false } catch (err) {}
+var petRoamRaf = 0
+var petRoamToken = 0
+var petRoamActive = false
+var petThrowRaf = 0
+var petThrowToken = 0
+var petThrowActive = false
+function petMoveClassSync() {
+  try { root.classList.toggle('dshwv-pet-move', !!(petRoamActive || petThrowActive)) } catch (err) {}
+}
+function petStopRoam() {
+  petRoamToken++
+  if (petRoamRaf) { try { cancelAnimationFrame(petRoamRaf) } catch (err) {} }
+  petRoamRaf = 0
+  petRoamActive = false
+  petMoveClassSync()
+}
+function petSetRoamOn(on) {
+  petRoamOn = !!on
+  try { localStorage.setItem('dshw-pet-roam', petRoamOn ? '1' : '0') } catch (err) {}
+  if (!petRoamOn) {
+    try { petStopRoam() } catch (err) {}
+    for (var i = 0; i < petClones.length; i++) { try { petCloneStopRoam(petClones[i]) } catch (err) {} }
+  }
+}
+function petRoamStart(v, name) {
+  try {
+    if (!petOn || !petRoamOn || document.hidden) return
+    if (PET_POOLS.moves.indexOf(name) < 0) return
+    if ((drag && drag.active) || petThrowActive) return
+    var dur = (v && isFinite(v.duration) && v.duration > 0) ? v.duration : 3.2
+    var lead = Math.min(0.8, dur * 0.22)
+    var tail = Math.min(0.8, dur * 0.22)
+    var travel = Math.max(0.1, dur - lead - tail)
+    // 朝向 → 走路方向：素材原片朝左；整棵挂件镜像 XOR 桌宠自身朝向 = 屏幕上的朝向
+    var dir = (!!state.flip !== !!petFacingR) ? 1 : -1
+    var vp = viewport()
+    var w = root.offsetWidth || root.getBoundingClientRect().width || 0
+    var maxL = Math.max(0, vp.w - w)
+    var dist = 60 + Math.random() * 90
+    var target = clamp(state.left + dir * dist, 0, maxL)
+    if (Math.abs(target - state.left) < 10) return // 已经贴边：按 dsh-pet 的 planMove 直接放弃本段漫游
+    petStopRoam()
+    var token = ++petRoamToken
+    var startL = state.left
+    var t0 = performance.now()
+    petRoamActive = true
+    petMoveClassSync()
+    function step(now) {
+      if (token !== petRoamToken || !petOn) { petRoamActive = false; petMoveClassSync(); petRoamRaf = 0; return }
+      var t = (now - t0) / 1000
+      var p = t <= lead ? 0 : (t >= lead + travel ? 1 : (t - lead) / travel)
+      state.left = startL + (target - startL) * p
+      petPosApply()
+      if (p < 1) { petRoamRaf = requestAnimationFrame(step) }
+      else {
+        petRoamRaf = 0
+        petRoamActive = false
+        petMoveClassSync()
+        petCommitFreePos()
+      }
+    }
+    petRoamRaf = requestAnimationFrame(step)
+  } catch (err) {}
+}
+// ===== 甩抛：重力 + 四边反弹 + 地面摩擦 + 落地 Q 弹 =====
+function petStopThrow() {
+  petThrowToken++
+  if (petThrowRaf) { try { cancelAnimationFrame(petThrowRaf) } catch (err) {} }
+  petThrowRaf = 0
+  petThrowActive = false
+  petThrowState = null
+  petThrowImpulse = null
+  petMoveClassSync()
+}
+function petStartThrow(vx, vy) {
+  try {
+    if (!petOn) return
+    petStopRoam()
+    petStopThrow()
+    var w = root.offsetWidth || root.getBoundingClientRect().width || 0
+    var h = root.offsetHeight || root.getBoundingClientRect().height || 0
+    var token = ++petThrowToken
+    var st = { x: state.left, y: state.top, vx: vx, vy: vy }
+    petThrowState = st
+    var last = performance.now()
+    var prevGrounded = state.top >= Math.max(0, viewport().h - h) - 1
+    petThrowActive = true
+    petMoveClassSync()
+    var throwStartedAt = performance.now()
+    function step(ts) {
+      if (token !== petThrowToken || !petOn) { petThrowActive = false; petMoveClassSync(); petThrowRaf = 0; return }
+      // 安全阀：正常重力下 2s 内必然落地；超过 8s 说明被碰撞反复激活，强制定格
+      if (ts - throwStartedAt > 8000) {
+        petThrowRaf = 0
+        petThrowActive = false
+        petThrowState = null
+        petThrowImpulse = null
+        petMoveClassSync()
+        petCommitFreePos()
+        return
+      }
+      var dt = Math.min((ts - last) / 1000, PET_PHYS.MAX_STEP)
+      last = ts
+      var vp = viewport()
+      var b = { minX: 0, minY: 0, maxX: Math.max(0, vp.w - w), maxY: Math.max(0, vp.h - h) }
+      // 被分身撞到：下一帧就地改速度（不重启 rAF，避免无限循环）
+      if (petThrowImpulse) {
+        st.vx = petThrowImpulse.vx
+        st.vy = petThrowImpulse.vy
+        petThrowImpulse = null
+      }
+      var fallVy = st.vy
+      var sub = petThrowSubsteps(st.vx, st.vy, dt)
+      var res = petThrowStep(st, dt / sub, b)
+      for (var i = 1; i < sub && !res.atRest; i++) res = petThrowStep(res, dt / sub, b)
+      st = { x: res.x, y: res.y, vx: res.vx, vy: res.vy }
+      st = petCollideMain(st, w, h)
+      petThrowState = st
+      state.left = st.x
+      state.top = st.y
+      petPosApply()
+      var grounded = st.y >= b.maxY - 1
+      if (res.bounced && grounded && !prevGrounded) petStartSquash(petLandingSquash(fallVy))
+      prevGrounded = grounded
+      if (res.atRest) {
+        petThrowRaf = 0
+        petThrowActive = false
+        petThrowState = null
+        petMoveClassSync()
+        petCommitFreePos()
+        return
+      }
+      petThrowRaf = requestAnimationFrame(step)
+    }
+    petThrowRaf = requestAnimationFrame(step)
+  } catch (err) { petThrowActive = false; petMoveClassSync() }
+}
+// ===== 拖拽弹簧跟手：指针只喂目标点，位置用过阻尼弹簧追赶（抹平高频抖动）=====
+var petDragTarget = null
+var petDragTrail = []
+var petDragVelX = 0
+var petDragVelY = 0
+var petDragRaf = 0
+var petDragLastT = 0
+function petDragFollowStop() {
+  if (petDragRaf) { try { cancelAnimationFrame(petDragRaf) } catch (err) {} }
+  petDragRaf = 0
+  petDragTarget = null
+  petDragVelX = 0
+  petDragVelY = 0
+}
+function petDragFollowStart() {
+  if (petDragRaf) return
+  petDragLastT = performance.now()
+  function step(ts) {
+    if (!drag || !drag.active || !petOn || !petDragTarget) { petDragRaf = 0; return }
+    var dt = Math.min((ts - petDragLastT) / 1000, 1 / 30)
+    petDragLastT = ts
+    var vp = drag.vp || viewport()
+    var maxL = Math.max(0, vp.w - drag.w)
+    var maxT = Math.max(0, vp.h - drag.h)
+    petDragVelX = petSpringStep(petDragVelX, state.left, petDragTarget.x, dt)
+    petDragVelY = petSpringStep(petDragVelY, state.top, petDragTarget.y, dt)
+    state.left = clamp(state.left + petDragVelX * dt, 0, maxL)
+    state.top = clampWidgetTop(state.top + petDragVelY * dt, maxT)
+    if (state.left <= 0 || state.left >= maxL) petDragVelX = 0
+    if (state.top <= 0 || state.top >= maxT) petDragVelY = 0
+    petPosApply()
+    petDragRaf = requestAnimationFrame(step)
+  }
+  petDragRaf = requestAnimationFrame(step)
+}
+// ===== 分身（多开）：独立 fixed 容器 + 各自的双层动画/物理/漫游 =====
+// 不复用主挂件的 state/菜单/气泡 —— 分身只是"同素材池的第二只宠物"，位置互不干扰。
+var petClones = []
+var petCloneDrag = null
+var petCloneCount = 0
+// 分身动作：auto=各自随机 | follow=跟随主宠当前动画 | 具体分类=只在该类内轮播
+var petClonePin = 'auto'
+try {
+  var pcpin = localStorage.getItem('dshw-pet-clone-pin')
+  if (typeof pcpin === 'string' && pcpin) petClonePin = pcpin
+} catch (err) { petClonePin = 'auto' }
+function petClonePinSave() {
+  try { localStorage.setItem('dshw-pet-clone-pin', petClonePin || 'auto') } catch (err) {}
+}
+// 切换分身动作：立即让场上所有分身按新规则换段（不用等当前动画播完）
+function petCloneSetPin(v) {
+  petClonePin = v || 'auto'
+  petClonePinSave()
+  if (!petOn) return
+  for (var i = 0; i < petClones.length; i++) {
+    try {
+      clearTimeout(petClones[i].timer)
+      petCloneNext(petClones[i])
+    } catch (err) {}
+  }
+}
+// 调整第 i 只分身的大小：以脚底为基准缩放，并夹回视口
+function petCloneSetScale(i, sc) {
+  var follow = String(sc) === 'follow'
+  var v = follow ? 1 : Number(sc)
+  if (!isFinite(v)) v = 0.78
+  if (!follow) v = Math.max(0.4, Math.min(1.2, v))
+  try { localStorage.setItem('dshw-pet-clone-scale-' + i, follow ? 'follow' : String(v)) } catch (err) {}
+  for (var k = 0; k < petClones.length; k++) {
+    var c = petClones[k]
+    if (c.slot !== i) continue
+    var oldBottom = c.y + c.h
+    c.scaleMode = follow ? 'follow' : 'fixed'
+    c.scale = v
+    petCloneSize(c)
+    var vp = viewport()
+    c.x = clamp(c.x, 0, Math.max(0, vp.w - c.w))
+    c.y = clamp(oldBottom - c.h, 0, Math.max(0, vp.h - c.h))
+    petCloneApply(c)
+    petCloneResolveOverlap(c)
+  }
+  try { petCloneSaveAll() } catch (err) {}
+  try { petCloneSizeMenuSync() } catch (err) {}
+}
+// 菜单里「分身N大小」只显示当前存在的分身；数值始终与场上实例同步
+function petCloneSizeMenuSync() {
+  try {
+    if (typeof petCloneSizeSels === 'undefined' || !petCloneSizeSels.length) return
+    for (var i = 0; i < petCloneSizeSels.length; i++) {
+      var item = petCloneSizeSels[i]
+      if (petOn) item.row.classList.toggle('dshwv-pet-hide', i >= petCloneCount)
+      var c = null
+      for (var k = 0; k < petClones.length; k++) if (petClones[k].slot === i) c = petClones[k]
+      var want = c ? (c.scaleMode === 'follow' ? 'follow' : c.scale) : 0.78
+      if (!c) {
+        try {
+          var saved = localStorage.getItem('dshw-pet-clone-scale-' + i)
+          if (saved === 'follow') want = 'follow'
+          else {
+            var sn = Number(saved)
+            if (isFinite(sn) && sn >= 0.4 && sn <= 1.2) want = sn
+          }
+        } catch (err) {}
+      }
+      item.sel.value = String(want)
+      if (item.sel.value !== String(want) && item.sel.options.length) item.sel.value = '0.78'
+    }
+  } catch (err) {}
+}
+try {
+  var pcc = parseInt(localStorage.getItem('dshw-pet-clones'), 10)
+  if (isFinite(pcc)) petCloneCount = Math.max(0, Math.min(3, pcc))
+} catch (err) { petCloneCount = 0 }
+function petCloneSavedPos() {
+  try { var a = JSON.parse(localStorage.getItem('dshw-pet-clone-pos') || '[]'); return Array.isArray(a) ? a : [] } catch (err) { return [] }
+}
+function petCloneSaveAll() {
+  try {
+    var vp = viewport()
+    var a = []
+    for (var i = 0; i < petClones.length; i++) a.push({ rx: petClones[i].x / Math.max(1, vp.w), ry: petClones[i].y / Math.max(1, vp.h) })
+    localStorage.setItem('dshw-pet-clone-pos', JSON.stringify(a))
+  } catch (err) {}
+}
+function petCloneSize(c) {
+  var rr = root.getBoundingClientRect()
+  var sc = (typeof c.scale === 'number' && c.scale > 0) ? c.scale : 0.78
+  // 跟随主宠：直接复用主宠的动画框高度 ⇒ 可见角色与主宠同尺寸
+  if (c.scaleMode === 'follow') sc = 1
+  // 基准必须是主宠**动画框**高度（petFitH = 主宠可见高度 / 角色占比），
+  // 不能直接用 root 高度 × 0.5945 —— 那是"可见角色高度"，套到分身的视频框上
+  // 会因为视频框里还有透明留白而显得明显比主宠小（用户反馈"大小不同步"的真因）。
+  var baseH = petFitH
+  if (!(baseH > 40)) baseH = (rr.height || 400) * 0.5945 / 0.62
+  var h = Math.max(50, baseH * sc)
+  var w = h * (16 / 9)
+  c.w = w
+  c.h = h
+  try {
+    c.el.style.width = w.toFixed(1) + 'px'
+    c.el.style.height = h.toFixed(1) + 'px'
+  } catch (err) {}
+}
+function petCloneApply(c) {
+  try {
+    c.el.style.left = c.x.toFixed(1) + 'px'
+    c.el.style.top = c.y.toFixed(1) + 'px'
+    c.el.style.transform = 'scaleX(' + (c.faceR ? -1 : 1) + ')'
+  } catch (err) {}
+}
+function petCloneVideoSquash(c) {
+  try {
+    c.vA.style.transform = 'scaleY(' + c.squashSY + ')'
+    c.vB.style.transform = 'scaleY(' + c.squashSY + ')'
+  } catch (err) {}
+}
+function petCloneSquash(c, depth) {
+  try {
+    if (!petOn) return
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    var d = (typeof depth === 'number' && isFinite(depth)) ? depth : 0.55
+    var tk = ++c.squashTok
+    if (c.squashRaf) { try { cancelAnimationFrame(c.squashRaf) } catch (err) {} c.squashRaf = 0 }
+    var t0 = 0
+    function step(ts) {
+      if (tk !== c.squashTok || !petOn) { c.squashRaf = 0; return }
+      if (!t0) t0 = ts
+      var u = Math.min(1, (ts - t0) / PET_SQ_DURATION_MS)
+      c.squashSY = petSquashCurve(u, d)
+      petCloneVideoSquash(c)
+      if (u < 1) c.squashRaf = requestAnimationFrame(step)
+      else { c.squashRaf = 0; c.squashSY = 1; petCloneVideoSquash(c) }
+    }
+    c.squashRaf = requestAnimationFrame(step)
+  } catch (err) {}
+}
+function petClonePlay(c, name, loop) {
+  try {
+    if (!petOn || !petHave(name)) return
+    var back = c.shown === 0 ? c.vB : c.vA
+    var cur = c.shown === 0 ? c.vA : c.vB
+    var tk = ++c.tok
+    back.loop = !!loop
+    back.oncanplay = function () {
+      if (tk !== c.tok || !petOn) return
+      back.oncanplay = null
+      try { back.currentTime = 0 } catch (err) {}
+      try { var p = back.play(); if (p && p.catch) p.catch(function () {}) } catch (err) {}
+      back.style.opacity = '1'
+      cur.style.opacity = '0'
+      c.shown = 1 - c.shown
+      c.cur = name
+      // 带文字的动画：分身不参与主挂件的整体镜像，把自身朝向复位，避免文字反向
+      try {
+        if (petIsNoMirror(name) && c.faceR) { c.faceR = false; petCloneApply(c) }
+      } catch (err) {}
+      // 命中区收敛到「当前帧不透明包围盒」：分身的透明留白不吞页面点击
+      try {
+        var m = petMeasure(back)
+        if (m && m.charRatio > 0.05) c.hit = { l: m.leftGapRatio, t: m.topRatio, w: m.widthRatio, h: m.charRatio }
+      } catch (err) {}
+      if (PET_POOLS.moves.indexOf(name) >= 0) petCloneRoam(c, back)
+      else petCloneStopRoam(c)
+      // 淡出后的旧层暂停（不再参与解码）；若刚好又被切回可见层则保留
+      setTimeout(function () {
+        try { if (cur && cur.style.opacity !== '1') cur.pause() } catch (err) {}
+      }, 300)
+    }
+    back.onerror = function () {
+      back.onerror = null
+      if (tk !== c.tok) return
+      clearTimeout(c.timer)
+      c.timer = setTimeout(function () { petCloneNext(c) }, 1200)
+    }
+    var src = petUrl(name)
+    if (back.getAttribute('src') !== src) back.setAttribute('src', src)
+    back.load()
+  } catch (err) {}
+}
+function petCloneNext(c) {
+  try {
+    if (!petOn || !petAnims) return
+    clearTimeout(c.timer)
+    // 跟随主宠：主宠换段时由 petSwitchTo 统一同步；这里只做兜底
+    if (petClonePin === 'follow') {
+      var fn = petCur
+      if (!fn || !petHave(fn)) fn = petIdleResolve(c.cur)
+      if (fn) petClonePlay(c, fn, true)
+      c.timer = setTimeout(function () { petCloneNext(c) }, 60000)
+      return
+    }
+    // 固定分类：只在该分类内轮播（与主宠分类下拉同一套池子）
+    if (petClonePin !== 'auto') {
+      var pinnedList = petCategoryList(petClonePin)
+      if (pinnedList && petFilter(pinnedList).length) {
+        var pn = petPickNew(pinnedList, c.cur) || petIdleResolve(c.cur)
+        if (!pn) return
+        var ploop = petClonePin === '待机'
+        petClonePlay(c, pn, ploop)
+        c.timer = setTimeout(function () { petCloneNext(c) }, ploop ? (24000 + Math.random() * 16000) : 12000)
+        return
+      }
+      petClonePin = 'auto'
+      petClonePinSave()
+    }
+    var name = ''
+    var loop = true
+    var r = Math.random() * 100
+    if (r < 55) {
+      name = petIdleResolve(c.cur)
+      loop = true
+    } else if (r < 68) {
+      name = petPickNew(PET_POOLS.moves, c.cur)
+      loop = false
+    } else if (r < 78) {
+      name = petPickNew(PET_POOLS.turn, c.cur)
+      loop = false
+    } else {
+      var cats = []
+      var total = 0
+      for (var i = 0; i < PET_POOLS.cats.length; i++) {
+        var cat = PET_POOLS.cats[i]
+        if (!petFilter(cat.list).length) continue
+        cats.push(cat)
+        total += cat.w
+      }
+      if (cats.length) {
+        var x = Math.random() * total
+        var acc = 0
+        var chosen = cats[cats.length - 1]
+        for (var k = 0; k < cats.length; k++) { acc += cats[k].w; if (x < acc) { chosen = cats[k]; break } }
+        name = petPickNew(chosen.list, c.cur)
+      }
+      loop = false
+    }
+    if (!name) { name = petIdleResolve(c.cur); loop = true }
+    if (!name) return
+    petClonePlay(c, name, loop)
+    c.timer = setTimeout(function () { petCloneNext(c) }, loop ? (24000 + Math.random() * 16000) : 12000)
+  } catch (err) {}
+}
+function petCloneStopRoam(c) {
+  c.roamTok++
+  if (c.roamRaf) { try { cancelAnimationFrame(c.roamRaf) } catch (err) {} }
+  c.roamRaf = 0
+}
+function petCloneRoam(c, v) {
+  try {
+    if (!petRoamOn || document.hidden || !petOn) return
+    petCloneStopRoam(c)
+    var dir = c.faceR ? 1 : -1
+    var vp = viewport()
+    var maxL = Math.max(0, vp.w - c.w)
+    var target = clamp(c.x + dir * (50 + Math.random() * 80), 0, maxL)
+    if (Math.abs(target - c.x) < 8) {
+      c.faceR = !c.faceR
+      petCloneApply(c)
+      return
+    }
+    var dur = (v && isFinite(v.duration) && v.duration > 0) ? v.duration : 3.2
+    var lead = Math.min(0.7, dur * 0.22)
+    var tail = Math.min(0.7, dur * 0.22)
+    var travel = Math.max(0.1, dur - lead - tail)
+    var start = c.x
+    var t0 = performance.now()
+    var tk = ++c.roamTok
+    function step(now) {
+      if (tk !== c.roamTok || !petOn) { c.roamRaf = 0; return }
+      var t = (now - t0) / 1000
+      var p = t <= lead ? 0 : (t >= lead + travel ? 1 : (t - lead) / travel)
+      c.x = start + (target - start) * p
+      petCloneApply(c)
+      if (p < 1) { c.roamRaf = requestAnimationFrame(step) } else { c.roamRaf = 0; petCloneSaveAll() }
+    }
+    c.roamRaf = requestAnimationFrame(step)
+  } catch (err) {}
+}
+function petCloneStopThrow(c) {
+  c.throwTok++
+  if (c.throwRaf) { try { cancelAnimationFrame(c.throwRaf) } catch (err) {} }
+  c.throwRaf = 0
+}
+function petCloneThrow(c, vx, vy) {
+  try {
+    if (!petOn) return
+    petCloneStopRoam(c)
+    petCloneStopThrow(c)
+    var tk = ++c.throwTok
+    c.vx = vx
+    c.vy = vy
+    var last = performance.now()
+    var prevGrounded = c.y >= Math.max(0, viewport().h - c.h) - 1
+    var throwStartedAt = performance.now()
+    function step(ts) {
+      if (tk !== c.throwTok || !petOn) { c.throwRaf = 0; return }
+      // 安全阀：被互撞反复激活时，8s 后强制定格，避免无限弹跳
+      if (ts - throwStartedAt > 8000) {
+        c.throwRaf = 0
+        c.vx = 0
+        c.vy = 0
+        petCloneSaveAll()
+        return
+      }
+      var dt = Math.min((ts - last) / 1000, PET_PHYS.MAX_STEP)
+      last = ts
+      var vp = viewport()
+      var b = { minX: 0, minY: 0, maxX: Math.max(0, vp.w - c.w), maxY: Math.max(0, vp.h - c.h) }
+      var fallVy = c.vy
+      var sub = petThrowSubsteps(c.vx, c.vy, dt)
+      var res = petThrowStep({ x: c.x, y: c.y, vx: c.vx, vy: c.vy }, dt / sub, b)
+      for (var i = 1; i < sub && !res.atRest; i++) res = petThrowStep(res, dt / sub, b)
+      c.x = res.x
+      c.y = res.y
+      c.vx = res.vx
+      c.vy = res.vy
+      petCloneCollide(c)
+      petCloneApply(c)
+      var grounded = c.y >= b.maxY - 1
+      if (res.bounced && grounded && !prevGrounded) petCloneSquash(c, petLandingSquash(fallVy))
+      prevGrounded = grounded
+      if (res.atRest) { c.throwRaf = 0; petCloneSaveAll(); return }
+      c.throwRaf = requestAnimationFrame(step)
+    }
+    c.throwRaf = requestAnimationFrame(step)
+  } catch (err) {}
+}
+function petRectHit(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
+}
+function petMainBodyBox() {
+  try {
+    var r = petWrap.getBoundingClientRect()
+    if (!(r.width > 0)) return null
+    return { x: r.left, y: r.top, w: r.width, h: r.height }
+  } catch (err) { return null }
+}
+// 主宠在飞：撞到分身 ⇒ 主宠按法线弹开，分身被撞飞
+// ===== 宠物互撞：位置分离 + 动量交换 + 每对冷却 =====
+// 旧实现每次碰撞都给对方一个**固定大速度**并重启它的 rAF；位置又不分离 ⇒
+// 两只重叠的宠物每帧互相撞飞，形成"鬼畜弹弹弹"死循环（只有换动画/换角色才停）。
+// 现在：① 先把两只宠物沿法线推开；② 只做等质量弹性碰撞（恢复系数 0.4）；
+// ③ 对方已在飞就原地改速度、不重启 rAF；④ 同一对 500ms 内只处理一次。
+var PET_COLLIDE_CD = 500
+var PET_COLLIDE_MIN = 120
+var petPairCd = {}
+var petThrowImpulse = null
+function petCollideCdOk(ka, kb) {
+  var k = ka < kb ? ka + '|' + kb : kb + '|' + ka
+  var now = Date.now()
+  if ((petPairCd[k] || 0) > now) return false
+  petPairCd[k] = now + PET_COLLIDE_CD
+  var n = 0
+  for (var p in petPairCd) { if (Object.prototype.hasOwnProperty.call(petPairCd, p)) n++ }
+  if (n > 80) petPairCd = {} // 长期运行不积累键
+  return true
+}
+// 返回从 b 指向 a 的法线 + 最小分离深度（轴对齐 MTV）
+function petBoxHitInfo(a, b) {
+  if (!petRectHit(a, b)) return null
+  var dx = (a.x + a.w / 2) - (b.x + b.w / 2)
+  var dy = (a.y + a.h / 2) - (b.y + b.h / 2)
+  var ox = (a.w + b.w) / 2 - Math.abs(dx)
+  var oy = (a.h + b.h) / 2 - Math.abs(dy)
+  if (ox < oy) return { nx: dx >= 0 ? 1 : -1, ny: 0, depth: ox }
+  return { nx: 0, ny: dy >= 0 ? 1 : -1, depth: oy }
+}
+// 等质量弹性碰撞（e=0.4）；返回 a/b 的新速度与冲量大小
+function petCollideImpulse(vax, vay, vbx, vby, nx, ny) {
+  var vrel = (vax - vbx) * nx + (vay - vby) * ny
+  if (vrel >= 0) return null // 已经在分离
+  var j = -(1 + 0.4) * vrel / 2
+  return { ax: vax + j * nx, ay: vay + j * ny, bx: vbx - j * nx, by: vby - j * ny, j: j }
+}
+function petCollideApplyBox(box, nx, ny, depth) {
+  var push = Math.min(depth + 2, 48)
+  box.x += nx * push
+  box.y += ny * push
+  return push
+}
+// 主宠在飞：撞到分身
+function petCollideMain(st, w, h) {
+  try {
+    if (!petClones.length) return st
+    for (var i = 0; i < petClones.length; i++) {
+      var c = petClones[i]
+      var info = petBoxHitInfo({ x: st.x, y: st.y, w: w, h: h }, { x: c.x, y: c.y, w: c.w, h: c.h })
+      if (!info) continue
+      if (!petCollideCdOk('main', 'c' + c.slot)) break
+      // 分离：主宠沿 +n，分身沿 -n
+      var push = petCollideApplyBox(st, info.nx, info.ny, info.depth)
+      var vp = viewport()
+      c.x = clamp(c.x - info.nx * push, 0, Math.max(0, vp.w - c.w))
+      c.y = clamp(c.y - info.ny * push, 0, Math.max(0, vp.h - c.h))
+      petCloneApply(c)
+      // 双方都接近静止：只做分离，不再交换动量（否则贴边/无空间时会一直微弹）
+      var mainSpd = Math.sqrt(st.vx * st.vx + st.vy * st.vy)
+      var cloneSpd = c.throwRaf ? Math.sqrt(c.vx * c.vx + c.vy * c.vy) : 0
+      if (mainSpd < PET_COLLIDE_MIN && cloneSpd < PET_COLLIDE_MIN) break
+      var res = petCollideImpulse(st.vx, st.vy, c.throwRaf ? c.vx : 0, c.throwRaf ? c.vy : 0, info.nx, info.ny)
+      if (!res || res.j < 40) break // 只是贴住/轻碰：分离即可，不再注入能量
+      st.vx = res.ax
+      st.vy = res.ay
+      if (c.throwRaf) { c.vx = res.bx; c.vy = res.by } // 已在飞：原地改速度
+      else if (Math.sqrt(res.bx * res.bx + res.by * res.by) > PET_COLLIDE_MIN) {
+        petCloneThrow(c, res.bx, res.by)
+      }
+      break // 一帧只处理一次碰撞
+    }
+  } catch (err) {}
+  return st
+}
+// 分身在飞：撞主宠 / 其它分身
+function petCloneCollide(c) {
+  try {
+    var vp = viewport()
+    var mb = petMainBodyBox()
+    if (mb) {
+      var info = petBoxHitInfo({ x: c.x, y: c.y, w: c.w, h: c.h }, mb)
+      if (info && petCollideCdOk('main', 'c' + c.slot)) {
+        var push = petCollideApplyBox(c, info.nx, info.ny, info.depth)
+        petCloneApply(c)
+        // 主宠反向推开（保持当前吸附/自由位置状态）
+        var rw = root.offsetWidth || 0
+        var rh = root.offsetHeight || 0
+        state.left = clamp(state.left - info.nx * push, 0, Math.max(0, vp.w - rw))
+        state.top = clampWidgetTop(state.top - info.ny * push, Math.max(0, vp.h - rh))
+        petPosApply()
+        var mvx = (petThrowActive && petThrowState) ? petThrowState.vx : 0
+        var mvy = (petThrowActive && petThrowState) ? petThrowState.vy : 0
+        var cSpd = Math.sqrt(c.vx * c.vx + c.vy * c.vy)
+        var mSpd = Math.sqrt(mvx * mvx + mvy * mvy)
+        if (cSpd >= PET_COLLIDE_MIN || mSpd >= PET_COLLIDE_MIN) {
+          var res = petCollideImpulse(c.vx, c.vy, mvx, mvy, info.nx, info.ny)
+          if (res && res.j >= 40) {
+            c.vx = res.ax
+            c.vy = res.ay
+            if (petThrowActive) {
+              // 主宠已在飞：交给下一帧的抛掷循环就地生效，不重启 rAF
+              petThrowImpulse = { vx: res.bx, vy: res.by }
+            } else if (!(drag && drag.active) && Math.sqrt(res.bx * res.bx + res.by * res.by) > PET_COLLIDE_MIN) {
+              petStartThrow(res.bx, res.by)
+            }
+          }
+        }
+      }
+    }
+    for (var i = 0; i < petClones.length; i++) {
+      var o = petClones[i]
+      if (o === c) continue
+      var inf = petBoxHitInfo({ x: c.x, y: c.y, w: c.w, h: c.h }, { x: o.x, y: o.y, w: o.w, h: o.h })
+      if (!inf) continue
+      if (!petCollideCdOk('c' + c.slot, 'c' + o.slot)) break
+      var ps = petCollideApplyBox(c, inf.nx, inf.ny, inf.depth)
+      o.x = clamp(o.x - inf.nx * ps, 0, Math.max(0, vp.w - o.w))
+      o.y = clamp(o.y - inf.ny * ps, 0, Math.max(0, vp.h - o.h))
+      petCloneApply(c)
+      petCloneApply(o)
+      var cSpd2 = Math.sqrt(c.vx * c.vx + c.vy * c.vy)
+      var oSpd2 = o.throwRaf ? Math.sqrt(o.vx * o.vx + o.vy * o.vy) : 0
+      if (cSpd2 < PET_COLLIDE_MIN && oSpd2 < PET_COLLIDE_MIN) break
+      var res2 = petCollideImpulse(c.vx, c.vy, o.throwRaf ? o.vx : 0, o.throwRaf ? o.vy : 0, inf.nx, inf.ny)
+      if (!res2 || res2.j < 40) break
+      c.vx = res2.ax
+      c.vy = res2.ay
+      if (o.throwRaf) { o.vx = res2.bx; o.vy = res2.by }
+      else if (Math.sqrt(res2.bx * res2.bx + res2.by * res2.by) > PET_COLLIDE_MIN) {
+        petCloneThrow(o, res2.bx, res2.by)
+      }
+      break
+    }
+  } catch (err) {}
+}
+// 新分身/改尺寸后若与主宠或其它分身重叠：直接沿法线推开，避免"出生即互撞"
+function petCloneResolveOverlap(c) {
+  try {
+    var vp = viewport()
+    var box = { x: c.x, y: c.y, w: c.w, h: c.h }
+    for (var pass = 0; pass < 4; pass++) {
+      var moved = false
+      var mb = petMainBodyBox()
+      if (mb) {
+        var im = petBoxHitInfo(box, mb)
+        if (im) { petCollideApplyBox(box, im.nx, im.ny, im.depth); moved = true }
+      }
+      for (var i = 0; i < petClones.length; i++) {
+        var o = petClones[i]
+        if (o === c) continue
+        var io = petBoxHitInfo(box, { x: o.x, y: o.y, w: o.w, h: o.h })
+        if (io) { petCollideApplyBox(box, io.nx, io.ny, io.depth); moved = true }
+      }
+      if (!moved) break
+    }
+    c.x = clamp(box.x, 0, Math.max(0, vp.w - c.w))
+    c.y = clamp(box.y, 0, Math.max(0, vp.h - c.h))
+    petCloneApply(c)
+  } catch (err) {}
+}
+function petCloneHitAt(x, y) {
+  for (var i = petClones.length - 1; i >= 0; i--) {
+    var c = petClones[i]
+    var hb = c.hit
+    var hx = c.x + (hb ? hb.l * c.w : 0)
+    var hy = c.y + (hb ? hb.t * c.h : 0)
+    var hw = hb ? hb.w * c.w : c.w
+    var hh = hb ? hb.h * c.h : c.h
+    if (x >= hx && x <= hx + hw && y >= hy && y <= hy + hh) return c
+  }
+  return null
+}
+function petCloneDragStart(c, e) {
+  try {
+    e.preventDefault()
+    e.stopPropagation()
+  } catch (err) {}
+  // 飞行中的分身被按下：同样触发积分粒子 + 分数卡片
+  try {
+    if (c.throwRaf) {
+      var cs = Math.sqrt((c.vx || 0) * (c.vx || 0) + (c.vy || 0) * (c.vy || 0))
+      if (cs >= PET_SCORE_MIN_SPEED) {
+        petScoreBurst(e.clientX, e.clientY, Math.max(1, Math.round(cs / 100 * 462 / Math.max(1, c.w))), cs)
+      }
+    }
+  } catch (err) {}
+  petCloneStopThrow(c)
+  petCloneStopRoam(c)
+  try { petStopRoam(); petStopThrow() } catch (err) {}
+  petCloneDrag = {
+    c: c,
+    sx: e.clientX,
+    sy: e.clientY,
+    ox: c.x,
+    oy: c.y,
+    tx: c.x,
+    ty: c.y,
+    vx: 0,
+    vy: 0,
+    last: performance.now(),
+    raf: 0,
+    moved: false,
+    trail: []
+  }
+  document.addEventListener('pointermove', petCloneDragMove, true)
+  document.addEventListener('pointerup', petCloneDragUp, true)
+  document.addEventListener('pointercancel', petCloneDragUp, true)
+}
+function petCloneDragMove(e) {
+  var d = petCloneDrag
+  if (!d) return
+  var c = d.c
+  var dx = e.clientX - d.sx
+  var dy = e.clientY - d.sy
+  if (dx * dx + dy * dy >= CLICK_SQ) d.moved = true
+  var vp = viewport()
+  d.tx = clamp(d.ox + dx, 0, Math.max(0, vp.w - c.w))
+  d.ty = clamp(d.oy + dy, 0, Math.max(0, vp.h - c.h))
+  petTrailPush(d.trail, e)
+  if (!d.raf) {
+    d.last = performance.now()
+    d.raf = requestAnimationFrame(petCloneDragStep)
+  }
+}
+function petCloneDragStep(ts) {
+  var d = petCloneDrag
+  if (!d) return
+  var c = d.c
+  var dt = Math.min((ts - d.last) / 1000, 1 / 30)
+  d.last = ts
+  d.vx = petSpringStep(d.vx, c.x, d.tx, dt)
+  d.vy = petSpringStep(d.vy, c.y, d.ty, dt)
+  var vp = viewport()
+  c.x = clamp(c.x + d.vx * dt, 0, Math.max(0, vp.w - c.w))
+  c.y = clamp(c.y + d.vy * dt, 0, Math.max(0, vp.h - c.h))
+  petCloneApply(c)
+  d.raf = requestAnimationFrame(petCloneDragStep)
+}
+function petCloneDragUp(e) {
+  var d = petCloneDrag
+  if (!d) return
+  petCloneDrag = null
+  document.removeEventListener('pointermove', petCloneDragMove, true)
+  document.removeEventListener('pointerup', petCloneDragUp, true)
+  document.removeEventListener('pointercancel', petCloneDragUp, true)
+  if (d.raf) { try { cancelAnimationFrame(d.raf) } catch (err) {} }
+  d.raf = 0
+  var c = d.c
+  var noCoord = (!e || typeof e.clientX !== 'number' || typeof e.clientY !== 'number' ||
+    !isFinite(e.clientX) || !isFinite(e.clientY))
+  if (e && e.type === 'pointercancel' || noCoord || (e && e.clientX === 0 && e.clientY === 0 && d.moved)) {
+    c.x = d.ox
+    c.y = d.oy
+    petCloneApply(c)
+    return
+  }
+  if (!d.moved) { petCloneClick(c); return }
+  var rv = petTrailVelocity(d.trail)
+  if (rv) { petCloneThrow(c, rv.vx, rv.vy); return }
+  petCloneApply(c)
+  petCloneSaveAll()
+}
+function petCloneClick(c) {
+  petCloneSquash(c, 0.55)
+  var name = petPickNew(PET_POOLS.clicks, c.cur)
+  if (name) petClonePlay(c, name, false)
+}
+function petCloneRemoveAll() {
+  try {
+    if (petCloneDrag) {
+      if (petCloneDrag.raf) { try { cancelAnimationFrame(petCloneDrag.raf) } catch (err) {} }
+      document.removeEventListener('pointermove', petCloneDragMove, true)
+      document.removeEventListener('pointerup', petCloneDragUp, true)
+      document.removeEventListener('pointercancel', petCloneDragUp, true)
+    }
+  } catch (err) {}
+  for (var i = 0; i < petClones.length; i++) {
+    var c = petClones[i]
+    try {
+      clearTimeout(c.timer)
+      petCloneStopRoam(c)
+      petCloneStopThrow(c)
+      if (c.squashRaf) cancelAnimationFrame(c.squashRaf)
+      c.vA.pause(); c.vB.pause()
+      c.vA.removeAttribute('src'); c.vB.removeAttribute('src')
+      try { dshwBodyDetach(c.el) } catch (err) { try { c.el.remove() } catch (e) {} }
+    } catch (err) {}
+  }
+  petClones = []
+  petCloneDrag = null
+}
+function petCloneCreate(i) {
+  try {
+    if (!petAnims) return null
+    var el = document.createElement('div')
+    el.className = 'dshwv-petclone'
+    var c = {
+      el: el, vA: null, vB: null, shown: 0, cur: '', x: 0, y: 0, w: 0, h: 0, faceR: false,
+      timer: 0, tok: 0, squashSY: 1, squashRaf: 0, squashTok: 0, roamRaf: 0, roamTok: 0,
+      throwRaf: 0, throwTok: 0, vx: 0, vy: 0, hitCd: 0, hit: null,
+      slot: i, scale: 0.78, scaleMode: 'fixed'
+    }
+    // 每只分身独立大小（0.4~1.2，或 follow=跟随主宠）；默认 0.78 与旧版一致
+    try {
+      var rawScale = localStorage.getItem('dshw-pet-clone-scale-' + i)
+      if (rawScale === 'follow') {
+        c.scaleMode = 'follow'
+        c.scale = 1
+      } else {
+        var sr = Number(rawScale)
+        if (isFinite(sr) && sr >= 0.4 && sr <= 1.2) c.scale = sr
+      }
+    } catch (err) {}
+    ;['vA', 'vB'].forEach(function (k) {
+      var v = document.createElement('video')
+      v.className = 'dshwv-petclvid'
+      v.muted = true
+      v.playsInline = true
+      v.preload = 'auto'
+      v.setAttribute('playsinline', '')
+      v.setAttribute('webkit-playsinline', '')
+      v.addEventListener('ended', function () {
+        if (!petOn || !c.cur) return
+        if (v === (c.shown === 0 ? c.vA : c.vB)) petCloneNext(c)
+      })
+      c[k] = v
+      el.appendChild(v)
+    })
+    petCloneSize(c)
+    var vp = viewport()
+    var rr = root.getBoundingClientRect()
+    var saved = petCloneSavedPos()
+    if (saved[i] && isFinite(saved[i].rx) && isFinite(saved[i].ry)) {
+      c.x = saved[i].rx * vp.w
+      c.y = saved[i].ry * vp.h
+    } else {
+      // 并排摆放并留 14px 空隙：旧实现按 0.55×宽重叠摆放，出生即互撞
+      c.x = rr.left - (c.w + 14) * (i + 1)
+      if (c.x < 8 || c.x + c.w > vp.w) c.x = rr.right + 14 + (c.w + 14) * i
+      c.y = rr.top + rr.height - c.h
+    }
+    c.x = clamp(c.x, 0, Math.max(0, vp.w - c.w))
+    c.y = clamp(c.y, 0, Math.max(0, vp.h - c.h))
+    petCloneApply(c)
+    // 出生点若仍与主宠/其它分身重叠，先推开（不注入速度）
+    petCloneResolveOverlap(c)
+    dshwBodyAppend(el)
+    el.style.display = 'block'
+    setTimeout(function () { try { el.style.opacity = '1' } catch (err) {} }, 20)
+    petClones.push(c)
+    petCloneNext(c)
+    return c
+  } catch (err) { return null }
+}
+function petCloneSetCount(n) {
+  var want = Math.max(0, Math.min(3, Number(n) || 0))
+  petCloneCount = want
+  try { localStorage.setItem('dshw-pet-clones', String(want)) } catch (err) {}
+  if (!petOn) { petCloneRemoveAll(); return }
+  // 多出来的先删，缺的补上
+  while (petClones.length > want) {
+    var c = petClones.pop()
+    try {
+      if (petCloneDrag && petCloneDrag.c === c) {
+        if (petCloneDrag.raf) cancelAnimationFrame(petCloneDrag.raf)
+        document.removeEventListener('pointermove', petCloneDragMove, true)
+        document.removeEventListener('pointerup', petCloneDragUp, true)
+        document.removeEventListener('pointercancel', petCloneDragUp, true)
+        petCloneDrag = null
+      }
+      clearTimeout(c.timer)
+      petCloneStopRoam(c)
+      petCloneStopThrow(c)
+      if (c.squashRaf) cancelAnimationFrame(c.squashRaf)
+      c.vA.pause(); c.vB.pause()
+      try { dshwBodyDetach(c.el) } catch (err) { try { c.el.remove() } catch (e) {} }
+    } catch (err) {}
+  }
+  for (var i = petClones.length; i < want; i++) {
+    if (!petCloneCreate(i)) break
+  }
+  try { petCloneSizeMenuSync() } catch (err) {}
+}
+function petCloneSync() {
+  if (!petOn) { petCloneRemoveAll(); return }
+  petCloneSetCount(petCloneCount)
+}
+function petCloneRefit() {
+  for (var i = 0; i < petClones.length; i++) {
+    var c = petClones[i]
+    var ox = c.w
+    petCloneSize(c)
+    if (c.x + c.w > viewport().w || ox !== c.w) c.x = clamp(c.x, 0, Math.max(0, viewport().w - c.w))
+    c.y = clamp(c.y, 0, Math.max(0, viewport().h - c.h))
+    petCloneApply(c)
+    // 主宠缩放后分身一起变大，可能互相压住：只做位置分离，不注入弹跳速度
+    petCloneResolveOverlap(c)
+  }
 }
 // 命中图取「当前帧」：把正在播的 video 画进 610×610 命中画布（与 img 同一套 contain/右下对齐），
 // 于是点的永远是角色身体、透明处穿透（isWhaleHit 原样复用，含左右翻转的坐标换算）。
@@ -22023,6 +23307,20 @@ function petSwitchTo(name, loop) {
       petShown = 1 - petShown
       petNoMirror = petIsNoMirror(name)
       petApplyFacing()
+      // 移动类动画：真正横向走一段（漫游）。其它动画一律取消尚未走完的漫游。
+      try {
+        if (PET_POOLS.moves.indexOf(name) >= 0) petRoamStart(back, name)
+        else petStopRoam()
+      } catch (err) {}
+      // 分身动作 = 跟随主宠：主宠换段时一起换同一段
+      try {
+        if (petClonePin === 'follow' && petClones.length) {
+          for (var ci = 0; ci < petClones.length; ci++) {
+            clearTimeout(petClones[ci].timer)
+            petClonePlay(petClones[ci], name, true)
+          }
+        }
+      } catch (err) {}
       // 旧层延迟释放：只释放「既不是当前可见层、也不在播」的那一个
       setTimeout(function () {
         try {
@@ -22138,6 +23436,10 @@ function petOnEnded() {
 // 点击回应：临时插播一段（不打断链，播完自然回链）
 function petClickReact() {
   if (!petOn) return
+  // 飞行中命中已触发积分：本次不再重复播普通点击回应（与 dsh-pet 一致）
+  if (petScoreFired) { petScoreFired = false; return }
+  // Q 弹：点击立刻压扁再回弹（与 dsh-pet 的点击回应同一手感），不依赖动画素材是否命中
+  petStartSquash(0.55)
   var name = petPickNew(PET_POOLS.clicks, petCur)
   if (!name) return
   // 点击回应是"插播"：播一次后由 ended 事件回链。**不设 petTempUntil** ——
@@ -22374,8 +23676,8 @@ function petLoadAnims(cb) {
 }
 // 桌宠形态：整块换成桌宠菜单 —— 只保留这些行，其余（角色下拉/记账/避让/资源/表情…）全部隐藏。
 // 切回小鲸鱼由专用行「切回小鲸鱼」承担，所以不需要保留「角色」下拉行。
-var PET_MENU_KEEP = ['切回小鲸鱼', '待机', '转向', '移动', '点击回应', '小动作', '玩耍', '吃什么', '时节', '文字', '工作状态', '峰谷显示', '大小', '音效与提示', '隐藏菜单按钮']
-var PET_MENU_ONLY = ['切回小鲸鱼', '待机', '转向', '移动', '点击回应', '小动作', '玩耍', '吃什么', '时节', '文字', '工作状态']
+var PET_MENU_KEEP = ['切回小鲸鱼', '待机', '转向', '移动', '点击回应', '小动作', '玩耍', '吃什么', '时节', '文字', '工作状态', '屏幕漫游', '分身', '分身动作', '分身1大小', '分身2大小', '分身3大小', '回到初始位置', '峰谷显示', '大小', '音效与提示', '隐藏菜单按钮']
+var PET_MENU_ONLY = ['切回小鲸鱼', '待机', '转向', '移动', '点击回应', '小动作', '玩耍', '吃什么', '时节', '文字', '工作状态', '屏幕漫游', '分身', '分身动作', '分身1大小', '分身2大小', '分身3大小', '回到初始位置']
 function petApplyMenuMode() {
   try {
     var rows = document.querySelectorAll('.dshwv-menu-row')
@@ -22397,6 +23699,8 @@ function petApplyMenuMode() {
     var seps = document.querySelectorAll('.dshwv-pet-only')
     for (var s = 0; s < seps.length; s++) seps[s].classList.toggle('dshwv-pet-hide', !petOn)
     petSyncNavRow()
+    // 「分身N大小」只保留当前存在的分身行
+    try { petCloneSizeMenuSync() } catch (err) {}
   } catch (err) {}
 }
 // 底部“记账/返回”行：桌宠主菜单里隐藏；子页（关于/用量）打开时显示，充当返回按钮
@@ -22446,6 +23750,8 @@ function petEnable(byUser) {
       petAutoFit(bootVid)
       petUpdateHit()
       petRunChain()
+      // 恢复用户上次设置的分身数量（素材清单已就绪，可安全创建）
+      try { petCloneSync() } catch (err) {}
     }
     try {
       bootVid.loop = true
@@ -22487,6 +23793,13 @@ function petDisable() {
   petTempUntil = 0
   petWaitKey = ''
   petNoMirror = false
+  // 物理/漫游/分身全部停掉：分身只在桌宠形态存在，退出时移除 DOM（数量偏好保留在 localStorage）
+  try { petStopRoam(); petStopThrow(); petDragFollowStop() } catch (err) {}
+  petSquashToken++
+  if (petSquashRaf) { try { cancelAnimationFrame(petSquashRaf) } catch (err) {} }
+  petSquashRaf = 0
+  petSquashSY = 1
+  try { petCloneRemoveAll() } catch (err) {}
   try {
     petVidA.pause(); petVidB.pause()
     petVidA.style.opacity = '0'; petVidB.style.opacity = '0'
@@ -24349,6 +25662,11 @@ function onDocPointerDown(e) {
     return
   }
   if (e.button !== 0 && e.pointerType === 'mouse') return
+  // 分身：先判分身命中（它不在主挂件 root 里，isWhaleHit 覆盖不到）；主宠区域优先
+  if (petOn && !isWhaleHit(e)) {
+    var pcHit = petCloneHitAt(e.clientX, e.clientY)
+    if (pcHit) { petCloneDragStart(pcHit, e); return }
+  }
   if (!isWhaleHit(e)) return
   try { e.preventDefault(); e.stopPropagation() } catch (err) {}
   var vp = viewport()
@@ -24357,6 +25675,41 @@ function onDocPointerDown(e) {
   root.classList.add('dshwv-dragging')
   pressDown()
   petDragArmed = !!petOn // 记一笔：等真正移动时才播"被拎起"动画
+  if (petOn) {
+    // —— 点击积分：按下瞬间读取飞行速度（在 petStopThrow 清零之前）——
+    petScoreFired = false
+    try {
+      var gs = petThrowState
+      if (gs) {
+        var gspeed = Math.sqrt(gs.vx * gs.vx + gs.vy * gs.vy)
+        if (gspeed >= PET_SCORE_MIN_SPEED) {
+          var gsize = petMainSizePx() || 1
+          var gscore = Math.max(1, Math.round(gspeed / 100 * 462 / gsize))
+          petScoreFired = true
+          petScoreBurst(e.clientX, e.clientY, gscore, gspeed)
+        }
+      }
+    } catch (err) {}
+    // —— 弹弓：双击的第二下（按下到按下 < 320ms）按住拖，力度 = 拉距 ——
+    try {
+      var pressNow = performance.now()
+      drag.sling = pressNow - petLastPressAt < PET_SLING_DOUBLE_MS
+      petLastPressAt = drag.sling ? 0 : pressNow
+      if (drag.sling) {
+        drag.slingAnchorX = rect.left + rect.width / 2
+        drag.slingAnchorY = rect.top + rect.height / 2
+      }
+    } catch (err) {}
+    // 抓住正在漫游/飞行的桌宠：立刻定格，改由弹簧跟手接管
+    try {
+      petStopRoam()
+      petStopThrow()
+      petDragFollowStop()
+      petDragTrail = []
+      petDragTarget = { x: state.left, y: state.top }
+      petDragFollowStart()
+    } catch (err) {}
+  }
   setWidgetCursor('grabbing')
   document.addEventListener('pointermove', onDocPointerMove, true)
   document.addEventListener('pointerup', onDocPointerUp, true)
@@ -24371,6 +25724,15 @@ function onDocPointerMove(e) {
   // Keep the pre-drag flip orientation while dragging (state.h/v stay as they
   // were); on release endDrag() recomputes the anchors and settle() flips the
   // class with a smooth transition instead of reverting instantly.
+  if (petOn) {
+    // 桌宠：只喂目标点，位置由过阻尼弹簧追赶（与 dsh-pet 同一套手感）
+    petDragTarget = {
+      x: clamp(drag.origLeft + dx, 0, Math.max(0, drag.vp.w - drag.w)),
+      y: clampWidgetTop(drag.origTop + dy, Math.max(0, drag.vp.h - drag.h))
+    }
+    petTrailPush(petDragTrail, e)
+    return
+  }
   state.left = clamp(drag.origLeft + dx, 0, Math.max(0, drag.vp.w - drag.w))
   // v785：拖拽时就把"桌面端窗口控件带"排除在可移动范围外（顶边下限 = 叠层下沿）
   state.top = clampWidgetTop(drag.origTop + dy, Math.max(0, drag.vp.h - drag.h))
@@ -24396,6 +25758,10 @@ function onDocClickStopper(e) {
         e.target.closest('.dshwv-snapmask') || e.target.closest('.dshwv-bubmask') || e.target.closest('.dshwv-framemask') || e.target.closest('.dshwv-qedit') || e.target.closest('.dshwv-usagepanel') || e.target.closest('.dshwv-usage-mask') ||
         e.target.closest('.dshwv-resmask') ||
         e.target.closest('.dshwv-custmenu') || e.target.closest('.dshwv-custbtn')) return
+  }
+  if (petOn && petCloneHitAt(e.clientX, e.clientY) && !isWhaleHit(e)) {
+    try { e.preventDefault(); e.stopPropagation() } catch (err) {}
+    return
   }
   if (!isWhaleHit(e)) return
   try { e.preventDefault(); e.stopPropagation() } catch (err) {}
@@ -24473,7 +25839,10 @@ function onDocTouchStart(e) {
     // 挂件自身 UI(气泡/菜单/各类面板)不拦截:它们各有自己的点击与滚动需求
     if (widgetUiHit(e.target)) return
     var t = e.touches[0]
-    if (!isWhaleHit({ clientX: t.clientX, clientY: t.clientY })) return
+    if (!isWhaleHit({ clientX: t.clientX, clientY: t.clientY })) {
+      // 分身同样要能按住拖动：否则触摸端手势会被页面滚动抢走（pointercancel）
+      if (!(petOn && petCloneHitAt(t.clientX, t.clientY))) return
+    }
     touchDrag = { id: t.identifier }
     touchStartPt = { x: t.clientX, y: t.clientY }
     touchNowPt = { x: t.clientX, y: t.clientY }
@@ -24603,6 +25972,7 @@ function endDrag(e, clickAllowed, cancelled) {
   document.removeEventListener('pointercancel', onDocPointerCancel, true)
   pressUp()
   if (petOn) petDragEnd(drag && drag.moved === true)
+  if (petOn) petDragFollowStop()
   root.classList.remove('dshwv-dragging')
   // issue #79 缺陷2：pointercancel（Android 把手势判成页面滚动、或系统抢走手势时派发）的
   // clientX/clientY 常常是 0，而 endDrag 又是「按坐标收尾 + saveConfig() 落盘」——
@@ -24631,6 +26001,29 @@ function endDrag(e, clickAllowed, cancelled) {
   var left = clamp(drag.origLeft + dx, 0, Math.max(0, drag.vp.w - drag.w))
   // v785：落位计算也要先排除"窗口控件带"（否则吸附判定点会用到带内的 top）
   var top = clampWidgetTop(drag.origTop + dy, Math.max(0, drag.vp.h - drag.h))
+  // 松手初速够大 ⇒ 甩出去（重力 + 碰壁反弹 + 地面摩擦，落定后才落盘）
+  if (petOn) {
+    // 弹弓：力度 = 拉距（与手速无关），方向 = 拉的**反方向**；之后复用同一条抛掷物理
+    if (drag.sling) {
+      try {
+        var rr2 = root.getBoundingClientRect()
+        var pullX = (rr2.left + rr2.width / 2) - drag.slingAnchorX
+        var pullY = (rr2.top + rr2.height / 2) - drag.slingAnchorY
+        var pullDist = Math.sqrt(pullX * pullX + pullY * pullY)
+        if (pullDist > 4) {
+          var sizeRef = Math.max(1, petMainSizePx() * PET_SLING_REF_RATIO)
+          var slingSpeed = PET_THROW_ANCHOR * (pullDist / sizeRef)
+          petStartThrow(-pullX / pullDist * slingSpeed, -pullY / pullDist * slingSpeed)
+          return
+        }
+      } catch (err) {}
+    }
+    var rv = petTrailVelocity(petDragTrail)
+    if (rv) {
+      try { petStartThrow(rv.vx, rv.vy) } catch (err) {}
+      return
+    }
+  }
   // 自定义吸附区（比例/绝对/关闭）。判定点：左右吸附/翻转 = 图像中心 x，
   // 下吸附 = 图像中心 y，上吸附 = 挂件盒中心 y。
   // 解析计算，避免拖动结束过渡期强制布局。
@@ -24700,6 +26093,7 @@ function applyAnchorPos() {
   } catch (err) { return false }
 }
 window.addEventListener('resize', function () {
+  try { petCloneRefit() } catch (err) {}
   if (state.h === null && state.v === null && applyAnchorPos()) return
   settle()
 })
