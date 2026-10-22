@@ -3204,12 +3204,26 @@ function aboutRender() {
   row('宿主文件', aboutShortOf(b.host), aboutFileFull('宿主文件', b.host))
   row('前端文件', aboutShortOf(b.widget), aboutFileFull('前端文件', b.widget))
   var lits = (p.hostVersionLiterals || [])
-  var consistent = lits.length > 0 && lits.every(function (x) { return x === p.version })
-  row('版本自洽', consistent ? '一致' : '不一致', '版本自洽: ' + (consistent ? '一致' : '不一致') + '（源码字面量 ' + (lits.join(' / ') || '?') + ' vs 上报 ' + (p.version || '?') + '）',
+  // v0.6.4：宿主版本改为从 package.json 读取后，源码里不再有写死字面量 ⇒ 旧判定（字面量 vs 上报）
+  //   会把"版本自洽"永远标红。现在优先用宿主**实时**读到的 packageVersion 对照运行中版本：
+  //   两者不同只可能发生在"改了 package.json 但没重启服务"，提示重启即可。
+  var pkgV = (typeof p.packageVersion === 'string') ? p.packageVersion : ''
+  var consistent, vWhy
+  if (pkgV) {
+    consistent = pkgV === p.version
+    vWhy = '运行中 ' + (p.version || '?') + ' vs package.json ' + pkgV
+  } else {
+    consistent = lits.length > 0 && lits.every(function (x) { return x === p.version })
+    vWhy = '源码字面量 ' + (lits.join(' / ') || '?') + ' vs 上报 ' + (p.version || '?')
+  }
+  row('版本自洽', consistent ? '一致' : '不一致', '版本自洽: ' + (consistent ? '一致' : '不一致') + '（' + vWhy + '）' +
+    (consistent ? '' : ' · 修改 package.json 后需重启 dsh web'),
     consistent ? 'dshwv-about-ok' : 'dshwv-about-bad')
+  // 开发版源码里本来就有兜底路径（属正常）；发布版是否 strip 干净由 CI 审计负责，
+  // 这里只如实展示、不再标红 —— 否则开发环境每次打开自检都像出了故障。
   row('宿主含开发机路径', b.hostHasDevPaths === true ? '是（开发版）' : b.hostHasDevPaths === false ? '否' : '未知',
-    '宿主含开发机路径: ' + (b.hostHasDevPaths === true ? '是' : b.hostHasDevPaths === false ? '否' : '未知') + '（true = 这份宿主是开发版，未走 strip）',
-    b.hostHasDevPaths === true ? 'dshwv-about-bad' : 'dshwv-about-ok')
+    '宿主含开发机路径: ' + (b.hostHasDevPaths === true ? '是（开发版源码兜底路径，属正常）' : b.hostHasDevPaths === false ? '否（已 strip，正常）' : '未知'),
+    b.hostHasDevPaths === false ? 'dshwv-about-ok' : '')
   secStart('运行环境')
   row('客户端', aboutClientKind(true), '客户端: ' + aboutClientKind() + '（判定来源: ' + ((d.client && d.client.via) || '前端 UA 兜底') + '）' + (r.profile ? ' · profile ' + r.profile : ''))
   row('平台 / Node', (r.platform || '?') + ' ' + (r.arch || '?') + ' · ' + (r.node || '?'), '平台: ' + (r.platform || '?') + ' ' + (r.arch || '?') + ' · Node ' + (r.node || '?'))
@@ -3221,8 +3235,11 @@ function aboutRender() {
     '点击刷新这一行：重新向宿主读取运行时长（不重画整个面板）',
     '', function () { aboutRefreshUptimeRow() })
   secStart('数据落点')
+  // 未创建的文件不一定有问题：模型注册表/泡泡配置/Codex 缓存都是"用了才有"的可选数据，
+  // 缺失属正常。只有账本/外观这类核心文件缺失才值得标红（否则整节全是红字，反而看不出真问题）。
+  var OPTIONAL_DATA = { '模型注册表': 1, '泡泡配置': 1, 'Codex 缓存': 1 }
   ;(d.data || []).forEach(function (f) {
-    row(f.label, aboutShortOf(f), aboutFileFull(f.label, f), f.found ? '' : 'dshwv-about-bad')
+    row(f.label, aboutShortOf(f), aboutFileFull(f.label, f), (f.found || OPTIONAL_DATA[f.label]) ? '' : 'dshwv-about-bad')
   })
   secStart('状态')
   if (d.ledger && d.ledger.error) row('记账', '读取失败', '记账: 读取失败 ' + d.ledger.error, 'dshwv-about-bad')
@@ -3232,9 +3249,10 @@ function aboutRender() {
     if (d.ledger.lastObservedAt) lg.push('观测 ' + aboutShortTime(d.ledger.lastObservedAt))
     if (d.ledger.todayPartial) lg.push('今日部分数据')
     if (d.ledger.needsReview) lg.push('有待核对')
+    // 只有"待核对"才是需要用户处理的异常；"今日部分数据"只是当天还没结束/还没归档，属正常状态
     row('记账', lg.join(' · '), '记账: 已记录 ' + d.ledger.days + ' 天 · 最近观测 ' + aboutFmtTime(d.ledger.lastObservedAt) +
       (d.ledger.todayPartial ? ' · 今日为部分数据' : ' · 今日完整') + (d.ledger.needsReview ? ' · 有待核对调整' : ' · 无待核对'),
-      d.ledger.todayPartial || d.ledger.needsReview ? 'dshwv-about-bad' : '')
+      d.ledger.needsReview ? 'dshwv-about-bad' : '')
   } else row('记账', '不可用', '记账: 不可用')
   if (d.balance) {
     row('余额取数', (d.balance.ok ? '成功' : '失败') + (d.balance.ms != null ? ' · ' + d.balance.ms + ' ms' : '') + (d.balance.at ? ' · ' + aboutShortTime(d.balance.at) : ''),

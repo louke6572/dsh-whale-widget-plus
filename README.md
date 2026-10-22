@@ -1,6 +1,6 @@
 # DSH 小鲸鱼挂件 Plus
 
-> DeepSeek Balance Whale Widget Plus · `v0.6.4`
+> DeepSeek Balance Whale Widget Plus · `v0.6.5`
 
 DSH（DeepSeek Harness）右下角的常驻小鲸鱼挂件：余额、今日已用、每轮消耗、峰谷常驻徽标，
 外加可自由编辑的泡泡、多套表情素材、提示音效，以及内置的 **106 段透明动画桌宠**。
