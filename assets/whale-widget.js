@@ -14753,6 +14753,44 @@ var bubbleAvoidHead = null
 var bubbleAvoidGeo = '' // 上次量头顶时的 root 几何；启动期位置/缩放变化后必须作废缓存
 var bubbleAvoidLift = 0 // 当前已抬升量（px，0 = 未抬）
 var petBubbleBaseEffective = null // 自然落位 top（鲸鱼/桌宠共用基准）
+// 点击分身时把共用的气泡整体平移到那只分身上方（不复制 DOM，不破坏原有 fit/避让链路）。
+// transform 只在「分身锚定」期间存在；主宠点击/气泡关闭都会复位。
+var bubbleCloneAnchor = null
+function petBubbleAnchorReset() {
+  bubbleCloneAnchor = null
+  try { if (bubbleBox) bubbleBox.style.transform = '' } catch (err) {}
+}
+function petBubbleAnchorApply() {
+  try {
+    if (!bubbleCloneAnchor || !bubbleShown || !bubbleBox) return
+    var c = bubbleCloneAnchor
+    var cr = c.el ? c.el.getBoundingClientRect() : null
+    if (!cr || !(cr.width > 0)) return
+    // 先清掉旧偏移再量真实盒（否则 rect 会把上一次 translate 算进去）
+    bubbleBox.style.transform = ''
+    var r = bubbleBox.getBoundingClientRect()
+    if (!(r.width > 0)) return
+    var vp = viewport()
+    var dx = (cr.left + cr.width / 2) - (r.left + r.width / 2)
+    var dy = (cr.top - 8) - r.bottom
+    // 夹进视口：分身贴近边缘时气泡尽量完整可见
+    var nx = r.left + dx
+    var ny = r.top + dy
+    var minY = widgetTopMin() + 8
+    if (nx < 8) dx += 8 - nx
+    if (nx + r.width > vp.w - 8) dx -= (nx + r.width) - (vp.w - 8)
+    if (ny < minY) dy += minY - ny
+    if (ny + r.height > vp.h - 8) dy -= (ny + r.height) - (vp.h - 8)
+    bubbleBox.style.transform = 'translate(' + dx.toFixed(1) + 'px,' + dy.toFixed(1) + 'px)'
+  } catch (err) {}
+}
+function petBubbleAnchorSchedule() {
+  try {
+    setTimeout(petBubbleAnchorApply, 0)
+    setTimeout(petBubbleAnchorApply, 80)
+    setTimeout(petBubbleAnchorApply, 260)
+  } catch (err) {}
+}
 function measureCharTopPx() {
   try {
     var el = null, isVideo = false
@@ -14808,6 +14846,8 @@ function applyBubbleAvoid(charTopHint) {
     var pr = bubbleBox.getBoundingClientRect()
     if (!(pr.height > 0)) return
     if (!bubbleShown && bubbleBox.className.indexOf('dshwv-pop-open') < 0) return
+    // 分身锚定：气泡位置由 petBubbleAnchorApply 的 transform 控制，跳过主宠头顶避让
+    if (bubbleCloneAnchor) return
     // 启动期 root 会先按默认尺寸出现、再应用保存的缩放/位置；只要 root 几何变了，
     // 之前缓存的「头顶屏幕坐标」就作废，否则气泡会按旧位置抬升，表现为首次进入时位置偏离。
     try {
@@ -14867,6 +14907,8 @@ function scheduleBubbleFit() {
     bubbleFitContent(bubbleBox, textBox, root.clientWidth, false)
     // 气泡尺寸/内容变了 ⇒ 底边位置跟着变 ⇒ 人物头顶避让必须重算
     applyBubbleAvoid()
+    // 分身锚定：fit 会重写 left/top，偏移量必须重新算一次
+    if (bubbleCloneAnchor) { try { petBubbleAnchorApply() } catch (err) {} }
   })
 }
 // 覆盖接口刷新、自定义余额应用/取消、数字滚动及异步图片加载；同帧多次变化只测一次。
@@ -18368,6 +18410,7 @@ function bubbleCloseVisual() {
   // 之后 showWaitBubble 会误判"已经在显示等待泡泡"（历史上正是这类不同步把等待泡泡卡死的）。
   waitShown = false
   bubbleRoundSize = null
+  try { petBubbleAnchorReset() } catch (err) {}
   try { bubbleBox.classList.remove('dshwv-pop-open') } catch (err) {}
   try { textBox.style.transition = ''; textBox.style.opacity = '' } catch (err) {}
   try { hintEl.style.transition = ''; hintEl.style.opacity = '' } catch (err) {}
@@ -19870,8 +19913,14 @@ function bubblePreviewInto(container, mods, widthPx, opts) {
 //  - 正显示第 2 次及以后的泡泡:回到序列开头(重开第 1 次点击泡泡)
 //  - 正显示第 1 次点击泡泡:不切换内容,仅重置留存计时
 function whaleClick() {
+  // 主宠点击：清掉上一轮「分身锚定」，气泡回到主宠上方
+  try { petBubbleAnchorReset() } catch (err) {}
+  try { if (petOn) petClickReact() } catch (err) {}
+  whaleBubbleTap()
+}
+// 只走「点角色 → 气泡队列」这一段：供分身点击复用，不触发主宠的点击回应/Q 弹
+function whaleBubbleTap() {
   try {
-    if (petOn) petClickReact()
     if (!bubbleOn) return
     if (bubbleScene && (bubbleScene.kind === 'cost' || bubbleScene.kind === 'alert')) return // 消耗/预警提醒期间点鲸鱼不动作(点泡泡才关)
     if (!bubbleShown) {
@@ -21086,7 +21135,13 @@ function pressUp() {
 }
 var menuOpen = false
 var menuClosedAt = 0 // 最近一次关闭菜单的时刻(用于避免"关掉后同一次手势又把它长按打开")
-function toggleMenu() {
+var menuAnchor = null // 右键分身时按点击点定位菜单；null = 按主挂件汉堡按钮定位
+function toggleMenu(anchorX, anchorY) {
+  // 带坐标调用 = 从某个分身右键打开；菜单出现在点击点上方
+  try {
+    menuAnchor = (typeof anchorX === 'number' && typeof anchorY === 'number' && isFinite(anchorX) && isFinite(anchorY))
+      ? { x: anchorX, y: anchorY } : null
+  } catch (err) { menuAnchor = null }
   try { petCloseActions() } catch (err) {}
   try { petActsClose() } catch (err) {}
   try { petApplyMenuMode() } catch (err) {}
@@ -21181,6 +21236,23 @@ function positionMenu() {
     var r = root.getBoundingClientRect()
     var b = menuBtn.getBoundingClientRect()
     var vp = viewport()
+    // 右键分身：菜单直接出现在点击点上方（不必再去找主宠）
+    if (menuAnchor) {
+      var ax = Math.min(Math.max(menuAnchor.x, 12), vp.w - 12)
+      var ay = Math.min(Math.max(menuAnchor.y, 12), vp.h - 12)
+      if (ax < vp.w / 2) {
+        menuBox.style.left = ax + 'px'
+        menuBox.style.right = 'auto'
+        menuBox.style.transformOrigin = 'bottom left'
+      } else {
+        menuBox.style.right = (vp.w - ax) + 'px'
+        menuBox.style.left = 'auto'
+        menuBox.style.transformOrigin = 'bottom right'
+      }
+      menuBox.style.bottom = (vp.h - ay + 8) + 'px'
+      menuBox.style.top = 'auto'
+      return
+    }
     var onLeft = r.left + r.width / 2 < vp.w / 2
     // 菜单出现在按钮上方，锚定在按钮一侧：
     // 右侧 → 菜单右下角对齐按钮右上角；左侧 → 菜单左下角对齐按钮左上角
@@ -22943,6 +23015,9 @@ function petCloneDragStart(c, e) {
     e.preventDefault()
     e.stopPropagation()
   } catch (err) {}
+  // 按压音效：与主宠 pressDown 同样的时机（pointerdown 手势内）触发，
+  // 保证 AudioContext 已解锁。只播声音，不动主宠的 body / 表情。
+  try { if (pressOn !== false) playPress() } catch (err) {}
   // 飞行中的分身被按下：同样触发积分粒子 + 分数卡片
   try {
     if (c.throwRaf) {
@@ -23007,6 +23082,7 @@ function petCloneDragStep(ts) {
 function petCloneDragUp(e) {
   var d = petCloneDrag
   if (!d) return
+  try { petCloneReleaseSound() } catch (err) {}
   petCloneDrag = null
   document.removeEventListener('pointermove', petCloneDragMove, true)
   document.removeEventListener('pointerup', petCloneDragUp, true)
@@ -23032,6 +23108,29 @@ function petCloneClick(c) {
   petCloneSquash(c, 0.55)
   var name = petPickNew(PET_POOLS.clicks, c.cur)
   if (name) petClonePlay(c, name, false)
+  // 与主宠点击一致：弹出消息气泡，并锚定到**这只分身**上方
+  try {
+    bubbleCloneAnchor = c
+    whaleBubbleTap()
+    if (!bubbleShown || (bubbleScene && (bubbleScene.kind === 'cost' || bubbleScene.kind === 'alert' || bubbleScene.kind === 'wait'))) {
+      petBubbleAnchorReset()
+    } else {
+      petBubbleAnchorSchedule()
+    }
+  } catch (err) { try { petBubbleAnchorReset() } catch (e) {} }
+  try { refresh(true) } catch (err) {}
+}
+// 分身松手音：照抄主宠 pressUp 的排期（按压音结束前 RELEASE_LEAD_MS 起播），
+// 保证「按下有音、松开也有音」，而不是只靠 playPress 的 onended 兜底。
+function petCloneReleaseSound() {
+  try {
+    if (pressOn === false) return
+    var remain = 0
+    var dur = pressAudio ? pressAudio.duration : NaN
+    if (isFinite(dur) && dur > 0) remain = Math.max(0, dur - (pressAudio.currentTime || 0) - RELEASE_LEAD_MS / 1000)
+    if (remain > 0.01) playReleaseAt(remain)
+    else playRelease()
+  } catch (err) {}
 }
 function petCloneRemoveAll() {
   try {
@@ -23842,6 +23941,8 @@ function petHealTick() {
     if (document.hidden) return
     // 顺手校正气泡避让（兜底：切换角色/气泡内容变化时可能没触发到，这里每 1.5s 补一次）
     applyBubbleAvoid()
+    // 分身锚定的气泡跟着那只分身走（它在漫游/被拖拽时也要跟上）
+    if (bubbleCloneAnchor && bubbleShown) { try { petBubbleAnchorApply() } catch (err) {} }
     var v = petVidCur()
     var ok = !!(v && v.readyState >= 2 && v.currentSrc && !v.paused && v.style.opacity === '1')
     if (ok) return
@@ -25769,8 +25870,17 @@ function onDocClickStopper(e) {
 // 右键小鲸鱼唤出菜单(仅在开启「隐藏菜单按钮」时生效;菜单位置与按钮唤出一致)
 function onDocContextMenu(e) {
   try {
-    // 桌宠形态：右键直接打开**同一个主菜单**（不再弹独立的 petmenu 浮层）
-    if (petOn && isWhaleHit(e)) { e.preventDefault(); toggleMenu(); return }
+    // 桌宠形态：右键主宠或任意分身都直接打开**同一个主菜单**
+    if (petOn) {
+      if (isWhaleHit(e)) { e.preventDefault(); toggleMenu(); return }
+      var pcCtx = petCloneHitAt(e.clientX, e.clientY)
+      if (pcCtx) {
+        e.preventDefault()
+        // 菜单直接出现在右键位置上方，不用再去找主宠
+        toggleMenu(e.clientX, e.clientY)
+        return
+      }
+    }
     if (!menuBtnHide) return
     // 触摸端:原生 contextmenu(部分 Android 约 500ms 就补发)一律吞掉不触发,
     // 唤出时机统一由我们的长按计时决定,避免早于设定时长或重复开合
