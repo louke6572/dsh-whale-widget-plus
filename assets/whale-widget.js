@@ -19954,6 +19954,9 @@ function bubblePreviewInto(container, mods, widthPx, opts) {
 //  - 正显示第 1 次点击泡泡:不切换内容,仅重置留存计时
 function whaleClick() {
   try { if (petOn) petClickReact() } catch (err) {}
+  // 鲸鱼形态：按压音只在"点击"（松手且未发生拖动）时播；拖动/甩抛不响。
+  // 试听走 playPress() 本身不受 pressOn 影响，所以开关判断放在这里。
+  if (!petOn && pressOn !== false) { try { playPress() } catch (err) {} }
   var wasShown = bubbleShown
   whaleBubbleTap()
   // 气泡仍在显示（打开/翻到下一项）⇒ 归位到主宠；这次点击把气泡收起了 ⇒ 偏移留到淡出结束，
@@ -21018,6 +21021,8 @@ var releaseAudio = null
 var pressing = false
 var pressEnded = false
 var releasePlayed = false
+// 本次手势是否**真的起播**过按压音（拖动/甩抛时为 false ⇒ 松手音也不响）
+var pressAudioStarted = false
 // v745：不再需要 releaseTimer —— 点按时由 playReleaseAt() 在**音频线程**排期（见 pressUp）
 // —— v752：本体按压/松开音改走「片段路由」——
 // 起因：issue 里那台机器上 /dsh-whale/sound/press.mp3?set=… 会被本机的一层东西（代理/安全软件）
@@ -21128,6 +21133,7 @@ function playPress() {
   }
   pressEnded = false
   releasePlayed = false
+  pressAudioStarted = true
   if (!pressAudio) {
     // 按压槽留空:按压事件静音,但状态已复位 → 每次松开都还能正常发声
     pressEnded = true
@@ -21177,16 +21183,13 @@ function playReleaseAt(delaySec) {
 }
 function pressDown() {
   pressVisualStartedAt = performance.now()
+  pressAudioStarted = false // 新手势：按压音是否已起播（松手音只跟随本次真实按压）
   body.style.transform = SQUISH
   pressing = true
   // 按压闭眼：按住期间切当前素材包的「闭眼」帧（松开由 pressUp 还原；无该帧的包自动无此效果）
   try { exprPressStart() } catch (err) {}
-  // v868（用户报"取消勾选按压音效没效果"）：pressOn 以前只是存了个状态、**没接到播放上**。
-  //   闸门放在这里（真实点按的唯一入口），试听走 playPress() 直接调用 ⇒ 试听始终有声。
-  if (pressOn === false) return
-  // 桌宠形态：按下不播“咔哒”，由点击/甩出/落地语音接管
-  if (petOn) return
-  playPress()
+  // 用户要求：**按压音效只在点击（松手且未拖动）时响**，拖动/甩抛不响。
+  // 所以这里只做按下的视觉反馈，不播声音；点击的播放路径见 whaleClick()。
 }
 function pressUp() {
   if (performance.now() - pressVisualStartedAt < PRESS_VISUAL_TAP_MS) {
@@ -21201,6 +21204,11 @@ function pressUp() {
   pressing = false
   // 按压闭眼还原（即便按压音效关着也要还原 —— 表情与音效是两条独立链路）
   try { exprPressEnd() } catch (err) {}
+  // 本次手势没起播过按压音（拖动/甩抛，或还没点成）⇒ 松开音也不响，避免"拖着拖着突然咔哒"
+  if (!pressAudioStarted) {
+    try { releasePlayed = true } catch (err) {}
+    return
+  }
   // v868：静音按压时松开音也不响（顺手把 releasePlayed 标记收干净，避免下次误触发）
   if (pressOn === false) {
     try { releasePlayed = true } catch (err) {}
@@ -22497,11 +22505,10 @@ function petStopThrow() {
   petThrowImpulse = null
   petMoveClassSync()
 }
-function petStartThrow(vx, vy, silent) {
+function petStartThrow(vx, vy) {
   try {
     if (!petOn) return
-    // 甩出语音（哼不理你了）；碰撞触发的弹飞不播，避免连锁碰撞刷音
-    if (silent !== true) { try { playPetVoice('heng') } catch (err) {} }
+    // 甩出**不播音效**：用户要求拖动/甩抛保持安静，只有点击才触发按压音效。
     petStopRoam()
     petStopThrow()
     var w = root.offsetWidth || root.getBoundingClientRect().width || 0
@@ -22896,7 +22903,7 @@ function petCloneThrow(c, vx, vy, silent) {
   try {
     if (!petOn) return
     var voiceOn = silent !== true
-    if (voiceOn) { try { playPetVoice('heng') } catch (err) {} }
+    // 甩出**不播音效**（同上：拖动/甩抛保持安静），voiceOn 只用于落地语音
     petCloneStopRoam(c)
     petCloneStopThrow(c)
     var tk = ++c.throwTok
@@ -23059,7 +23066,7 @@ function petCloneCollide(c) {
               // 主宠已在飞：交给下一帧的抛掷循环就地生效，不重启 rAF
               petThrowImpulse = { vx: res.bx, vy: res.by }
             } else if (!(drag && drag.active) && Math.sqrt(res.bx * res.bx + res.by * res.by) > PET_COLLIDE_MIN) {
-              petStartThrow(res.bx, res.by, true)
+              petStartThrow(res.bx, res.by)
             }
           }
         }
