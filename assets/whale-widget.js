@@ -2565,7 +2565,8 @@ petCloneActSel.style.cssText = PET_SEL_CSS
 petCloneActSel.title = '分身演什么：自动随机、跟随主宠当前动画，或固定在某个分类内轮播'
 var petCloneActOpts = [
   { v: 'auto', t: '自动随机（默认）' },
-  { v: 'follow', t: '跟随主宠' }
+  { v: 'follow', t: '跟随主宠' },
+  { v: '待机', t: '待机' }
 ]
 PET_CAT_NAMES.forEach(function (id) { petCloneActOpts.push({ v: id, t: id }) })
 petCloneActOpts.forEach(function (o) {
@@ -2924,7 +2925,9 @@ function conSetSw(sw, on) {
   var th = sw.querySelector('div')
   if (th) {
     th.classList.toggle('translate-x-3', !!on)
-    th.classList.toggle('translate-x-0', !on)
+    // 预编译的 Tailwind 里没有 .translate-x-0：旧写法关态拇指原地不动，开关看起来永远是「开」。
+    // 关态改用内联 transform 归零，开态沿用 translate-x-3（等价 0.75rem）。
+    th.style.transform = on ? '' : 'translateX(0)'
   }
 }
 function conSegStyle(btn, on) {
@@ -3718,9 +3721,11 @@ function dshwvConSync() {
     if (conPillRefs.cloneSw) conPillRefs.cloneSw.setAttribute('aria-checked', (petCloneCount || 0) > 0 ? 'true' : 'false')
     if (conPillRefs.cloneNumEl) conPillRefs.cloneNumEl.textContent = String(petCloneCount || 0)
     if (conPillRefs.strategySel) {
+      // 当前值以 petClonePin 为准（而不是隐藏下拉的旧值），否则控制台选完会被回填成旧值
+      try { petCloneActSel.value = petClonePin } catch (err) {}
       var sitems = []
       for (i = 0; i < petCloneActSel.options.length; i++) sitems.push([petCloneActSel.options[i].value, petCloneActSel.options[i].textContent])
-      conFillSel(conPillRefs.strategySel, sitems, petCloneActSel.value)
+      conFillSel(conPillRefs.strategySel, sitems, petClonePin)
     }
     if (conPillRefs.sizeSel) {
       var zitems = [['follow', '跟随主宠'], ['0.4', '40%'], ['0.5', '50%'], ['0.6', '60%'], ['0.7', '70%'], ['0.78', '78%'], ['0.9', '90%'], ['1.0', '100%'], ['1.1', '110%'], ['1.2', '120%']]
@@ -3728,7 +3733,13 @@ function dshwvConSync() {
       try {
         var saved = localStorage.getItem('dshw-pet-clone-scale-0')
         if (saved === 'follow') zcur = 'follow'
-        else if (saved && isFinite(Number(saved))) zcur = String(Number(saved))
+        else if (saved && isFinite(Number(saved))) {
+          // 存储值可能是 "1"/"0.8" 这类写法，必须按数值匹配到下拉里的 '1.0'/'0.78'
+          var sn = Number(saved)
+          for (var zi = 0; zi < zitems.length; zi++) {
+            if (zitems[zi][0] !== 'follow' && Math.abs(Number(zitems[zi][0]) - sn) < 0.001) { zcur = zitems[zi][0]; break }
+          }
+        }
       } catch (err) {}
       conFillSel(conPillRefs.sizeSel, zitems, zcur)
     }
@@ -3736,8 +3747,15 @@ function dshwvConSync() {
     if (conPillRefs.actCard) conPillRefs.actCard.style.display = petOn ? '' : 'none'
     if (conPillRefs.cloneCard) conPillRefs.cloneCard.style.display = petOn ? '' : 'none'
     if (conPillRefs.labRoam) {
-      var roamWrap = conPillRefs.labRoam.parentElement
-      if (roamWrap) roamWrap.style.display = petOn ? '' : 'none'
+      // 屏幕漫游仅桌宠可用：只隐藏它自己这张卡。
+      // 注意设计稿里「屏幕漫游」的 <label> 本身就是卡片（直接子节点），而「避让滚动条」「隐藏菜单栏」
+      // 是 label 外面再包一层卡片 —— 所以不能一律取 parentElement，否则会把整个三列网格都隐藏掉。
+      var roamCard = conPillRefs.labRoam.closest('label')
+      if (roamCard) {
+        var rp = roamCard.parentElement
+        roamCard = (rp && rp.classList && rp.classList.contains('grid')) ? roamCard : rp
+      }
+      if (roamCard) roamCard.style.display = petOn ? '' : 'none'
     }
     var homeCell = conFindText('角色位置')
     if (homeCell) {
@@ -23858,6 +23876,9 @@ function petClonePinSave() {
 // 切换分身动作：立即让场上所有分身按新规则换段（不用等当前动画播完）
 function petCloneSetPin(v) {
   petClonePin = v || 'auto'
+  // 旧菜单里的隐藏下拉是控制台同步的「当前值」来源；这里不同步回去，控制台会把刚选的项
+  // 又按旧值（auto）回填 ⇒ 选过分类后就再也切不回「自动随机」（用户反馈的实际症状）。
+  try { petCloneActSel.value = petClonePin } catch (err) {}
   petClonePinSave()
   if (!petOn) return
   for (var i = 0; i < petClones.length; i++) {
@@ -27562,6 +27583,15 @@ function applyAnchorPos() {
     var hDist = isFinite(a.hDist) ? clamp(a.hDist, 0, maxOffH) : 0
     var vDist = isFinite(a.vDist) ? clamp(a.vDist, 0, maxOffV) : 0
     var healed = (hDist !== a.hDist || vDist !== a.vDist)
+    // 旧启动缺陷遗留的脏锚点：首帧曾按 CSS right:0（排版视口，不含滚动条）落位，
+    // saveAnchorPos 于是把「滚动条宽度」当成右边距存了下来 ⇒ 之后每次启动都少贴近一条滚动条宽度，
+    // 表现为「首次进入默认避开滚动条，手动开关一次才贴边」。这里只把"恰好等于滚动条宽度"的
+    // 右锚距离归零，不影响用户自由摆放留下的正常距离。
+    if (a.hAnchor === 'right' && hDist > 0) {
+      var sbW = 0
+      try { sbW = Math.max(0, (window.innerWidth || 0) - (document.documentElement.clientWidth || 0)) } catch (err) {}
+      if (sbW > 0 && Math.abs(hDist - Math.round(sbW)) <= 1) { hDist = 0; healed = true }
+    }
     // 与加载恢复一致：锚点存净距离，右锚点按当前避让开关叠加
     var effectiveRightDist = a.hAnchor === 'right' ? hDist + (scrollGapOn ? rightGap() : 0) : hDist
     var l = a.hAnchor === 'left' ? hDist : vp.w - effectiveRightDist - w
@@ -27589,6 +27619,10 @@ window.addEventListener('resize', function () {
 var rect0 = root.getBoundingClientRect()
 state.left = rect0.left
 state.top = rect0.top
+// 首次进入（没有 localStorage 锚点）时，CSS 的 right:0 是相对排版视口（不含滚动条）计算的，
+// 而 settle()/锚点恢复用的是 window.innerWidth（含滚动条）——两者差一条滚动条宽度，
+// 会造成「首进默认避开滚动条，手动开关一次才贴边」。这里统一走 settle() 的口径。
+try { settle() } catch (err) {}
 express()
 render()
 applySoundSet()
@@ -27733,6 +27767,9 @@ function sizeCfgApply(d) {
         setTimeout(function () { try { settle() } catch (err) {} }, 500)
       }
     } catch (err) {}
+    // 配置里的「避让滚动条 / 宽度」可能刚刚才生效：无论有没有锚点，都按新值再落一次位。
+    // 否则首进 scrollGapOn=true 时只会同步开关 UI、挂件位置却不变，用户得手动开关一次才动。
+    try { settle() } catch (err) {}
     refresh(false)
     // v734（issue #97）：首次 GET 应用完成 —— 从这一刻起才允许 saveConfig() 落盘
     configLoaded = true
