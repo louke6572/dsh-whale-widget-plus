@@ -1,0 +1,938 @@
+<!DOCTYPE html><html lang="zh-CN" style=""><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>小鲸鱼桌宠 · 触感工作台 HUD 控制台</title>
+<!-- Tailwind CSS CDN -->
+<!-- Google Fonts: Inter, Manrope, & JetBrains Mono -->
+<link href="https://fonts.googleapis.com" rel="preconnect">
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Manrope:wght@500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+
+<style data-purpose="custom-scrollbars">
+    /* 滚动条透明：保留滚动能力，但不显示轨道与滑块 */
+    .sonoma-scrollbar {
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+    .sonoma-scrollbar::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+      background: transparent;
+    }
+    .sonoma-scrollbar::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .sonoma-scrollbar::-webkit-scrollbar-thumb {
+      background: transparent;
+      border: 0;
+    }
+  </style>
+<style data-purpose="range-slider">
+    input[type=range] {
+      -webkit-appearance: none;
+      appearance: none;
+      background: transparent;
+      outline: none;
+    }
+    input[type=range]::-webkit-slider-runnable-track {
+      height: 4px;
+      border-radius: 999px;
+      background: #e2e8f0;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #1e3a8a;
+      cursor: pointer;
+      margin-top: -5px;
+      box-shadow: 0 1px 4px rgba(30, 58, 138, 0.35), 0 0 0 2px #ffffff;
+      transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.15s ease;
+    }
+    input[type=range]::-webkit-slider-thumb:hover {
+      transform: scale(1.15);
+      box-shadow: 0 2px 7px rgba(30, 58, 138, 0.45), 0 0 0 2px #ffffff;
+    }
+    input[type=range]::-webkit-slider-thumb:active {
+      transform: scale(0.95);
+    }
+    select {
+      background-image: none !important;
+    }
+  </style>
+<meta content="web_standard" name="shell-type"><style id="dshwv-tw">*,:after,:before{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }::backdrop{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }/*! tailwindcss v3.4.17 | MIT License | https://tailwindcss.com*/*,:after,:before{box-sizing:border-box;border:0 solid #e5e7eb}:after,:before{--tw-content:""}:host,html{line-height:1.5;-webkit-text-size-adjust:100%;-moz-tab-size:4;-o-tab-size:4;tab-size:4;font-family:-apple-system,BlinkMacSystemFont,SF Pro Text,Inter,PingFang SC,sans-serif;font-feature-settings:normal;font-variation-settings:normal;-webkit-tap-highlight-color:transparent}body{margin:0;line-height:inherit}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,pre,samp{font-family:JetBrains Mono,SF Mono,monospace;font-feature-settings:normal;font-variation-settings:normal;font-size:1em}small{font-size:80%}sub,sup{font-size:75%;line-height:0;position:relative;vertical-align:baseline}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}button,input,optgroup,select,textarea{font-family:inherit;font-feature-settings:inherit;font-variation-settings:inherit;font-size:100%;font-weight:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;margin:0;padding:0}button,select{text-transform:none}button,input:where([type=button]),input:where([type=reset]),input:where([type=submit]){-webkit-appearance:button;background-color:transparent;background-image:none}:-moz-focusring{outline:auto}:-moz-ui-invalid{box-shadow:none}progress{vertical-align:baseline}::-webkit-inner-spin-button,::-webkit-outer-spin-button{height:auto}[type=search]{-webkit-appearance:textfield;outline-offset:-2px}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-file-upload-button{-webkit-appearance:button;font:inherit}summary{display:list-item}blockquote,dd,dl,figure,h1,h2,h3,h4,h5,h6,hr,p,pre{margin:0}fieldset{margin:0}fieldset,legend{padding:0}menu,ol,ul{list-style:none;margin:0;padding:0}dialog{padding:0}textarea{resize:vertical}input::-moz-placeholder,textarea::-moz-placeholder{opacity:1;color:#9ca3af}input::placeholder,textarea::placeholder{opacity:1;color:#9ca3af}[role=button],button{cursor:pointer}:disabled{cursor:default}audio,canvas,embed,iframe,img,object,svg,video{display:block;vertical-align:middle}img,video{max-width:100%;height:auto}[hidden]:where(:not([hidden=until-found])){display:none}.pointer-events-none{pointer-events:none}.fixed{position:fixed}.absolute{position:absolute}.relative{position:relative}.inset-0{inset:0}.-top-32{top:-8rem}.bottom-\[-8rem\]{bottom:-8rem}.left-1\/4{left:25%}.right-0{right:0}.right-1\.5{right:.375rem}.right-1\/4{right:25%}.top-1\/2{top:50%}.-z-10{z-index:-10}.ml-1\.5{margin-left:.375rem}.mt-0\.5{margin-top:.125rem}.mt-1\.5{margin-top:.375rem}.flex{display:flex}.grid{display:grid}.hidden{display:none}.h-1\.5{height:.375rem}.h-3{height:.75rem}.h-3\.5{height:.875rem}.h-4{height:1rem}.h-6{height:1.5rem}.h-\[36rem\]{height:36rem}.h-\[38rem\]{height:38rem}.max-h-\[620px\]{max-height:620px}.min-h-screen{min-height:100vh}.w-1\.5{width:.375rem}.w-16{width:4rem}.w-3{width:.75rem}.w-3\.5{width:.875rem}.w-4{width:1rem}.w-6{width:1.5rem}.w-7{width:1.75rem}.w-\[36rem\]{width:36rem}.w-\[38rem\]{width:38rem}.w-full{width:100%}.min-w-0{min-width:0}.flex-1{flex:1 1 0%}.flex-shrink-0{flex-shrink:0}.-translate-y-1\/2{--tw-translate-y:-50%}.-translate-y-1\/2,.translate-x-3{transform:translate(var(--tw-translate-x),var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y))}.translate-x-3{--tw-translate-x:0.75rem}.-rotate-90{--tw-rotate:-90deg}.-rotate-90,.rotate-0{transform:translate(var(--tw-translate-x),var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y))}.rotate-0{--tw-rotate:0deg}.rotate-180{--tw-rotate:180deg}.rotate-180,.transform{transform:translate(var(--tw-translate-x),var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y))}.cursor-help{cursor:help}.cursor-pointer{cursor:pointer}.select-none{-webkit-user-select:none;-moz-user-select:none;user-select:none}.appearance-none{-webkit-appearance:none;-moz-appearance:none;appearance:none}.grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.grid-cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}.flex-col{flex-direction:column}.items-center{align-items:center}.justify-center{justify-content:center}.justify-between{justify-content:space-between}.gap-1\.5{gap:.375rem}.gap-2{gap:.5rem}.gap-2\.5{gap:.625rem}.space-x-0\.5>:not([hidden])~:not([hidden]){--tw-space-x-reverse:0;margin-right:calc(.125rem*var(--tw-space-x-reverse));margin-left:calc(.125rem*(1 - var(--tw-space-x-reverse)))}.space-x-1>:not([hidden])~:not([hidden]){--tw-space-x-reverse:0;margin-right:calc(.25rem*var(--tw-space-x-reverse));margin-left:calc(.25rem*(1 - var(--tw-space-x-reverse)))}.space-x-1\.5>:not([hidden])~:not([hidden]){--tw-space-x-reverse:0;margin-right:calc(.375rem*var(--tw-space-x-reverse));margin-left:calc(.375rem*(1 - var(--tw-space-x-reverse)))}.space-x-2>:not([hidden])~:not([hidden]){--tw-space-x-reverse:0;margin-right:calc(.5rem*var(--tw-space-x-reverse));margin-left:calc(.5rem*(1 - var(--tw-space-x-reverse)))}.space-x-2\.5>:not([hidden])~:not([hidden]){--tw-space-x-reverse:0;margin-right:calc(.625rem*var(--tw-space-x-reverse));margin-left:calc(.625rem*(1 - var(--tw-space-x-reverse)))}.space-y-1>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-top:calc(.25rem*(1 - var(--tw-space-y-reverse)));margin-bottom:calc(.25rem*var(--tw-space-y-reverse))}.space-y-1\.5>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-top:calc(.375rem*(1 - var(--tw-space-y-reverse)));margin-bottom:calc(.375rem*var(--tw-space-y-reverse))}.space-y-2>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-top:calc(.5rem*(1 - var(--tw-space-y-reverse)));margin-bottom:calc(.5rem*var(--tw-space-y-reverse))}.space-y-2\.5>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-top:calc(.625rem*(1 - var(--tw-space-y-reverse)));margin-bottom:calc(.625rem*var(--tw-space-y-reverse))}.space-y-3>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-top:calc(.75rem*(1 - var(--tw-space-y-reverse)));margin-bottom:calc(.75rem*var(--tw-space-y-reverse))}.overflow-hidden{overflow:hidden}.overflow-y-auto{overflow-y:auto}.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rounded{border-radius:.25rem}.rounded-2xl{border-radius:1rem}.rounded-full{border-radius:9999px}.rounded-lg{border-radius:.5rem}.rounded-md{border-radius:.375rem}.rounded-xl{border-radius:.75rem}.border{border-width:1px}.border-0{border-width:0}.border-b{border-bottom-width:1px}.border-t{border-top-width:1px}.border-blue-100\/70{border-color:rgba(219,234,254,.7)}.border-blue-600{--tw-border-opacity:1;border-color:rgb(37 99 235/var(--tw-border-opacity,1))}.border-slate-100{--tw-border-opacity:1;border-color:rgb(241 245 249/var(--tw-border-opacity,1))}.border-slate-200{--tw-border-opacity:1;border-color:rgb(226 232 240/var(--tw-border-opacity,1))}.border-slate-200\/50{border-color:rgba(226,232,240,.5)}.border-slate-200\/60{border-color:rgba(226,232,240,.6)}.border-slate-200\/70{border-color:rgba(226,232,240,.7)}.border-slate-200\/80{border-color:rgba(226,232,240,.8)}.border-slate-200\/90{border-color:rgba(226,232,240,.9)}.border-slate-300{--tw-border-opacity:1;border-color:rgb(203 213 225/var(--tw-border-opacity,1))}.bg-\[\#1e3a8a\]{--tw-bg-opacity:1;background-color:rgb(30 58 138/var(--tw-bg-opacity,1))}.bg-\[\#f0f3f6\]{--tw-bg-opacity:1;background-color:rgb(240 243 246/var(--tw-bg-opacity,1))}.bg-\[\#f8fafc\]\/95{background-color:rgba(248,250,252,.95)}.bg-blue-50{--tw-bg-opacity:1;background-color:rgb(239 246 255/var(--tw-bg-opacity,1))}.bg-blue-50\/80{background-color:rgba(239,246,255,.8)}.bg-emerald-500{--tw-bg-opacity:1;background-color:rgb(16 185 129/var(--tw-bg-opacity,1))}.bg-sky-200\/20{background-color:rgba(186,230,253,.2)}.bg-slate-100{--tw-bg-opacity:1;background-color:rgb(241 245 249/var(--tw-bg-opacity,1))}.bg-slate-200\/40{background-color:rgba(226,232,240,.4)}.bg-slate-200\/60{background-color:rgba(226,232,240,.6)}.bg-slate-300{--tw-bg-opacity:1;background-color:rgb(203 213 225/var(--tw-bg-opacity,1))}.bg-slate-50{--tw-bg-opacity:1;background-color:rgb(248 250 252/var(--tw-bg-opacity,1))}.bg-slate-50\/30{background-color:rgba(248,250,252,.3)}.bg-slate-50\/40{background-color:rgba(248,250,252,.4)}.bg-slate-50\/50{background-color:rgba(248,250,252,.5)}.bg-slate-50\/60{background-color:rgba(248,250,252,.6)}.bg-slate-50\/70{background-color:rgba(248,250,252,.7)}.bg-slate-50\/80{background-color:rgba(248,250,252,.8)}.bg-transparent{background-color:transparent}.bg-white{--tw-bg-opacity:1;background-color:rgb(255 255 255/var(--tw-bg-opacity,1))}.bg-white\/75{background-color:hsla(0,0%,100%,.75)}.bg-white\/90{background-color:hsla(0,0%,100%,.9)}.bg-white\/95{background-color:hsla(0,0%,100%,.95)}.bg-\[radial-gradient\(ellipse_at_top\2c _var\(--tw-gradient-stops\)\)\]{background-image:radial-gradient(ellipse at top,var(--tw-gradient-stops))}.from-blue-50\/60{--tw-gradient-from:rgba(239,246,255,.6) var(--tw-gradient-from-position);--tw-gradient-to:rgba(239,246,255,0) var(--tw-gradient-to-position);--tw-gradient-stops:var(--tw-gradient-from),var(--tw-gradient-to)}.via-\[\#eef3f7\]{--tw-gradient-to:rgba(238,243,247,0) var(--tw-gradient-to-position);--tw-gradient-stops:var(--tw-gradient-from),#eef3f7 var(--tw-gradient-via-position),var(--tw-gradient-to)}.to-\[\#e4eaf0\]{--tw-gradient-to:#e4eaf0 var(--tw-gradient-to-position)}.p-0{padding:0}.p-0\.5{padding:.125rem}.p-1{padding:.25rem}.p-1\.5{padding:.375rem}.p-2{padding:.5rem}.p-2\.5{padding:.625rem}.p-3{padding:.75rem}.p-4{padding:1rem}.px-0\.5{padding-left:.125rem;padding-right:.125rem}.px-1\.5{padding-left:.375rem;padding-right:.375rem}.px-2{padding-left:.5rem;padding-right:.5rem}.px-2\.5{padding-left:.625rem;padding-right:.625rem}.px-3{padding-left:.75rem;padding-right:.75rem}.px-3\.5{padding-left:.875rem;padding-right:.875rem}.px-5{padding-left:1.25rem;padding-right:1.25rem}.py-0\.5{padding-top:.125rem;padding-bottom:.125rem}.py-1{padding-top:.25rem;padding-bottom:.25rem}.py-1\.5{padding-top:.375rem;padding-bottom:.375rem}.py-2\.5{padding-top:.625rem;padding-bottom:.625rem}.pb-1{padding-bottom:.25rem}.pb-1\.5{padding-bottom:.375rem}.pb-2\.5{padding-bottom:.625rem}.pb-3{padding-bottom:.75rem}.pl-0\.5{padding-left:.125rem}.pl-2{padding-left:.5rem}.pl-2\.5{padding-left:.625rem}.pr-3{padding-right:.75rem}.pr-5{padding-right:1.25rem}.pr-6{padding-right:1.5rem}.pt-0\.5{padding-top:.125rem}.pt-1{padding-top:.25rem}.pt-1\.5{padding-top:.375rem}.text-left{text-align:left}.text-center{text-align:center}.text-right{text-align:right}.font-mono{font-family:JetBrains Mono,SF Mono,monospace}.font-sans{font-family:-apple-system,BlinkMacSystemFont,SF Pro Text,Inter,PingFang SC,sans-serif}.text-\[10\.5px\]{font-size:10.5px}.text-\[10px\]{font-size:10px}.text-\[11\.5px\]{font-size:11.5px}.text-\[11px\]{font-size:11px}.text-\[12px\]{font-size:12px}.text-\[13px\]{font-size:13px}.text-\[14px\]{font-size:14px}.text-\[15px\]{font-size:15px}.text-\[16px\]{font-size:16px}.text-\[9\.5px\]{font-size:9.5px}.text-\[9px\]{font-size:9px}.text-xs{font-size:.75rem;line-height:1rem}.font-bold{font-weight:700}.font-medium{font-weight:500}.font-normal{font-weight:400}.font-semibold{font-weight:600}.leading-none{line-height:1}.leading-tight{line-height:1.25}.tracking-tight{letter-spacing:-.025em}.text-\[\#1e3a8a\],.text-blue-900{--tw-text-opacity:1;color:rgb(30 58 138/var(--tw-text-opacity,1))}.text-slate-400{--tw-text-opacity:1;color:rgb(148 163 184/var(--tw-text-opacity,1))}.text-slate-500{--tw-text-opacity:1;color:rgb(100 116 139/var(--tw-text-opacity,1))}.text-slate-600{--tw-text-opacity:1;color:rgb(71 85 105/var(--tw-text-opacity,1))}.text-slate-700{--tw-text-opacity:1;color:rgb(51 65 85/var(--tw-text-opacity,1))}.text-slate-800{--tw-text-opacity:1;color:rgb(30 41 59/var(--tw-text-opacity,1))}.text-slate-900{--tw-text-opacity:1;color:rgb(15 23 42/var(--tw-text-opacity,1))}.text-white{--tw-text-opacity:1;color:rgb(255 255 255/var(--tw-text-opacity,1))}.antialiased{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}.opacity-75{opacity:.75}.opacity-80{opacity:.8}.shadow-inner{--tw-shadow:inset 0 2px 4px 0 rgba(0,0,0,.05);--tw-shadow-colored:inset 0 2px 4px 0 var(--tw-shadow-color)}.shadow-inner,.shadow-switch-thumb{box-shadow:var(--tw-ring-offset-shadow,0 0 #0000),var(--tw-ring-shadow,0 0 #0000),var(--tw-shadow)}.shadow-switch-thumb{--tw-shadow:0 1px 2.5px rgba(15,23,42,.22),0 0.5px 1px rgba(15,23,42,.1);--tw-shadow-colored:0 1px 2.5px var(--tw-shadow-color),0 0.5px 1px var(--tw-shadow-color)}.shadow-tactile-button{--tw-shadow:0 1px 2px rgba(15,23,42,.04);--tw-shadow-colored:0 1px 2px var(--tw-shadow-color)}.shadow-tactile-button,.shadow-tactile-card{box-shadow:var(--tw-ring-offset-shadow,0 0 #0000),var(--tw-ring-shadow,0 0 #0000),var(--tw-shadow)}.shadow-tactile-card{--tw-shadow:0 1px 3px rgba(15,23,42,.03),0 1px 2px rgba(15,23,42,.02);--tw-shadow-colored:0 1px 3px var(--tw-shadow-color),0 1px 2px var(--tw-shadow-color)}.shadow-tactile-window{--tw-shadow:0 20px 48px -10px rgba(15,23,42,.12),0 0 0 1px hsla(0,0%,100%,.8) inset,0 1px 3px rgba(15,23,42,.05);--tw-shadow-colored:0 20px 48px -10px var(--tw-shadow-color),inset 0 0 0 1px var(--tw-shadow-color),0 1px 3px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow,0 0 #0000),var(--tw-ring-shadow,0 0 #0000),var(--tw-shadow)}.outline{outline-style:solid}.ring-1{--tw-ring-offset-shadow:var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);--tw-ring-shadow:var(--tw-ring-inset) 0 0 0 calc(1px + var(--tw-ring-offset-width)) var(--tw-ring-color);box-shadow:var(--tw-ring-offset-shadow),var(--tw-ring-shadow),var(--tw-shadow,0 0 #0000)}.ring-blue-500\/20{--tw-ring-color:rgba(59,130,246,.2)}.ring-white\/60{--tw-ring-color:hsla(0,0%,100%,.6)}.blur-\[120px\]{--tw-blur:blur(120px)}.blur-\[120px\],.blur-\[140px\]{filter:var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow)}.blur-\[140px\]{--tw-blur:blur(140px)}.backdrop-blur-2xl{--tw-backdrop-blur:blur(40px)}.backdrop-blur-2xl,.backdrop-blur-md{-webkit-backdrop-filter:var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia);backdrop-filter:var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia)}.backdrop-blur-md{--tw-backdrop-blur:blur(12px)}.backdrop-blur-sm{--tw-backdrop-blur:blur(4px);-webkit-backdrop-filter:var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia);backdrop-filter:var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia)}.transition{transition-property:color,background-color,border-color,text-decoration-color,fill,stroke,opacity,box-shadow,transform,filter,-webkit-backdrop-filter;transition-property:color,background-color,border-color,text-decoration-color,fill,stroke,opacity,box-shadow,transform,filter,backdrop-filter;transition-property:color,background-color,border-color,text-decoration-color,fill,stroke,opacity,box-shadow,transform,filter,backdrop-filter,-webkit-backdrop-filter;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.transition-all{transition-property:all;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.transition-colors{transition-property:color,background-color,border-color,text-decoration-color,fill,stroke;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.transition-opacity{transition-property:opacity;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.transition-transform{transition-property:transform;transition-timing-function:cubic-bezier(.4,0,.2,1)}.duration-150,.transition-transform{transition-duration:.15s}.duration-200{transition-duration:.2s}.duration-300{transition-duration:.3s}.hover\:border-\[\#1e3a8a\]\/30:hover{border-color:rgba(30,58,138,.3)}.hover\:border-slate-300:hover{--tw-border-opacity:1;border-color:rgb(203 213 225/var(--tw-border-opacity,1))}.hover\:bg-\[\#172554\]:hover{--tw-bg-opacity:1;background-color:rgb(23 37 84/var(--tw-bg-opacity,1))}.hover\:bg-blue-100\/60:hover{background-color:rgba(219,234,254,.6)}.hover\:bg-blue-50:hover{--tw-bg-opacity:1;background-color:rgb(239 246 255/var(--tw-bg-opacity,1))}.hover\:bg-slate-100:hover{--tw-bg-opacity:1;background-color:rgb(241 245 249/var(--tw-bg-opacity,1))}.hover\:bg-slate-100\/80:hover{background-color:rgba(241,245,249,.8)}.hover\:bg-slate-200:hover{--tw-bg-opacity:1;background-color:rgb(226 232 240/var(--tw-bg-opacity,1))}.hover\:bg-slate-200\/80:hover{background-color:rgba(226,232,240,.8)}.hover\:bg-slate-50:hover{--tw-bg-opacity:1;background-color:rgb(248 250 252/var(--tw-bg-opacity,1))}.hover\:bg-slate-50\/70:hover{background-color:rgba(248,250,252,.7)}.hover\:text-\[\#1e3a8a\]:hover{--tw-text-opacity:1;color:rgb(30 58 138/var(--tw-text-opacity,1))}.hover\:text-slate-600:hover{--tw-text-opacity:1;color:rgb(71 85 105/var(--tw-text-opacity,1))}.hover\:text-slate-800:hover{--tw-text-opacity:1;color:rgb(30 41 59/var(--tw-text-opacity,1))}.hover\:text-slate-900:hover{--tw-text-opacity:1;color:rgb(15 23 42/var(--tw-text-opacity,1))}.focus\:border-\[\#1e3a8a\]\/40:focus{border-color:rgba(30,58,138,.4)}.focus\:border-slate-400:focus{--tw-border-opacity:1;border-color:rgb(148 163 184/var(--tw-border-opacity,1))}.focus\:outline-none:focus{outline:2px solid transparent;outline-offset:2px}.focus\:ring-0:focus{--tw-ring-offset-shadow:var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);--tw-ring-shadow:var(--tw-ring-inset) 0 0 0 calc(var(--tw-ring-offset-width)) var(--tw-ring-color);box-shadow:var(--tw-ring-offset-shadow),var(--tw-ring-shadow),var(--tw-shadow,0 0 #0000)}.active\:scale-\[0\.98\]:active{--tw-scale-x:0.98;--tw-scale-y:0.98;transform:translate(var(--tw-translate-x),var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y))}.group:hover .group-hover\:text-blue-950{--tw-text-opacity:1;color:rgb(23 37 84/var(--tw-text-opacity,1))}.group:hover .group-hover\:text-slate-500{--tw-text-opacity:1;color:rgb(100 116 139/var(--tw-text-opacity,1))}.group:hover .group-hover\:text-slate-900{--tw-text-opacity:1;color:rgb(15 23 42/var(--tw-text-opacity,1))}</style><style id="dshwv-embed">
+html,body{margin:0;padding:0;background:transparent;height:100%;overflow:hidden}
+body{display:block!important;min-height:0!important;padding:0!important}
+main{width:100%!important;max-width:100%!important;height:100%!important;max-height:100%!important;display:flex!important;flex-direction:column}
+main>header,main>footer{flex:0 0 auto}
+main>div.p-3{flex:1 1 auto;min-height:0;max-height:none!important;overflow-y:auto}
+</style>
+</head>
+<body class="font-sans select-none text-slate-800 antialiased">
+<!-- BEGIN: macOS Control Center Inspired Popover Shell -->
+<main class="w-full bg-[#f8fafc]/95 backdrop-blur-2xl rounded-2xl shadow-tactile-window border border-slate-200/80 flex flex-col overflow-hidden text-slate-800 transition-all duration-300 ring-1 ring-white/60" data-purpose="popover-container" style="max-width: 416px;">
+<!-- macOS Minimal Utility Header (Clean without traffic lights) -->
+<header class="relative px-3.5 py-2.5 flex items-center justify-between border-b border-slate-200/70 bg-white/75 backdrop-blur-sm">
+<div class="flex items-center space-x-2 min-w-0">
+<span class="text-[12px] font-semibold tracking-tight text-slate-900 truncate">小鲸鱼 · 桌面控制台</span>
+<span class="font-mono text-[9px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-medium border border-slate-200/80">v0.6.6</span>
+</div>
+<!-- Header Action Pin -->
+<div class="flex items-center space-x-1">
+<button class="w-6 h-6 rounded-md flex items-center justify-center text-slate-400 hover:text-slate-800 hover:bg-slate-100/80 transition-colors" id="pin-btn" title="固定至桌面" type="button">
+<span class="material-symbols-outlined text-[14px]">push_pin</span>
+</button>
+</div>
+</header>
+<!-- Scrollable Canvas -->
+<div class="p-3 space-y-2.5 overflow-y-auto max-h-[620px] sonoma-scrollbar text-xs">
+<!-- 1. Form Morph Segmented Control -->
+<section class="space-y-2">
+<div class="p-0.5 rounded-xl bg-slate-200/60 border border-slate-200/60 flex items-center">
+<button class="flex-1 py-1.5 px-3 rounded-lg text-center font-medium text-[11.5px] text-slate-600 hover:text-slate-900 transition-all" type="button">
+          小鲸鱼形态
+        </button>
+<button class="flex-1 py-1.5 px-3 rounded-lg text-center font-semibold text-[11.5px] bg-white text-slate-900 shadow-tactile-button border border-slate-200/70 transition-all" type="button">
+          桌宠形态
+        </button>
+</div>
+<!-- Size Slider Card -->
+<div class="p-2.5 rounded-xl bg-white/90 border border-slate-200/80 flex flex-col space-y-1.5 shadow-tactile-card">
+<div class="flex items-center justify-between">
+<label class="text-[11.5px] font-medium text-slate-700" for="scale-slider">
+            大小</label>
+<span class="font-mono text-[10.5px] px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200 text-slate-700 font-semibold flex items-center space-x-0.5">
+<span class="" id="scale-value">18</span>
+<span class="text-slate-400 text-[9.5px] pl-0.5 font-normal">px</span>
+</span>
+</div>
+<div class="flex items-center space-x-2.5 pt-0.5">
+<span class="font-mono text-[9.5px] text-slate-400">8</span>
+<input class="flex-1 cursor-pointer" id="scale-slider" max="32" min="8" type="range" value="18">
+<span class="font-mono text-[9.5px] text-slate-400">32</span>
+</div>
+</div>
+<!-- Quick Settings Row 1 (3 Cards) -->
+<div class="grid grid-cols-3 gap-2">
+<div class="p-2.5 rounded-xl bg-white/90 border border-slate-200/80 flex flex-col space-y-1.5 shadow-tactile-card">
+<label class="flex items-center justify-between cursor-pointer group">
+<span class="text-[11px] font-medium text-slate-700 group-hover:text-slate-900 transition-colors">避让滚动条</span>
+<div class="w-7 h-4 bg-[#1e3a8a] rounded-full relative p-0.5 flex items-center transition-colors shadow-inner flex-shrink-0 ml-1.5">
+<div class="w-3 h-3 bg-white rounded-full shadow-switch-thumb transform translate-x-3 transition-transform"></div>
+</div>
+</label>
+<div class="flex items-center space-x-1 hidden" id="con-gap-wrap">
+<span class="text-[9.5px] text-slate-400 flex-shrink-0">宽度</span>
+<input class="flex-1 min-w-0 bg-slate-50/80 border border-slate-200/90 rounded-md py-1 pl-2 pr-3 text-[10px] text-slate-800 focus:outline-none focus:border-[#1e3a8a]/40" id="con-gap-px" max="200" min="0" step="1" type="number" value="17">
+<span class="text-[9.5px] text-slate-400 flex-shrink-0">px</span>
+</div>
+</div>
+<label class="p-2.5 rounded-xl bg-white/90 border border-slate-200/80 flex items-center justify-between cursor-pointer hover:border-slate-300 transition-all shadow-tactile-card group">
+<span class="text-[11px] font-medium text-slate-700 group-hover:text-slate-900 transition-colors">屏幕漫游</span>
+<div class="w-7 h-4 bg-[#1e3a8a] rounded-full relative p-0.5 flex items-center transition-colors shadow-inner flex-shrink-0 ml-1.5" id="global-sound-toggle">
+<div class="w-3 h-3 bg-white rounded-full shadow-switch-thumb transform translate-x-3 transition-transform"></div>
+</div>
+</label>
+<label class="p-2.5 rounded-xl bg-white/90 border border-slate-200/80 flex items-center justify-between cursor-pointer hover:border-slate-300 transition-all shadow-tactile-card group">
+<span class="text-[11px] font-medium text-slate-700 group-hover:text-slate-900 transition-colors">隐藏菜单栏</span>
+<div class="w-7 h-4 bg-[#1e3a8a] rounded-full relative p-0.5 flex items-center transition-colors shadow-inner flex-shrink-0 ml-1.5">
+<div class="w-3 h-3 bg-white rounded-full shadow-switch-thumb transform translate-x-3 transition-transform"></div>
+</div>
+</label>
+</div>
+</section>
+<!-- 2. Interaction & Window Docking (Row 2 Controls) -->
+<div class="p-2.5 rounded-xl bg-white/90 border border-slate-200/80 shadow-tactile-card space-y-2">
+<div class="flex items-center justify-between pb-1.5 border-b border-slate-100">
+<div class="flex items-center text-slate-700">
+<span class="text-[11.5px] font-semibold text-slate-800 tracking-tight">交互与视窗吸附</span>
+</div>
+<span class="text-[10px] text-slate-400 font-medium">桌面行为调度</span>
+</div>
+<div class="grid grid-cols-3 gap-2">
+<div class="p-2 rounded-lg bg-slate-50/70 border border-slate-200/70 flex flex-col justify-between">
+<span class="text-[10px] font-medium text-slate-500">峰谷状态</span>
+<div class="mt-1.5 relative flex items-center">
+<select class="w-full bg-white hover:bg-slate-100/80 border border-slate-200/90 rounded-md py-1 pl-2 pr-5 text-[10.5px] text-slate-800 font-medium focus:outline-none focus:border-slate-400 cursor-pointer transition-colors leading-tight appearance-none">
+<option>隐藏</option>
+<option>常驻浮动</option>
+<option>按需展示</option>
+</select>
+<span class="material-symbols-outlined absolute right-1.5 text-[13px] text-slate-400 pointer-events-none">expand_more</span>
+</div>
+</div>
+<div class="p-2 rounded-lg bg-slate-50/70 border border-slate-200/70 flex flex-col justify-between">
+<span class="text-[10px] font-medium text-slate-500">吸附与翻转</span>
+<div class="mt-1.5 relative flex items-center">
+<select class="w-full bg-white hover:bg-slate-100/80 border border-slate-200/90 rounded-md py-1 pl-2 pr-5 text-[10.5px] text-slate-800 font-medium focus:outline-none focus:border-slate-400 cursor-pointer transition-colors leading-tight appearance-none">
+<option>智能吸附边缘</option>
+<option>吸附并翻转</option>
+<option>仅吸附</option>
+<option>关闭</option>
+</select>
+<span class="material-symbols-outlined absolute right-1.5 text-[13px] text-slate-400 pointer-events-none">expand_more</span>
+</div>
+</div>
+<div class="p-2 rounded-lg bg-slate-50/70 border border-slate-200/70 flex flex-col justify-between group">
+<div class="flex items-center justify-between">
+<span class="text-[10px] font-medium text-slate-500">角色位置</span>
+
+</div>
+<div class="mt-1.5">
+<button class="w-full py-1 px-1.5 rounded-md bg-white hover:bg-blue-50 border border-slate-200/90 hover:border-[#1e3a8a]/30 text-slate-700 hover:text-[#1e3a8a] text-[10.5px] font-medium flex items-center justify-center space-x-1 shadow-tactile-button active:scale-[0.98] transition-all cursor-pointer leading-tight" title="复位至屏幕右下角" type="button">
+
+<span class="">一键复位</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- 3. Prompt & Sound Module -->
+<section class="rounded-2xl bg-white/95 border border-slate-200/90 shadow-tactile-card overflow-hidden">
+<!-- Section Header (Collapsible) -->
+<div class="px-3 py-2.5 flex items-center justify-between border-b border-slate-100 bg-slate-50/40 cursor-pointer hover:bg-slate-50 transition-colors" id="sound-accordion-header" onclick="document.getElementById('sound-panel').classList.toggle('hidden'); document.getElementById('sound-chevron').classList.toggle('rotate-180');">
+<div class="flex items-center space-x-2">
+<div>
+<span class="text-[12px] font-bold text-slate-800 tracking-tight">提示与音效调度</span>
+</div>
+</div>
+<div class="flex items-center space-x-1.5">
+<span class="text-[10px] text-slate-400 font-medium">4 路场景声轨</span>
+<span class="material-symbols-outlined text-[16px] text-slate-400 transition-transform duration-200 rotate-180" id="sound-chevron">expand_more</span>
+</div>
+</div>
+<div class="p-3 space-y-3 hidden" id="sound-panel">
+<!-- Master Volume & Quick 4-Channel Grid -->
+<div class="p-2.5 rounded-xl bg-slate-50/70 border border-slate-200/60 space-y-2">
+<div class="flex items-center justify-between">
+<div class="flex items-center space-x-1.5 text-slate-700">
+<span class="material-symbols-outlined text-[15px] text-[#1e3a8a]">volume_up</span>
+<span class="text-[11.5px] font-medium">主音量</span>
+</div>
+<span class="font-mono text-[10.5px] text-slate-600 font-semibold" id="master-vol-num">90%</span>
+</div>
+<div class="flex items-center space-x-2">
+<span class="material-symbols-outlined text-[13px] text-slate-400">volume_mute</span>
+<input class="flex-1 cursor-pointer" id="master-vol-slider" max="100" min="0" type="range" value="90">
+<span class="material-symbols-outlined text-[13px] text-slate-400">volume_up</span>
+</div>
+<!-- 4-Channel Compact Matrix Indicators -->
+<div class="pt-1.5 grid grid-cols-4 gap-1.5" id="audio-channels-bar">
+<!-- Channel 1: 按压 -->
+<button class="channel-pill p-1.5 rounded-lg border flex flex-col items-center justify-center text-center transition-all group cursor-pointer bg-white border-slate-200/80" data-channel="press" type="button">
+<div class="flex items-center space-x-1">
+<span class="channel-dot w-1.5 h-1.5 rounded-full bg-slate-300"></span>
+<span class="text-[10px] font-semibold group-hover:text-blue-950 text-slate-700">按压</span>
+</div>
+<span class="font-mono text-[9px] font-medium mt-0.5 text-slate-500" id="pill-vol-press">90%</span>
+</button>
+<!-- Channel 2: 消耗 -->
+<button class="channel-pill p-1.5 rounded-lg border hover:bg-slate-50 flex flex-col items-center justify-center text-center transition-all group cursor-pointer bg-white border-slate-200/80" data-channel="consume" type="button">
+<div class="flex items-center space-x-1">
+<span class="channel-dot w-1.5 h-1.5 rounded-full bg-slate-300"></span>
+<span class="text-[10px] font-semibold group-hover:text-slate-900 text-slate-700">消耗</span>
+</div>
+<span class="font-mono text-[9px] mt-0.5 text-slate-500" id="pill-vol-consume">100%</span>
+</button>
+<!-- Channel 3: 提问 -->
+<button class="channel-pill p-1.5 rounded-lg border hover:bg-slate-50 flex flex-col items-center justify-center text-center transition-all group bg-white border-slate-200/80 opacity-80" data-channel="question" type="button">
+<div class="flex items-center space-x-1">
+<span class="channel-dot w-1.5 h-1.5 rounded-full bg-slate-300"></span>
+<span class="text-[10px] font-semibold group-hover:text-slate-900 text-slate-600">提问</span>
+</div>
+<span class="font-mono text-[9px] mt-0.5 text-slate-400" id="pill-vol-question">静音</span>
+</button>
+<!-- Channel 4: 授权 -->
+<button class="channel-pill p-1.5 rounded-lg border hover:bg-slate-50 flex flex-col items-center justify-center text-center transition-all group active border-blue-600 bg-blue-50/80 shadow-xs ring-1 ring-blue-500/20" data-channel="auth" type="button">
+<div class="flex items-center space-x-1">
+<span class="channel-dot w-1.5 h-1.5 rounded-full bg-slate-300"></span>
+<span class="text-[10px] font-semibold group-hover:text-slate-900 text-blue-900">授权</span>
+</div>
+<span class="font-mono text-[9px] mt-0.5 text-[#1e3a8a] font-semibold" id="pill-vol-auth">静音</span>
+</button>
+</div>
+</div>
+<!-- Segmented Tab Header for Scene Detail -->
+<div class="flex items-center justify-between pt-0.5 border-b border-slate-100 pb-1">
+<span class="text-[11px] font-semibold text-slate-700" id="current-tab-title">授权提示配置</span>
+<span class="text-[10px] text-slate-400" id="current-tab-sub">系统权限与请求提醒</span>
+</div>
+<!-- TAB CONTENT CONTAINER -->
+<!-- Tab 1: 按压音效 -->
+<div class="space-y-2.5 transition-opacity duration-150 hidden" id="panel-press">
+<div class="flex items-center justify-between">
+<div class="flex items-center space-x-2">
+<span class="text-[11.5px] text-slate-700 font-medium">音效组</span>
+<div class="relative">
+<select class="bg-slate-50 hover:bg-slate-100/80 border border-slate-200 rounded-lg py-1 pl-2.5 pr-6 text-[11px] text-slate-800 font-semibold focus:outline-none cursor-pointer appearance-none">
+<option>冰冰冰 (默认)</option>
+<option>水泡脆响</option>
+<option>机械轻敲</option>
+</select>
+<span class="material-symbols-outlined absolute right-1.5 top-1/2 -translate-y-1/2 text-[13px] text-slate-400 pointer-events-none">expand_more</span>
+</div>
+</div>
+<div class="flex items-center space-x-1">
+<button class="p-1 rounded-md text-[#1e3a8a] hover:bg-blue-50 text-[11px] flex items-center space-x-0.5 transition-colors" title="试听" type="button">
+<span class="material-symbols-outlined text-[15px]">play_circle</span>
+<span class="text-[10.5px] font-medium">试听</span>
+</button>
+<button class="px-2 py-1 rounded-md bg-slate-100 hover:bg-slate-200/80 text-slate-700 text-[10px] font-medium transition-colors" type="button">
+                新建
+              </button>
+</div>
+</div>
+<!-- Channel Volume Slider -->
+<div class="p-2 rounded-lg bg-slate-50/60 border border-slate-100 flex items-center space-x-2">
+<span class="text-[10.5px] text-slate-500 w-16">按压音量</span>
+<input class="flex-1 cursor-pointer" id="press-vol-slider" max="100" min="0" type="range" value="90">
+<span class="font-mono text-[10px] text-slate-600 font-medium w-7 text-right" id="press-vol-label">90%</span>
+</div>
+<!-- Global Haptic / Bubble Interaction Footer Option -->
+<div class="pt-1 border-t border-slate-100 flex items-center justify-between">
+<label class="flex items-center space-x-1.5 cursor-pointer text-slate-600 hover:text-slate-800 transition-colors">
+<input class="rounded border-slate-300 text-[#1e3a8a] focus:ring-0 w-3 h-3" type="checkbox">
+<span class="text-[10.5px]">点按角色快捷关闭提示气泡</span>
+</label>
+<span class="w-3.5 h-3.5 rounded-full border border-slate-300 text-slate-400 hover:text-slate-600 text-[9px] flex items-center justify-center cursor-help font-mono" title="在桌面上轻轻点击小鲸鱼角色即可隐藏正在显示的气泡">?</span>
+</div>
+</div>
+<!-- Tab 2: 每轮消耗提示 -->
+<div class="space-y-2.5 transition-opacity duration-150 hidden" id="panel-consume">
+<div class="flex items-center justify-between">
+<div class="flex items-center space-x-2">
+<span class="text-[11.5px] text-slate-700 font-medium">任务结束音</span>
+<div class="relative">
+<select class="bg-slate-50 hover:bg-slate-100/80 border border-slate-200 rounded-lg py-1 pl-2.5 pr-6 text-[11px] text-slate-800 font-semibold focus:outline-none cursor-pointer appearance-none">
+<option>每轮消耗·默认</option>
+<option>柔和水滴</option>
+<option>微风轻鸣</option>
+</select>
+<span class="material-symbols-outlined absolute right-1.5 top-1/2 -translate-y-1/2 text-[13px] text-slate-400 pointer-events-none">expand_more</span>
+</div>
+</div>
+<button class="p-1 rounded-md text-[#1e3a8a] hover:bg-blue-50 text-[11px] flex items-center space-x-0.5 transition-colors" title="试听" type="button">
+<span class="material-symbols-outlined text-[15px]">play_circle</span>
+<span class="text-[10.5px] font-medium">试听</span>
+</button>
+</div>
+<!-- Channel Volume Slider -->
+<div class="p-2 rounded-lg bg-slate-50/60 border border-slate-100 flex items-center space-x-2">
+<span class="text-[10.5px] text-slate-500 w-16">提示音量</span>
+<input class="flex-1 cursor-pointer" id="consume-vol-slider" max="100" min="0" type="range" value="100">
+<span class="font-mono text-[10px] text-slate-600 font-medium w-7 text-right" id="consume-vol-label">100%</span>
+</div>
+<!-- Inline Bubble Control & Auto-Dismiss chips -->
+<div class="p-2.5 rounded-xl bg-slate-50/80 border border-slate-200/70 space-y-2">
+<div class="flex items-center justify-between">
+<label class="flex items-center space-x-1.5 cursor-pointer">
+<input checked="" class="rounded border-slate-300 text-[#1e3a8a] focus:ring-0 w-3.5 h-3.5" type="checkbox">
+<span class="text-[11px] font-medium text-slate-800">气泡提示卡片</span>
+</label>
+<!-- Drawer / Inline Edit Prompt Button -->
+<button class="flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10.5px] font-medium text-[#1e3a8a] hover:bg-blue-100/60 transition-colors" type="button">
+<span class="material-symbols-outlined text-[13px]">edit_note</span>
+<span class="">自定义文案</span>
+</button>
+</div>
+<!-- Auto Close Inputs / Chips -->
+<div class="flex items-center justify-between pt-1 border-t border-slate-200/50 text-[10.5px]">
+<span class="text-slate-500">自动关闭时间</span>
+<div class="flex items-center space-x-1 font-mono" id="consume-duration-chips">
+<button class="px-2 py-0.5 rounded bg-white text-slate-500 border border-slate-200 hover:border-slate-300 duration-chip" data-time="3s" type="button">3s</button>
+<button class="px-2 py-0.5 rounded bg-[#1e3a8a] text-white font-semibold shadow-xs duration-chip active" data-time="5s" type="button">5秒</button>
+<button class="px-2 py-0.5 rounded bg-white text-slate-500 border border-slate-200 hover:border-slate-300 duration-chip" data-time="10s" type="button">10s</button>
+<button class="px-1.5 py-0.5 rounded bg-white text-slate-500 border border-slate-200 hover:border-slate-300 duration-chip" data-time="always" type="button">常驻</button>
+</div>
+</div>
+</div>
+<!-- Secondary Options Collapsed -->
+<div class="flex items-center justify-between pt-0.5 px-0.5">
+<label class="flex items-center space-x-1.5 cursor-pointer text-slate-600">
+<input checked="" class="rounded border-slate-300 text-[#1e3a8a] focus:ring-0 w-3 h-3" type="checkbox">
+<span class="text-[10.5px]">子智能体完成时不提示（不弹泡）</span>
+</label>
+<span class="w-3.5 h-3.5 rounded-full border border-slate-300 text-slate-400 hover:text-slate-600 text-[9px] flex items-center justify-center cursor-help font-mono" title="子任务执行结束时不打扰主屏幕">?</span>
+</div>
+</div>
+<!-- Tab 3: 提问提示 -->
+<div class="space-y-2.5 transition-opacity duration-150 hidden" id="panel-question">
+<div class="flex items-center justify-between">
+<div class="flex items-center space-x-2">
+<span class="text-[11.5px] text-slate-700 font-medium">提问音效</span>
+<div class="relative">
+<select class="bg-slate-50 hover:bg-slate-100/80 border border-slate-200 rounded-lg py-1 pl-2.5 pr-6 text-[11px] text-slate-800 font-semibold focus:outline-none cursor-pointer appearance-none">
+<option>提问·默认 (静音)</option>
+<option>清脆回音</option>
+<option>短促敲门声</option>
+</select>
+<span class="material-symbols-outlined absolute right-1.5 top-1/2 -translate-y-1/2 text-[13px] text-slate-400 pointer-events-none">expand_more</span>
+</div>
+</div>
+<button class="p-1 rounded-md text-slate-400 hover:text-[#1e3a8a] text-[11px] flex items-center space-x-0.5 transition-colors" title="试听" type="button">
+<span class="material-symbols-outlined text-[15px]">play_circle</span>
+<span class="text-[10.5px] font-medium">试听</span>
+</button>
+</div>
+<!-- Channel Volume Slider -->
+<div class="p-2 rounded-lg bg-slate-50/60 border border-slate-100 flex items-center space-x-2">
+<span class="text-[10.5px] text-slate-500 w-16">提示音量</span>
+<input class="flex-1 cursor-pointer" id="question-vol-slider" max="100" min="0" type="range" value="0">
+<span class="font-mono text-[10px] text-slate-600 font-medium w-7 text-right" id="question-vol-label">静音</span>
+</div>
+<div class="p-2.5 rounded-xl bg-slate-50/80 border border-slate-200/70 flex items-center justify-between">
+<label class="flex items-center space-x-1.5 cursor-pointer">
+<input checked="" class="rounded border-slate-300 text-[#1e3a8a] focus:ring-0 w-3.5 h-3.5" type="checkbox">
+<span class="text-[11px] font-medium text-slate-800">等待用户提问时冒泡</span>
+</label>
+<button class="flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10.5px] font-medium text-[#1e3a8a] hover:bg-blue-100/60 transition-colors" type="button">
+<span class="material-symbols-outlined text-[13px]">edit_note</span>
+<span class="">编辑文案</span>
+</button>
+</div>
+</div>
+<!-- Tab 4: 授权提示 -->
+<div class="space-y-2.5 transition-opacity duration-150" id="panel-auth">
+<div class="flex items-center justify-between">
+<div class="flex items-center space-x-2">
+<span class="text-[11.5px] text-slate-700 font-medium">授权提醒音</span>
+<div class="relative">
+<select class="bg-slate-50 hover:bg-slate-100/80 border border-slate-200 rounded-lg py-1 pl-2.5 pr-6 text-[11px] text-slate-800 font-semibold focus:outline-none cursor-pointer appearance-none">
+<option>授权·默认 (静音)</option>
+<option>重要通知音</option>
+</select>
+<span class="material-symbols-outlined absolute right-1.5 top-1/2 -translate-y-1/2 text-[13px] text-slate-400 pointer-events-none">expand_more</span>
+</div>
+</div>
+<button class="p-1 rounded-md text-slate-400 hover:text-[#1e3a8a] text-[11px] flex items-center space-x-0.5 transition-colors" title="试听" type="button">
+<span class="material-symbols-outlined text-[15px]">play_circle</span>
+<span class="text-[10.5px] font-medium">试听</span>
+</button>
+</div>
+<!-- Channel Volume Slider -->
+<div class="p-2 rounded-lg bg-slate-50/60 border border-slate-100 flex items-center space-x-2">
+<span class="text-[10.5px] text-slate-500 w-16">提示音量</span>
+<input class="flex-1 cursor-pointer" id="auth-vol-slider" max="100" min="0" type="range" value="0">
+<span class="font-mono text-[10px] text-slate-600 font-medium w-7 text-right" id="auth-vol-label">静音</span>
+</div>
+<div class="p-2.5 rounded-xl bg-slate-50/80 border border-slate-200/70 flex items-center justify-between">
+<label class="flex items-center space-x-1.5 cursor-pointer">
+<input checked="" class="rounded border-slate-300 text-[#1e3a8a] focus:ring-0 w-3.5 h-3.5" type="checkbox">
+<span class="text-[11px] font-medium text-slate-800">请求权限时冒泡提醒</span>
+</label>
+<button class="flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10.5px] font-medium text-[#1e3a8a] hover:bg-blue-100/60 transition-colors" type="button">
+<span class="material-symbols-outlined text-[13px]">edit_note</span>
+<span class="">编辑文案</span>
+</button>
+</div>
+</div>
+</div>
+</section>
+<!-- 4. ONLY ONE Clean & Complete "动作与待机" (Action & Standby) Accordion Card -->
+<section class="rounded-2xl bg-white/95 border border-slate-200/80 shadow-tactile-card overflow-hidden transition-all duration-200" id="action-standby-card">
+<!-- Accordion Header -->
+<button class="w-full px-3 py-2.5 flex items-center justify-between bg-white hover:bg-slate-50/70 transition-colors text-left cursor-pointer group focus:outline-none" id="action-accordion-header" type="button">
+<div class="flex items-center space-x-2">
+<div>
+<span class="text-[12px] font-bold text-slate-800 tracking-tight">动作与待机</span>
+</div>
+</div>
+<div class="flex items-center space-x-2">
+<span class="text-[10px] text-slate-400 font-medium group-hover:text-slate-500 transition-colors">行为与姿态</span>
+<span class="material-symbols-outlined text-[16px] text-slate-400 transition-transform duration-200" id="action-chevron">expand_more</span>
+</div>
+</button>
+<!-- Collapsible Content: 13 categories, compact 3-column grid -->
+<div class="px-3 pb-3 pt-1 space-y-2.5 border-t border-slate-100 bg-slate-50/30 transition-all duration-200" id="action-accordion-body">
+<div class="grid grid-cols-3 gap-1.5">
+<div class="p-1.5 rounded-lg bg-white border border-slate-200/70 flex flex-col space-y-1">
+<span class="text-[10px] font-medium text-slate-500">待机</span>
+<div class="relative flex items-center">
+<select class="con-act-sel w-full bg-slate-50/80 hover:bg-slate-100/80 border border-slate-200/90 rounded-md py-1.5 pl-2 pr-5 text-[10px] text-slate-800 font-medium focus:outline-none focus:border-[#1e3a8a]/40 truncate cursor-pointer transition-colors leading-tight appearance-none" data-act="待机">
+<option>待机呼吸休闲</option>
+</select>
+<span class="material-symbols-outlined absolute right-1.5 text-[12px] text-slate-400 pointer-events-none">expand_more</span>
+</div>
+</div>
+<div class="p-1.5 rounded-lg bg-white border border-slate-200/70 flex flex-col space-y-1">
+<span class="text-[10px] font-medium text-slate-500">转向</span>
+<div class="relative flex items-center">
+<select class="con-act-sel w-full bg-slate-50/80 hover:bg-slate-100/80 border border-slate-200/90 rounded-md py-1.5 pl-2 pr-5 text-[10px] text-slate-800 font-medium focus:outline-none focus:border-[#1e3a8a]/40 truncate cursor-pointer transition-colors leading-tight appearance-none" data-act="转向">
+<option>东张西望</option>
+</select>
+<span class="material-symbols-outlined absolute right-1.5 text-[12px] text-slate-400 pointer-events-none">expand_more</span>
+</div>
+</div>
+<div class="p-1.5 rounded-lg bg-white border border-slate-200/70 flex flex-col space-y-1">
+<span class="text-[10px] font-medium text-slate-500">拖拽</span>
+<div class="relative flex items-center">
+<select class="con-act-sel w-full bg-slate-50/80 hover:bg-slate-100/80 border border-slate-200/90 rounded-md py-1.5 pl-2 pr-5 text-[10px] text-slate-800 font-medium focus:outline-none focus:border-[#1e3a8a]/40 truncate cursor-pointer transition-colors leading-tight appearance-none" data-act="拖拽">
+<option>被鼠标拖拽悬空反馈</option>
+</select>
+<span class="material-symbols-outlined absolute right-1.5 text-[12px] text-slate-400 pointer-events-none">expand_more</span>
+</div>
+</div>
+<div class="p-1.5 rounded-lg bg-white border border-slate-200/70 flex flex-col space-y-1">
+<span class="text-[10px] font-medium text-slate-500">点击回应</span>
+<div class="relative flex items-center">
+<select class="con-act-sel w-full bg-slate-50/80 hover:bg-slate-100/80 border border-slate-200/90 rounded-md py-1.5 pl-2 pr-5 text-[10px] text-slate-800 font-medium focus:outline-none focus:border-[#1e3a8a]/40 truncate cursor-pointer transition-colors leading-tight appearance-none" data-act="点击回应">
+<option>自动随机</option>
+</select>
+<span class="material-symbols-outlined absolute right-1.5 text-[12px] text-slate-400 pointer-events-none">expand_more</span>
+</div>
+</div>
+<div class="p-1.5 rounded-lg bg-white border border-slate-200/70 flex flex-col space-y-1">
+<span class="text-[10px] font-medium text-slate-500">移动</span>
+<div class="relative flex items-center">
+<select class="con-act-sel w-full bg-slate-50/80 hover:bg-slate-100/80 border border-slate-200/90 rounded-md py-1.5 pl-2 pr-5 text-[10px] text-slate-800 font-medium focus:outline-none focus:border-[#1e3a8a]/40 truncate cursor-pointer transition-colors leading-tight appearance-none" data-act="移动">
+<option>自动随机</option>
+</select>
+<span class="material-symbols-outlined absolute right-1.5 text-[12px] text-slate-400 pointer-events-none">expand_more</span>
+</div>
+</div>
+<div class="p-1.5 rounded-lg bg-white border border-slate-200/70 flex flex-col space-y-1">
+<span class="text-[10px] font-medium text-slate-500">小动作</span>
+<div class="relative flex items-center">
+<select class="con-act-sel w-full bg-slate-50/80 hover:bg-slate-100/80 border border-slate-200/90 rounded-md py-1.5 pl-2 pr-5 text-[10px] text-slate-800 font-medium focus:outline-none focus:border-[#1e3a8a]/40 truncate cursor-pointer transition-colors leading-tight appearance-none" data-act="小动作">
+<option>自动随机</option>
+</select>
+<span class="material-symbols-outlined absolute right-1.5 text-[12px] text-slate-400 pointer-events-none">expand_more</span>
+</div>
+</div>
+<div class="p-1.5 rounded-lg bg-white border border-slate-200/70 flex flex-col space-y-1">
+<span class="text-[10px] font-medium text-slate-500">玩耍</span>
+<div class="relative flex items-center">
+<select class="con-act-sel w-full bg-slate-50/80 hover:bg-slate-100/80 border border-slate-200/90 rounded-md py-1.5 pl-2 pr-5 text-[10px] text-slate-800 font-medium focus:outline-none focus:border-[#1e3a8a]/40 truncate cursor-pointer transition-colors leading-tight appearance-none" data-act="玩耍">
+<option>自动随机</option>
+</select>
+<span class="material-symbols-outlined absolute right-1.5 text-[12px] text-slate-400 pointer-events-none">expand_more</span>
+</div>
+</div>
+<div class="p-1.5 rounded-lg bg-white border border-slate-200/70 flex flex-col space-y-1">
+<span class="text-[10px] font-medium text-slate-500">吃什么</span>
+<div class="relative flex items-center">
+<select class="con-act-sel w-full bg-slate-50/80 hover:bg-slate-100/80 border border-slate-200/90 rounded-md py-1.5 pl-2 pr-5 text-[10px] text-slate-800 font-medium focus:outline-none focus:border-[#1e3a8a]/40 truncate cursor-pointer transition-colors leading-tight appearance-none" data-act="吃什么">
+<option>自动随机</option>
+</select>
+<span class="material-symbols-outlined absolute right-1.5 text-[12px] text-slate-400 pointer-events-none">expand_more</span>
+</div>
+</div>
+<div class="p-1.5 rounded-lg bg-white border border-slate-200/70 flex flex-col space-y-1">
+<span class="text-[10px] font-medium text-slate-500">时节</span>
+<div class="relative flex items-center">
+<select class="con-act-sel w-full bg-slate-50/80 hover:bg-slate-100/80 border border-slate-200/90 rounded-md py-1.5 pl-2 pr-5 text-[10px] text-slate-800 font-medium focus:outline-none focus:border-[#1e3a8a]/40 truncate cursor-pointer transition-colors leading-tight appearance-none" data-act="时节">
+<option>自动随机</option>
+</select>
+<span class="material-symbols-outlined absolute right-1.5 text-[12px] text-slate-400 pointer-events-none">expand_more</span>
+</div>
+</div>
+<div class="p-1.5 rounded-lg bg-white border border-slate-200/70 flex flex-col space-y-1">
+<span class="text-[10px] font-medium text-slate-500">文字</span>
+<div class="relative flex items-center">
+<select class="con-act-sel w-full bg-slate-50/80 hover:bg-slate-100/80 border border-slate-200/90 rounded-md py-1.5 pl-2 pr-5 text-[10px] text-slate-800 font-medium focus:outline-none focus:border-[#1e3a8a]/40 truncate cursor-pointer transition-colors leading-tight appearance-none" data-act="文字">
+<option>自动随机</option>
+</select>
+<span class="material-symbols-outlined absolute right-1.5 text-[12px] text-slate-400 pointer-events-none">expand_more</span>
+</div>
+</div>
+<div class="p-1.5 rounded-lg bg-white border border-slate-200/70 flex flex-col space-y-1">
+<span class="text-[10px] font-medium text-slate-500">余额档位</span>
+<div class="relative flex items-center">
+<select class="con-act-sel w-full bg-slate-50/80 hover:bg-slate-100/80 border border-slate-200/90 rounded-md py-1.5 pl-2 pr-5 text-[10px] text-slate-800 font-medium focus:outline-none focus:border-[#1e3a8a]/40 truncate cursor-pointer transition-colors leading-tight appearance-none" data-act="余额档位">
+<option>自动随机</option>
+</select>
+<span class="material-symbols-outlined absolute right-1.5 text-[12px] text-slate-400 pointer-events-none">expand_more</span>
+</div>
+</div>
+<div class="p-1.5 rounded-lg bg-white border border-slate-200/70 flex flex-col space-y-1">
+<span class="text-[10px] font-medium text-slate-500">碎碎念</span>
+<div class="relative flex items-center">
+<select class="con-act-sel w-full bg-slate-50/80 hover:bg-slate-100/80 border border-slate-200/90 rounded-md py-1.5 pl-2 pr-5 text-[10px] text-slate-800 font-medium focus:outline-none focus:border-[#1e3a8a]/40 truncate cursor-pointer transition-colors leading-tight appearance-none" data-act="碎碎念">
+<option>自动随机</option>
+</select>
+<span class="material-symbols-outlined absolute right-1.5 text-[12px] text-slate-400 pointer-events-none">expand_more</span>
+</div>
+</div>
+<div class="p-1.5 rounded-lg bg-white border border-slate-200/70 flex flex-col space-y-1">
+<span class="text-[10px] font-medium text-slate-500">工作状态</span>
+<div class="relative flex items-center">
+<select class="con-act-sel w-full bg-slate-50/80 hover:bg-slate-100/80 border border-slate-200/90 rounded-md py-1.5 pl-2 pr-5 text-[10px] text-slate-800 font-medium focus:outline-none focus:border-[#1e3a8a]/40 truncate cursor-pointer transition-colors leading-tight appearance-none" data-act="工作状态">
+<option>自动随机</option>
+</select>
+<span class="material-symbols-outlined absolute right-1.5 text-[12px] text-slate-400 pointer-events-none">expand_more</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- 5. Multi-Pet Clones Stepper Card -->
+<div class="rounded-2xl bg-white/95 border border-slate-200/80 overflow-hidden transition-all shadow-tactile-card">
+<div class="p-2.5 flex items-center justify-between cursor-pointer hover:bg-slate-50/70" onclick="document.getElementById('clones-panel').classList.toggle('hidden'); document.getElementById('clones-arrow').classList.toggle('rotate-180');">
+<div class="flex items-center space-x-2">
+<span class="text-[11.5px] text-slate-800 font-medium">分身设置</span>
+</div>
+<div class="flex items-center space-x-1.5">
+<span class="material-symbols-outlined text-[15px] text-slate-400 transition-transform duration-200" id="clones-arrow">expand_more</span>
+</div>
+</div>
+<!-- Foldout Body -->
+<div class="px-2.5 pb-2.5 space-y-2 pt-1 bg-slate-50/50 border-t border-slate-100 hidden" id="clones-panel">
+<div class="flex items-center justify-between py-0.5">
+<span class="text-[10.5px] font-medium text-slate-600">开启分身</span>
+<button aria-checked="true" class="w-7 h-4 bg-[#1e3a8a] rounded-full relative p-0.5 flex items-center transition-colors shadow-inner" role="switch" type="button">
+<span class="w-3 h-3 bg-white rounded-full shadow-switch-thumb transform translate-x-3 transition-transform"></span>
+</button>
+</div>
+<div class="grid grid-cols-3 gap-1.5 pt-0.5">
+<div class="p-1.5 rounded-lg bg-white border border-slate-200/80 flex flex-col space-y-1">
+<span class="font-mono text-[9px] text-slate-400">分身数量</span>
+<div class="flex items-center justify-between">
+<button class="w-4 h-4 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center text-[10px] font-bold leading-none">-</button>
+<span class="font-mono text-[10.5px] font-semibold text-slate-800">1</span>
+<button class="w-4 h-4 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center text-[10px] font-bold leading-none">+</button>
+</div>
+</div>
+<div class="p-1.5 rounded-lg bg-white border border-slate-200/80 flex flex-col space-y-1 relative">
+<span class="font-mono text-[9px] text-slate-400">跟随策略</span>
+<div class="relative flex items-center">
+<select class="w-full bg-transparent border-0 p-0 pr-3 text-[10.5px] text-slate-700 font-medium focus:ring-0 cursor-pointer leading-tight appearance-none">
+<option>阵列尾随</option>
+<option>独立巡游</option>
+</select>
+<span class="material-symbols-outlined absolute right-0 text-[12px] text-slate-400 pointer-events-none">expand_more</span>
+</div>
+</div>
+<div class="p-1.5 rounded-lg bg-white border border-slate-200/80 flex flex-col space-y-1 relative">
+<span class="font-mono text-[9px] text-slate-400">分身大小</span>
+<div class="relative flex items-center">
+<select class="w-full bg-transparent border-0 p-0 pr-3 text-[10.5px] text-slate-700 font-medium focus:ring-0 cursor-pointer leading-tight appearance-none">
+<option>80% 等比</option>
+<option>100% 同大</option>
+</select>
+<span class="material-symbols-outlined absolute right-0 text-[12px] text-slate-400 pointer-events-none">expand_more</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- 6. 表情与台词（小鲸鱼形态专属；角色选择已由顶部形态切换承担，不再重复） -->
+<section class="rounded-2xl bg-white/95 border border-slate-200/80 shadow-tactile-card overflow-hidden" id="extra-card">
+<div class="px-3 py-2 flex items-center justify-between border-b border-slate-100 bg-slate-50/40">
+<span class="text-[12px] font-bold text-slate-800 tracking-tight">表情与台词</span>
+<span class="text-[10px] text-slate-400 font-medium">眨眼 / 表情包 / 台词</span>
+</div>
+<div class="p-2.5 space-y-2.5 bg-slate-50/30">
+<!-- 开关：眨眼 -->
+<label class="p-2 rounded-lg bg-white border border-slate-200/80 flex items-center justify-between cursor-pointer hover:border-slate-300 active:scale-[0.98] transition-all" id="con-cell-blink">
+<span class="text-[10px] font-medium text-slate-600">眨眼</span>
+<div class="w-7 h-4 bg-[#1e3a8a] rounded-full relative p-0.5 flex items-center transition-colors shadow-inner flex-shrink-0 ml-1.5" id="con-blink">
+<div class="w-3 h-3 bg-white rounded-full shadow-switch-thumb transform translate-x-3 transition-transform"></div>
+</div>
+</label>
+<!-- 表情包 / 表情 -->
+<div class="grid grid-cols-2 gap-1.5" id="con-row-expr">
+<div class="p-1.5 rounded-lg bg-white border border-slate-200/80 flex flex-col space-y-1">
+<span class="text-[10px] font-medium text-slate-500">表情包版本</span>
+<div class="relative flex items-center">
+<select class="w-full bg-slate-50/80 hover:bg-slate-100/80 border border-slate-200/90 rounded-md py-1.5 pl-2 pr-5 text-[10px] text-slate-800 font-medium focus:outline-none focus:border-[#1e3a8a]/40 truncate cursor-pointer transition-colors leading-tight appearance-none" id="con-expr-pack">
+<option>自动（默认）</option>
+</select>
+<span class="material-symbols-outlined absolute right-1.5 top-1/2 -translate-y-1/2 text-[12px] text-slate-400 pointer-events-none">expand_more</span>
+</div>
+</div>
+<div class="p-1.5 rounded-lg bg-white border border-slate-200/80 flex flex-col space-y-1">
+<span class="text-[10px] font-medium text-slate-500">表情</span>
+<div class="relative flex items-center">
+<select class="w-full bg-slate-50/80 hover:bg-slate-100/80 border border-slate-200/90 rounded-md py-1.5 pl-2 pr-5 text-[10px] text-slate-800 font-medium focus:outline-none focus:border-[#1e3a8a]/40 truncate cursor-pointer transition-colors leading-tight appearance-none" id="con-expr-item">
+<option>自动（默认）</option>
+</select>
+<span class="material-symbols-outlined absolute right-1.5 top-1/2 -translate-y-1/2 text-[12px] text-slate-400 pointer-events-none">expand_more</span>
+</div>
+</div>
+</div>
+<!-- 台词 -->
+<div class="p-1.5 rounded-lg bg-white border border-slate-200/80 flex flex-col space-y-1">
+<span class="text-[10px] font-medium text-slate-500">台词</span>
+<div class="relative flex items-center">
+<select class="w-full bg-slate-50/80 hover:bg-slate-100/80 border border-slate-200/90 rounded-md py-1.5 pl-2 pr-5 text-[10px] text-slate-800 font-medium focus:outline-none focus:border-[#1e3a8a]/40 truncate cursor-pointer transition-colors leading-tight appearance-none" id="con-line">
+<option>随机一条</option>
+</select>
+<span class="material-symbols-outlined absolute right-1.5 top-1/2 -translate-y-1/2 text-[12px] text-slate-400 pointer-events-none">expand_more</span>
+</div>
+</div>
+</div>
+</section>
+<!-- 7. 通用设置（两种形态都可用） -->
+<section class="rounded-2xl bg-white/95 border border-slate-200/80 shadow-tactile-card overflow-hidden" id="common-card">
+<div class="px-3 py-2 flex items-center justify-between border-b border-slate-100 bg-slate-50/40">
+<span class="text-[12px] font-bold text-slate-800 tracking-tight">通用设置</span>
+<span class="text-[10px] text-slate-400 font-medium">徽标 / 气泡 / 资源</span>
+</div>
+<div class="p-2.5 space-y-2.5 bg-slate-50/30">
+<!-- 气泡（通用） -->
+<label class="p-2 rounded-lg bg-white border border-slate-200/80 flex items-center justify-between cursor-pointer hover:border-slate-300 active:scale-[0.98] transition-all" id="con-cell-bubble">
+<span class="text-[10px] font-medium text-slate-600">气泡开关</span>
+<div class="w-7 h-4 bg-[#1e3a8a] rounded-full relative p-0.5 flex items-center transition-colors shadow-inner flex-shrink-0 ml-1.5" id="con-bubble">
+<div class="w-3 h-3 bg-white rounded-full shadow-switch-thumb transform translate-x-3 transition-transform"></div>
+</div>
+</label>
+<!-- 徽标样式 -->
+<div class="p-1.5 rounded-lg bg-white border border-slate-200/80 flex flex-col space-y-1">
+<span class="text-[10px] font-medium text-slate-500">徽标样式</span>
+<div class="relative flex items-center">
+<select class="w-full bg-slate-50/80 hover:bg-slate-100/80 border border-slate-200/90 rounded-md py-1.5 pl-2 pr-5 text-[10px] text-slate-800 font-medium focus:outline-none focus:border-[#1e3a8a]/40 truncate cursor-pointer transition-colors leading-tight appearance-none" id="con-pblabel">
+<option value="mini">峰 / 谷</option>
+<option value="liangwen">梁文峰 / 梁文谷</option>
+<option value="gaofeng">高峰 / 低谷</option>
+<option value="custom">自定义</option>
+</select>
+<span class="material-symbols-outlined absolute right-1.5 top-1/2 -translate-y-1/2 text-[12px] text-slate-400 pointer-events-none">expand_more</span>
+</div>
+</div>
+<!-- 自定义峰谷（仅自定义时显示） -->
+<div class="grid grid-cols-2 gap-1.5 hidden" id="con-pbcustom">
+<div class="p-1.5 rounded-lg bg-white border border-slate-200/80 flex flex-col space-y-1">
+<span class="text-[10px] font-medium text-slate-500">高峰文字</span>
+<input class="w-full bg-slate-50/80 border border-slate-200/90 rounded-md py-1.5 pl-2 pr-3 text-[10px] text-slate-800 focus:outline-none focus:border-[#1e3a8a]/40" id="con-pbp" placeholder="峰" type="text">
+</div>
+<div class="p-1.5 rounded-lg bg-white border border-slate-200/80 flex flex-col space-y-1">
+<span class="text-[10px] font-medium text-slate-500">低谷文字</span>
+<input class="w-full bg-slate-50/80 border border-slate-200/90 rounded-md py-1.5 pl-2 pr-3 text-[10px] text-slate-800 focus:outline-none focus:border-[#1e3a8a]/40" id="con-pbo" placeholder="谷" type="text">
+</div>
+</div>
+<!-- 按钮三列 -->
+<div class="grid grid-cols-3 gap-1.5">
+<button class="py-1.5 px-1.5 rounded-md bg-slate-100 hover:bg-slate-200/80 active:scale-[0.98] border border-slate-200/80 text-slate-700 text-[10px] font-medium flex items-center justify-center shadow-tactile-button transition-all cursor-pointer" id="con-role-import" type="button">导入角色</button>
+<button class="py-1.5 px-1.5 rounded-md bg-white hover:bg-blue-50 active:scale-[0.98] border border-slate-200/90 hover:border-[#1e3a8a]/30 text-slate-700 hover:text-[#1e3a8a] text-[10px] font-medium flex items-center justify-center shadow-tactile-button transition-all cursor-pointer" id="con-bubble-edit" type="button">按压泡泡设置</button>
+<button class="py-1.5 px-1.5 rounded-md bg-white hover:bg-blue-50 active:scale-[0.98] border border-slate-200/90 hover:border-[#1e3a8a]/30 text-slate-700 hover:text-[#1e3a8a] text-[10px] font-medium flex items-center justify-center shadow-tactile-button transition-all cursor-pointer" id="con-res" type="button">资源管理</button>
+</div>
+<!-- 火山额度（未装附属插件时显示提示） -->
+<div class="p-1.5 rounded-lg bg-white border border-slate-200/80 flex items-center justify-between gap-2">
+<span class="text-[10px] font-medium text-slate-500 flex-shrink-0">火山额度</span>
+<span class="text-[10px] text-slate-500 truncate" id="con-volc">读取中…</span>
+</div>
+</div>
+</section>
+</div>
+<!-- macOS Tactile Slate Bottom Footer -->
+<footer class="p-2.5 px-3.5 bg-white/90 border-t border-slate-200/90 backdrop-blur-md flex items-center justify-between">
+<div class="flex items-center space-x-1.5">
+<button class="py-1 px-2.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 text-[11px] font-medium transition-all" type="button">
+        恢复默认
+      </button>
+</div>
+<button class="py-1 px-5 rounded-lg bg-[#1e3a8a] hover:bg-[#172554] text-white text-[11.5px] font-medium shadow-tactile-button active:scale-[0.98] transition-all" type="button">
+      保存配置
+    </button>
+</footer>
+</main>
+<!-- END: Popover Shell -->
+<!-- Interactive Tabs & Controls Logic -->
+<script data-purpose="interaction-script">
+  // Pin button toggle
+  const pinBtn = document.getElementById('pin-btn');
+  let isPinned = false;
+  if (pinBtn) {
+    pinBtn.addEventListener('click', () => {
+      isPinned = !isPinned;
+      pinBtn.classList.toggle('text-[#1e3a8a]', isPinned);
+      pinBtn.classList.toggle('text-slate-400', !isPinned);
+    });
+  }
+
+  // Size Slider Binding
+  const slider = document.getElementById('scale-slider');
+  const displayValue = document.getElementById('scale-value');
+  if (slider && displayValue) {
+    slider.addEventListener('input', (e) => {
+      displayValue.textContent = e.target.value;
+    });
+  }
+
+  // Channel titles and subtitle mappings
+  const titles = {
+    press: '按压触感反馈配置',
+    consume: '每轮消耗提示配置',
+    question: '提问提示配置',
+    auth: '授权提示配置'
+  };
+
+  const subtitles = {
+    press: '联动桌面冒泡',
+    consume: '任务结束及卡片反馈',
+    question: '等待用户提问提示',
+    auth: '系统权限与请求提醒'
+  };
+
+  // Channels state
+  const channelVolumes = {
+    press: 90,
+    consume: 100,
+    question: 0,
+    auth: 0
+  };
+
+  function updatePillDisplay(channel) {
+    const pillVal = document.getElementById('pill-vol-' + channel);
+    if (!pillVal) return;
+    const v = channelVolumes[channel];
+    pillVal.textContent = v === 0 ? '静音' : v + '%';
+  }
+
+  function switchAudioTab(channel) {
+    // Hide all tab panels
+    ['press', 'consume', 'question', 'auth'].forEach(id => {
+      const panel = document.getElementById('panel-' + id);
+      if (panel) {
+        panel.classList.add('hidden');
+      }
+    });
+
+    // Show current panel
+    const targetPanel = document.getElementById('panel-' + channel);
+    if (targetPanel) {
+      targetPanel.classList.remove('hidden');
+    }
+
+    // Update Tab Titles
+    const titleEl = document.getElementById('current-tab-title');
+    if (titleEl && titles[channel]) {
+      titleEl.textContent = titles[channel];
+    }
+    const subEl = document.getElementById('current-tab-sub');
+    if (subEl && subtitles[channel]) {
+      subEl.textContent = subtitles[channel];
+    }
+
+    // Update Pills Style
+    document.querySelectorAll('.channel-pill').forEach(btn => {
+      const c = btn.getAttribute('data-channel');
+      const isTarget = c === channel;
+      const textSpan = btn.querySelector('.channel-pill-text') || btn.querySelector('div > span:nth-child(2)');
+      const pillVolSpan = document.getElementById('pill-vol-' + c);
+
+      if (isTarget) {
+        btn.classList.add('active', 'border-blue-600', 'bg-blue-50/80', 'shadow-xs', 'ring-1', 'ring-blue-500/20');
+        btn.classList.remove('bg-white', 'border-slate-200/80', 'opacity-80', 'opacity-75');
+        if (textSpan) {
+          textSpan.classList.add('text-blue-900');
+          textSpan.classList.remove('text-slate-600', 'text-slate-700');
+        }
+        if (pillVolSpan) {
+          pillVolSpan.classList.add('text-[#1e3a8a]', 'font-semibold');
+          pillVolSpan.classList.remove('text-slate-400', 'text-slate-500');
+        }
+      } else {
+        btn.classList.remove('active', 'border-blue-600', 'bg-blue-50/80', 'shadow-xs', 'ring-1', 'ring-blue-500/20');
+        btn.classList.add('bg-white', 'border-slate-200/80');
+        if (channelVolumes[c] === 0) {
+          btn.classList.add('opacity-80');
+        }
+        if (textSpan) {
+          textSpan.classList.remove('text-blue-900');
+          textSpan.classList.add(channelVolumes[c] > 0 ? 'text-slate-700' : 'text-slate-600');
+        }
+        if (pillVolSpan) {
+          pillVolSpan.classList.remove('text-[#1e3a8a]', 'font-semibold');
+          pillVolSpan.classList.add(channelVolumes[c] > 0 ? 'text-slate-500' : 'text-slate-400');
+        }
+      }
+      // 圆点：选中=绿色，未选中=统一灰色
+      const dot = btn.querySelector('.channel-dot');
+      if (dot) {
+        if (isTarget) {
+          dot.classList.remove('bg-slate-300');
+          dot.classList.add('bg-emerald-500');
+        } else {
+          dot.classList.remove('bg-emerald-500');
+          dot.classList.add('bg-slate-300');
+        }
+      }
+    });
+  }
+
+  // Bind click event listeners to all 4 track channel pills
+  document.querySelectorAll('.channel-pill').forEach(pill => {
+    pill.addEventListener('click', (e) => {
+      const channel = pill.getAttribute('data-channel');
+      if (channel) {
+        switchAudioTab(channel);
+      }
+    });
+  });
+
+  // Slider bindings
+  const masterSlider = document.getElementById('master-vol-slider');
+  const masterNum = document.getElementById('master-vol-num');
+
+  // Sliders for sub-channels
+  const subSliders = {
+    press: { slider: document.getElementById('press-vol-slider'), label: document.getElementById('press-vol-label') },
+    consume: { slider: document.getElementById('consume-vol-slider'), label: document.getElementById('consume-vol-label') },
+    question: { slider: document.getElementById('question-vol-slider'), label: document.getElementById('question-vol-label') },
+    auth: { slider: document.getElementById('auth-vol-slider'), label: document.getElementById('auth-vol-label') }
+  };
+
+  // Wire each sub slider
+  Object.keys(subSliders).forEach(ch => {
+    const item = subSliders[ch];
+    if (item.slider) {
+      item.slider.addEventListener('input', (e) => {
+        const val = parseInt(e.target.value, 10);
+        channelVolumes[ch] = val;
+        if (item.label) {
+          item.label.textContent = val === 0 ? '静音' : val + '%';
+        }
+        updatePillDisplay(ch);
+      });
+    }
+  });
+
+  // Master volume slider responds
+  if (masterSlider && masterNum) {
+    masterSlider.addEventListener('input', (e) => {
+      const val = parseInt(e.target.value, 10);
+      masterNum.textContent = val + '%';
+    });
+  }
+
+  // Consume duration chips switch
+  const durationChips = document.querySelectorAll('#consume-duration-chips .duration-chip');
+  durationChips.forEach(chip => {
+    chip.addEventListener('click', () => {
+      durationChips.forEach(c => {
+        c.classList.remove('bg-[#1e3a8a]', 'text-white', 'font-semibold', 'shadow-xs');
+        c.classList.add('bg-white', 'text-slate-500', 'border', 'border-slate-200');
+      });
+      chip.classList.add('bg-[#1e3a8a]', 'text-white', 'font-semibold', 'shadow-xs');
+      chip.classList.remove('bg-white', 'text-slate-500', 'border-slate-200');
+    });
+  });
+
+  // Action & Standby Accordion Toggle
+  const actionHeader = document.getElementById('action-accordion-header');
+  const actionBody = document.getElementById('action-accordion-body');
+  const actionChevron = document.getElementById('action-chevron');
+
+  if (actionHeader && actionBody && actionChevron) {
+    actionHeader.addEventListener('click', () => {
+      const isCollapsed = actionBody.classList.toggle('hidden');
+      if (isCollapsed) {
+        actionChevron.classList.remove('rotate-0');
+        actionChevron.classList.add('-rotate-90');
+      } else {
+        actionChevron.classList.remove('-rotate-90');
+        actionChevron.classList.add('rotate-0');
+      }
+    });
+  }
+
+  // 初始态：默认选中「授权」，统一圆点配色
+  switchAudioTab('auth');
+</script>
+
+
+</body></html>

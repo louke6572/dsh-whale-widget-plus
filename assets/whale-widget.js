@@ -252,7 +252,9 @@ function dshwvSound(url) {
     try {
       if (!el._gain) { el._gain = c.createGain(); el._gain.connect(c.destination) }
       // v859：GainNode 支持 >1 的增益 ⇒ 这里的上限放到 2（= 200%）；<audio> 那条回落路径仍会被浏览器截到 1
-      el._gain.gain.value = Math.max(0, Math.min(2, Number(el.volume) || 0))
+      // 主音量（全局）在这里统一乘一次：各通道音量值保持独立，只有实际响度受它缩放
+      var mv = (typeof masterVol === 'number' && isFinite(masterVol)) ? Math.max(0, Math.min(1, masterVol)) : 1
+      el._gain.gain.value = Math.max(0, Math.min(2, (Number(el.volume) || 0) * mv))
       var src = c.createBufferSource()
       src.buffer = buf
       src.connect(el._gain)
@@ -722,7 +724,9 @@ var css = [
   '.dshwv-menu-btn span{display:block;width:14px;height:2px;background:#fff;border-radius:1px}',
   '.dshwv-menu-btn:hover{background:#203170}',
   '.dshwv-menu-btn-hidden{visibility:hidden;pointer-events:none}',
-  '.dshwv-menu{position:fixed;min-width:196px;max-width:min(340px,calc(100vw - 24px));box-sizing:border-box;background:rgba(255,255,255,.92);border:1px solid rgba(32,49,112,.35);border-radius:10px;padding:10px 12px 0;opacity:0;transform:scale(.96) translateY(10px);transform-origin:top right;transition:opacity .22s ease,transform .22s cubic-bezier(.34,1.3,.6,1);pointer-events:none;z-index:10000;box-shadow:0 6px 18px rgba(0,0,0,.18);color-scheme:light}',
+  '.dshwv-menu{position:fixed;min-width:196px;max-width:min(340px,calc(100vw - 24px));box-sizing:border-box;background:rgba(255,255,255,.92);border:1px solid rgba(32,49,112,.35);border-radius:10px;padding:10px 12px 0;max-height:min(78vh,640px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:rgba(32,49,112,.28) transparent;opacity:0;transform:scale(.96) translateY(10px);transform-origin:top right;transition:opacity .22s ease,transform .22s cubic-bezier(.34,1.3,.6,1);pointer-events:none;z-index:10000;box-shadow:0 6px 18px rgba(0,0,0,.18);color-scheme:light}',
+  '.dshwv-menu::-webkit-scrollbar{width:8px}',
+  '.dshwv-menu::-webkit-scrollbar-thumb{background:rgba(32,49,112,.22);border-radius:4px}',
   '.dshwv-menu.dshwv-menu-open{opacity:1;transform:scale(1) translateY(0);pointer-events:auto}',
   '.dshwv-menu-row{display:flex;align-items:center;gap:8px;margin:5px 0;color:#203170;font-size:12px;white-space:nowrap}',
   '.dshwv-range{flex:1;min-width:0;accent-color:#203170}',
@@ -733,6 +737,13 @@ var css = [
   '.dshwv-sound:hover{background:rgba(32,49,112,.16)}',
   '.dshwv-check{width:16px;height:16px;accent-color:#203170;cursor:pointer;flex:0 0 auto}',
   '.dshwv-menu-sep{height:1px;background:rgba(32,49,112,.25);margin:6px 0}',
+  // ===== v881 桌面控制台：设计稿原样承载（assets/console.html，iframe 隔离 Tailwind）=====
+  '.dshwv-menu.dshwv-menu-console{padding:0;border:0;background:transparent;box-shadow:none;min-width:0;max-height:none;overflow:visible}',
+  // 控制台模式下旧手写行全部让位（记账行例外，仍保留在控制台下方）
+  '.dshwv-menu.dshwv-menu-console > .dshwv-menu-row:not(.dshwv-keep-row),.dshwv-menu.dshwv-menu-console > .dshwv-menu-sep{display:none !important}',
+  // 关于/记账子页在控制台模式下也要有自己的底板（控制台本身是透明背景的 iframe）
+  '.dshwv-menu.dshwv-menu-console.dshwv-sub-open .dshwv-usage-area{background:rgba(255,255,255,.97);border:1px solid rgba(32,49,112,.2);border-radius:16px;padding:10px 12px;box-sizing:border-box}',
+  '.dshwv-console-frame{display:block;border:0;background:transparent;border-radius:16px}',
   // v790（用户要求）：菜单底部版本小字 —— 在"最下方按钮 ↔ 菜单底边"这段空隙里**居中**（用户第三次微调）。
   //   ⚠️ 高度守恒：这段空隙原本就是 15px（按钮 margin-bottom 5 + 菜单 padding-bottom 10）。
   //   现在**整段空隙都交给这一行**（行高 15px ⇒ 文字在空隙内垂直居中），
@@ -1435,12 +1446,13 @@ function setVersionLabel(text) {
     // v794：拿到过就不再被"空值"清掉 —— 启动时余额请求可能先失败一次，
     //   旧写法会把刚设好的版号又隐藏（用户反馈"刚启动时版号消失"）。
     if (!s) {
-      if (lastVersionLabel) { menuVerEl.textContent = lastVersionLabel; menuVerEl.style.display = '' }
+      if (lastVersionLabel) { menuVerEl.textContent = lastVersionLabel; menuVerEl.style.display = ''; try { var cv = conDoc && conDoc.getElementById('dshwv-con-ver'); if (cv) cv.textContent = lastVersionLabel } catch (err) {} }
       return
     }
     lastVersionLabel = (s.charAt(0) === 'v' ? s : 'v' + s)
     menuVerEl.textContent = lastVersionLabel
     menuVerEl.style.display = ''
+    try { var cv2 = conDoc && conDoc.getElementById('dshwv-con-ver'); if (cv2) cv2.textContent = lastVersionLabel } catch (err) {}
   } catch (err) {}
 }
 var lastVersionLabel = ''
@@ -1861,6 +1873,8 @@ function fillTaskEndOptions(pref) {
 // 片段列表变化后刷新任务结束音下拉(保留用户当前选择)
 function refreshTaskEndAfterAudio() {
   try { fillTaskEndOptions((usageSet && usageSet.taskEnd) || null) } catch (err) {}
+  try { dshwvConRefreshAudio() } catch (err) {}
+  try { if (typeof dshwvConRefresh === 'function') dshwvConRefresh() } catch (err) {}
 }
 // 任务结束音下拉置顶(📌):值存 usageSet.taskEnd.pins(按置顶先后),置顶项在 fillTaskEndOptions 排最前
 function taskEndPins() {
@@ -2153,24 +2167,33 @@ soundPanelBtn.addEventListener('click', function (e) { e.stopPropagation(); open
 row2.appendChild(soundPanelBtn)
 var PET_SEL_CSS = 'flex:1;min-width:0;font-size:12px;line-height:1.4;height:24px;border:1px solid rgba(32,49,112,.25);border-radius:6px;background:#fff;color:#203170;padding:0 4px;box-sizing:border-box'
 // 桌宠分类（与 PET_POOLS 的分类名一一对应；「待机」由下面的待机动画下拉承担）
-var PET_CAT_NAMES = ['转向', '移动', '点击回应', '小动作', '玩耍', '吃什么', '时节', '文字', '工作状态']
+var PET_CAT_NAMES = ['转向', '拖拽', '移动', '点击回应', '小动作', '玩耍', '吃什么', '时节', '文字', '余额档位', '碎碎念', '工作状态']
 var petCatSels = {}
-// —— 桌宠专用：一键切回小鲸鱼（桌宠形态下主菜单只保留桌宠相关项，角色下拉行会被隐藏）——
-var rowPetBack = menuRow()
-var petBackBtn = document.createElement('button')
-petBackBtn.type = 'button'
-petBackBtn.className = 'dshwv-roleimport'
-petBackBtn.style.flex = '1'
-petBackBtn.textContent = '切回小鲸鱼'
-petBackBtn.title = '退出桌宠形态，切回默认小鲸鱼角色'
-petBackBtn.addEventListener('click', function (e) {
-  e.stopPropagation()
+// —— 形态切换（统一入口）：两个按钮替代旧「角色」下拉与「切回小鲸鱼」两行 ——
+var moreAppearance = [] // 更多设置 → 外观（角色）
+var moreNotice = []     // 更多设置 → 提示与气泡
+var moreInteract = []   // 更多设置 → 交互
+var moreResource = []   // 更多设置 → 资源
+var moreExt = []        // 更多设置 → 扩展（表情/台词/火山）
+var rowForm = menuRow()
+rowForm.appendChild(menuLabel('形态'))
+function petFormBtn(text, tip, fn) {
+  var b = document.createElement('button')
+  b.type = 'button'
+  b.className = 'dshwv-roleimport'
+  b.style.flex = '1'
+  b.textContent = text
+  b.title = tip
+  b.addEventListener('click', function (e) { try { e.stopPropagation() } catch (err) {}; try { fn() } catch (err) {} })
+  return b
+}
+rowForm.appendChild(petFormBtn('小鲸鱼', '切回小鲸鱼形态', function () {
   try { applyRole('default', '小鲸鱼', IMG_URL) } catch (err) {}
-  try { toggleMenu() } catch (err) {}
-})
-rowPetBack.appendChild(menuLabel('切回小鲸鱼'))
-rowPetBack.appendChild(petBackBtn)
-menuBox.appendChild(rowPetBack)
+}))
+rowForm.appendChild(petFormBtn('桌宠', '切换到桌宠（动画）形态', function () {
+  if (!petOn) { try { petEnable(true) } catch (err) {} }
+}))
+menuBox.appendChild(rowForm)
 var row6 = menuRow()
 row6.appendChild(menuLabel('气泡全局开关'))
 row6.appendChild(bubbleToggle)
@@ -2203,6 +2226,7 @@ row9.appendChild(scrollGapToggle)
 row9.appendChild(menuLabel('宽度'))
 row9.appendChild(scrollGapInput)
 row9.appendChild(menuLabel('px'))
+moreInteract.push(row9)
 // —— 自定义角色：下拉选择 + 导入 ——
 var roleBtn = document.createElement('button')
 roleBtn.type = 'button'
@@ -2230,13 +2254,140 @@ roleFileInput.style.display = 'none'
 roleBtn.addEventListener('click', function (e) { e.stopPropagation(); toggleRolePanel() })
 roleImportBtn.addEventListener('click', function (e) { e.stopPropagation(); roleFileInput.click() })
 roleFileInput.addEventListener('change', function () { onRoleFileChosen(roleFileInput) })
-menuBox.appendChild(rowRole)
+moreAppearance.push(rowRole)
 menuBox.appendChild(row1)
 menuBox.appendChild(row2)
 // 桌宠形态下的分组分隔线：上半 = 显示设置，中间 = 待机/各分类动作，下半 = 通用项
 var petSep1 = document.createElement('div')
 petSep1.className = 'dshwv-menu-sep dshwv-pet-only'
 menuBox.appendChild(petSep1)
+// —— 桌宠设置：与「音效/提示泡泡设置」同款的按钮式入口，点开独立面板 ——
+// 菜单顶层只留「切回小鲸鱼 / 桌宠设置 / 大小 / 音效与提示」，其余设置全部进面板，避免行文重复。
+var petRowAct = []    // 待机 + 9 个分类下拉
+var petRowBeh = []    // 屏幕漫游 + 回到初始位置
+var petRowClone = []  // 分身数量 / 动作 / 各自大小
+var petSettingsMask = null
+var rowPetSettings = menuRow()
+rowPetSettings.appendChild(menuLabel('桌宠设置'))
+var petSettingsBtn = document.createElement('button')
+petSettingsBtn.type = 'button'
+petSettingsBtn.className = 'dshwv-roleimport'
+petSettingsBtn.style.flex = '1'
+petSettingsBtn.textContent = '打开设置'
+petSettingsBtn.title = '动作与待机 / 漫游与位置 / 分身（按钮式面板，和「音效与提示」一致）'
+petSettingsBtn.addEventListener('click', function (e) {
+  try { e.stopPropagation() } catch (err) {}
+  try { openPetSettingsPanel() } catch (err) {}
+})
+rowPetSettings.appendChild(petSettingsBtn)
+// 只在桌宠形态显示：初始鲸鱼形态直接隐藏（不依赖文本匹配的菜单模式扫描）
+rowPetSettings.style.display = 'none'
+menuBox.appendChild(rowPetSettings)
+function closePetSettingsPanel() {
+  try { if (petSettingsMask) petSettingsMask.style.display = 'none' } catch (err) {}
+}
+function openPetSettingsPanel() {
+  try {
+    try { closeMenu() } catch (err) {}
+    if (!petSettingsMask) {
+      var mask = document.createElement('div')
+      mask.className = 'dshwv-bubmask'
+      mask.style.zIndex = '30000'
+      mask.style.display = 'flex'
+      var card = document.createElement('div')
+      card.className = 'dshwv-bubcard'
+      card.style.width = 'min(420px,calc(100vw - 16px))'
+      card.style.maxHeight = '88vh'
+      card.style.overflow = 'hidden auto'
+      var title = document.createElement('div')
+      title.className = 'dshwv-bubtitle'
+      title.textContent = '桌宠设置'
+      card.appendChild(title)
+      function petPanelSec(name) {
+        var h = document.createElement('div')
+        h.className = 'dshwv-bubsec'
+        h.textContent = name
+        card.appendChild(h)
+      }
+      function petPanelRows(list) {
+        for (var i = 0; i < list.length; i++) { try { card.appendChild(list[i]) } catch (err) {} }
+      }
+      petPanelSec('动作与待机'); petPanelRows(petRowAct)
+      petPanelSec('漫游与位置'); petPanelRows(petRowBeh)
+      petPanelSec('分身'); petPanelRows(petRowClone)
+      var foot = document.createElement('div')
+      foot.style.cssText = 'display:flex;justify-content:flex-end;padding:10px 0 4px'
+      var closeBtn = document.createElement('button')
+      closeBtn.type = 'button'
+      closeBtn.className = 'dshwv-roleimport'
+      closeBtn.textContent = '关闭'
+      closeBtn.addEventListener('click', function (e) { try { e.stopPropagation() } catch (err) {}; closePetSettingsPanel() })
+      foot.appendChild(closeBtn)
+      card.appendChild(foot)
+      mask.appendChild(card)
+      mask.addEventListener('click', function (e) { if (e.target === mask) closePetSettingsPanel() })
+      card.addEventListener('click', function (e) { try { e.stopPropagation() } catch (err) {} })
+      try { if (typeof window.dshwRegisterMask === 'function') window.dshwRegisterMask(mask) } catch (err) {}
+      dshwBodyAppend(mask)
+      petSettingsMask = mask
+    }
+    petSettingsMask.style.display = 'flex'
+  } catch (err) {}
+}
+// —— 更多设置面板（鲸鱼/桌宠共用同一套按钮式入口）——
+var moreSettingsMask = null
+function closeMoreSettingsPanel() {
+  try { if (moreSettingsMask) moreSettingsMask.style.display = 'none' } catch (err) {}
+}
+function openMoreSettingsPanel() {
+  try {
+    try { closeMenu() } catch (err) {}
+    if (!moreSettingsMask) {
+      var mask = document.createElement('div')
+      mask.className = 'dshwv-bubmask'
+      mask.style.zIndex = '30000'
+      mask.style.display = 'flex'
+      var card = document.createElement('div')
+      card.className = 'dshwv-bubcard'
+      card.style.width = 'min(440px,calc(100vw - 16px))'
+      card.style.maxHeight = '88vh'
+      card.style.overflow = 'hidden auto'
+      var title = document.createElement('div')
+      title.className = 'dshwv-bubtitle'
+      title.textContent = '更多设置'
+      card.appendChild(title)
+      function moreSec(name, list) {
+        if (!list || !list.length) return
+        var h = document.createElement('div')
+        h.className = 'dshwv-bubsec'
+        h.textContent = name
+        card.appendChild(h)
+        for (var i = 0; i < list.length; i++) { try { card.appendChild(list[i]) } catch (err) {} }
+      }
+      moreSec('外观', moreAppearance)
+      moreSec('提示与气泡', moreNotice)
+      moreSec('交互', moreInteract)
+      moreSec('资源', moreResource)
+      moreSec('表情 / 台词 / 扩展', moreExt)
+      var foot = document.createElement('div')
+      foot.style.cssText = 'display:flex;justify-content:flex-end;padding:10px 0 4px'
+      var closeBtn = document.createElement('button')
+      closeBtn.type = 'button'
+      closeBtn.className = 'dshwv-roleimport'
+      closeBtn.textContent = '关闭'
+      closeBtn.addEventListener('click', function (e) { try { e.stopPropagation() } catch (err) {}; closeMoreSettingsPanel() })
+      foot.appendChild(closeBtn)
+      card.appendChild(foot)
+      mask.appendChild(card)
+      mask.addEventListener('click', function (e) { if (e.target === mask) closeMoreSettingsPanel() })
+      card.addEventListener('click', function (e) { try { e.stopPropagation() } catch (err) {} })
+      try { if (typeof window.dshwRegisterMask === 'function') window.dshwRegisterMask(mask) } catch (err) {}
+      dshwBodyAppend(mask)
+      moreSettingsMask = mask
+    }
+    moreSettingsMask.style.display = 'flex'
+  } catch (err) {}
+}
 // —— 待机：随机（默认）或指定某一段，localStorage 持久化 ——
 var rowPetIdle = menuRow()
 var petIdleSel = document.createElement('select')
@@ -2258,62 +2409,154 @@ petIdleSel.addEventListener('change', function (e) {
 })
 rowPetIdle.appendChild(menuLabel('待机'))
 rowPetIdle.appendChild(petIdleSel)
-menuBox.appendChild(rowPetIdle)
-// —— 每个分类单独一行下拉：转向 / 移动 / 点击回应 / 小动作 / 玩耍 / 吃什么 / 时节 / 文字 / 工作状态 ——
-PET_CAT_NAMES.forEach(function (name) {
-  var crow = menuRow()
-  crow.appendChild(menuLabel(name))
-  var csel = document.createElement('select')
-  csel.style.cssText = PET_SEL_CSS
-  csel.title = name + '：下拉即切换；选具体动作 = 固定循环，选「自动随机」= 自动轮播'
-  csel.addEventListener('change', function (e) {
-    e.stopPropagation()
-    petOnSelectCategory(name, csel.value)
-  })
-  crow.appendChild(csel)
-  menuBox.appendChild(crow)
-  petCatSels[name] = csel
+petRowAct.push(rowPetIdle)
+// —— 动作：合并为一个分类下拉 + 一个具体动作下拉（不再 9 行并列）——
+var rowPetActCat = menuRow()
+rowPetActCat.appendChild(menuLabel('动作分类'))
+var petActCatSel = document.createElement('select')
+petActCatSel.style.cssText = PET_SEL_CSS
+petActCatSel.title = '先选分类，再选具体动作；选「自动随机」= 回到全局轮播'
+var petActCatAuto = document.createElement('option')
+petActCatAuto.value = 'auto'
+petActCatAuto.textContent = '自动随机（全局轮播）'
+petActCatSel.appendChild(petActCatAuto)
+PET_CAT_NAMES.forEach(function (id) {
+  var op = document.createElement('option')
+  op.value = id
+  op.textContent = id
+  petActCatSel.appendChild(op)
 })
+rowPetActCat.appendChild(petActCatSel)
+var rowPetActItem = menuRow()
+rowPetActItem.appendChild(menuLabel('具体动作'))
+var petActItemSel = document.createElement('select')
+petActItemSel.style.cssText = PET_SEL_CSS
+petActItemSel.title = '该分类下的具体动作；选「自动随机」= 只在这个分类内轮播'
+rowPetActItem.appendChild(petActItemSel)
+function petActFillItems(cat) {
+  try {
+    petActItemSel.textContent = ''
+    var a = document.createElement('option')
+    a.value = 'auto'
+    a.textContent = '自动随机'
+    petActItemSel.appendChild(a)
+    if (cat) {
+      var list = petFilter(petCategoryList(cat) || [])
+      for (var i = 0; i < list.length; i++) {
+        var op = document.createElement('option')
+        op.value = list[i]
+        op.textContent = list[i]
+        petActItemSel.appendChild(op)
+      }
+    }
+    petActItemSel.disabled = !cat
+  } catch (err) {}
+}
+petActCatSel.addEventListener('change', function (e) {
+  e.stopPropagation()
+  try {
+    var cat = petActCatSel.value
+    if (!cat || cat === 'auto') {
+      petPin = null
+      petPinSave()
+      petPinApply()
+      return
+    }
+    petOnSelectCategory(cat, 'auto:' + cat)
+  } catch (err) {}
+})
+petActItemSel.addEventListener('change', function (e) {
+  e.stopPropagation()
+  try {
+    var cat = petActCatSel.value
+    if (!cat || cat === 'auto') return
+    var v = petActItemSel.value
+    petOnSelectCategory(cat, v === 'auto' ? ('auto:' + cat) : v)
+  } catch (err) {}
+})
+function petActMergeSync() {
+  try {
+    var cat = ''
+    var act = 'auto'
+    if (petPin) {
+      if (petPin.type === 'category') cat = petPin.value
+      else if (petPin.type === 'action') { cat = petCategoryOfAction(petPin.value) || ''; act = petPin.value }
+    }
+    petActCatSel.value = cat || 'auto'
+    petActFillItems(cat)
+    petSetSelValue(petActItemSel, cat ? act : 'auto')
+  } catch (err) {}
+}
+petRowAct.push(rowPetActCat)
+petRowAct.push(rowPetActItem)
+petActMergeSync()
+// 分身设置（数量 / 动作 / 各自大小）
+// 桌宠行为（屏幕漫游 / 回到初始位置）
 // —— 桌宠物理：屏幕漫游 / 分身数量 / 回到初始位置 ——
 var rowPetRoam = menuRow()
 rowPetRoam.appendChild(menuLabel('屏幕漫游'))
-var petRoamSel = document.createElement('select')
-petRoamSel.style.cssText = PET_SEL_CSS
-petRoamSel.title = '开：移动类动画会真的横向走一段；关：只在原地播放'
-;['1', '0'].forEach(function (v, i) {
-  var op = document.createElement('option')
-  op.value = v
-  op.textContent = i === 0 ? '开' : '关'
-  petRoamSel.appendChild(op)
+// 用户要求：二值设置用按钮开关，不用下拉
+var petRoamBtn = document.createElement('button')
+petRoamBtn.type = 'button'
+petRoamBtn.className = 'dshwv-roleimport'
+petRoamBtn.style.flex = '0 0 64px'
+function petRoamBtnSync() {
+  try {
+    // v880：控制台里它是开关样式（不再用「开/关」文字）
+    petRoamBtn.textContent = ''
+    petRoamBtn.setAttribute('aria-checked', petRoamOn ? 'true' : 'false')
+    petRoamBtn.title = petRoamOn ? '已开启：定期横向走动；点击关闭' : '已关闭：只原地播放；点击开启'
+  } catch (err) {}
+}
+petRoamBtn.addEventListener('click', function (e) {
+  try { e.stopPropagation() } catch (err) {}
+  try { petSetRoamOn(!petRoamOn) } catch (err) {}
+  petRoamBtnSync()
 })
-try { petRoamSel.value = localStorage.getItem('dshw-pet-roam') === '0' ? '0' : '1' } catch (err) {}
-petRoamSel.addEventListener('change', function (e) {
-  e.stopPropagation()
-  try { petSetRoamOn(petRoamSel.value === '1') } catch (err) {}
+petRoamBtnSync()
+rowPetRoam.appendChild(petRoamBtn)
+petRowBeh.push(rowPetRoam)
+// —— 分身：勾选启用 + 数量（不再用「关闭/1/2/3」下拉混在数量里）——
+var petCloneLastCount = petCloneCount > 0 ? petCloneCount : 1
+var rowPetCloneEnable = menuRow()
+rowPetCloneEnable.appendChild(menuLabel('启用分身'))
+var petCloneOnChk = document.createElement('input')
+petCloneOnChk.type = 'checkbox'
+petCloneOnChk.className = 'dshwv-check'
+petCloneOnChk.checked = petCloneCount > 0
+petCloneOnChk.title = '勾选后同屏出现分身；取消勾选 = 全部收回'
+petCloneOnChk.addEventListener('change', function () {
+  try {
+    if (petCloneOnChk.checked) petCloneSetCount(Math.max(1, Math.min(3, petCloneLastCount || 1)))
+    else {
+      if (petCloneCount > 0) petCloneLastCount = petCloneCount
+      petCloneSetCount(0)
+    }
+  } catch (err) {}
 })
-rowPetRoam.appendChild(petRoamSel)
-menuBox.appendChild(rowPetRoam)
+rowPetCloneEnable.appendChild(petCloneOnChk)
+petRowClone.push(rowPetCloneEnable)
 var rowPetClone = menuRow()
-rowPetClone.appendChild(menuLabel('分身'))
+rowPetClone.appendChild(menuLabel('数量'))
 var petCloneSel = document.createElement('select')
 petCloneSel.style.cssText = PET_SEL_CSS
 petCloneSel.title = '同屏多只桌宠（最多 3 只）；各自独立漫游、可拖拽甩抛，互相会碰撞'
-;['0', '1', '2', '3'].forEach(function (v, i) {
+;['1', '2', '3'].forEach(function (v) {
   var op = document.createElement('option')
   op.value = v
-  op.textContent = i === 0 ? '关闭' : (v + ' 只')
+  op.textContent = v + ' 只'
   petCloneSel.appendChild(op)
 })
 try {
   var pccSel = parseInt(localStorage.getItem('dshw-pet-clones'), 10)
-  petCloneSel.value = String(isFinite(pccSel) ? Math.max(0, Math.min(3, pccSel)) : 0)
-} catch (err) {}
+  petCloneSel.value = String(isFinite(pccSel) ? Math.max(1, Math.min(3, pccSel)) : 1)
+} catch (err) { petCloneSel.value = '1' }
 petCloneSel.addEventListener('change', function (e) {
   e.stopPropagation()
-  try { petCloneSetCount(parseInt(petCloneSel.value, 10) || 0) } catch (err) {}
+  try { petCloneSetCount(parseInt(petCloneSel.value, 10) || 1) } catch (err) {}
 })
 rowPetClone.appendChild(petCloneSel)
-menuBox.appendChild(rowPetClone)
+petRowClone.push(rowPetClone)
 // —— 分身动作：自动随机 / 跟随主宠 / 固定分类（下拉即生效）——
 var rowPetCloneAct = menuRow()
 rowPetCloneAct.appendChild(menuLabel('分身动作'))
@@ -2342,7 +2585,7 @@ petCloneActSel.addEventListener('change', function (e) {
   try { petCloneSetPin(petCloneActSel.value) } catch (err) {}
 })
 rowPetCloneAct.appendChild(petCloneActSel)
-menuBox.appendChild(rowPetCloneAct)
+petRowClone.push(rowPetCloneAct)
 // —— 每只分身独立大小：仅显示当前存在的分身；以脚底为基准缩放 ——
 var petCloneSizeSels = []
 var petCloneSizeOpts = ['0.4', '0.5', '0.6', '0.7', '0.78', '0.9', '1.0', '1.1', '1.2']
@@ -2373,7 +2616,7 @@ for (var csi = 0; csi < 3; csi++) {
     })
   })(csi, cselS)
   crowS.appendChild(cselS)
-  menuBox.appendChild(crowS)
+  petRowClone.push(crowS)
   petCloneSizeSels.push({ row: crowS, sel: cselS })
 }
 var rowPetHome = menuRow()
@@ -2389,11 +2632,11 @@ petHomeBtn.addEventListener('click', function (e) {
   try { petGoHome() } catch (err) {}
 })
 rowPetHome.appendChild(petHomeBtn)
-menuBox.appendChild(rowPetHome)
+petRowBeh.push(rowPetHome)
 var petSep2 = document.createElement('div')
 petSep2.className = 'dshwv-menu-sep dshwv-pet-only'
 menuBox.appendChild(petSep2)
-menuBox.appendChild(row6)
+moreNotice.push(row6)
 // —— 峰谷徽标：外置常驻徽标的状态字样式（localStorage 持久化，改完即时重绘徽标）——
 // 样式取值与峰谷模块 peakStyle 同一套：mini=峰/谷，liangwen=梁文峰/梁文谷，
 // gaofeng=高峰/低谷（v0.4.3 新增），custom=自定义文字（v0.4.3 新增，读 peakLabel/offLabel）
@@ -2453,6 +2696,18 @@ pbModeSel.addEventListener('change', function (e) {
 })
 rowPbMode.appendChild(pbModeSel)
 menuBox.appendChild(rowPbMode)
+// —— 更多设置：按钮式入口，其余通用/高级项全部进面板（与桌宠设置同款）——
+var moreRow = menuRow()
+moreRow.appendChild(menuLabel('更多设置'))
+var moreBtn = document.createElement('button')
+moreBtn.type = 'button'
+moreBtn.className = 'dshwv-roleimport'
+moreBtn.style.flex = '1'
+moreBtn.textContent = '打开设置'
+moreBtn.title = '角色 / 气泡 / 徽标 / 吸附 / 资源 / 表情 / 台词 / 扩展'
+moreBtn.addEventListener('click', function (e) { try { e.stopPropagation() } catch (err) {}; try { openMoreSettingsPanel() } catch (err) {} })
+moreRow.appendChild(moreBtn)
+menuBox.appendChild(moreRow)
 var rowPb = menuRow()
 rowPb.appendChild(menuLabel('徽标样式'))
 var pbSel = document.createElement('select')
@@ -2502,8 +2757,8 @@ function pbCustomInput() {
 }
 pbInpP.addEventListener('change', pbCustomInput)
 pbInpO.addEventListener('change', pbCustomInput)
-menuBox.appendChild(rowPb)
-menuBox.appendChild(pbCustomRow)
+moreNotice.push(rowPb)
+moreNotice.push(pbCustomRow)
 dshwCustSel(pbSel)
 try {
   var pbSelWrap = pbSel.parentNode
@@ -2534,8 +2789,7 @@ try {
     taskEndWrapEl.style.maxWidth = '120px'
   }
 } catch (err) {}
-menuBox.appendChild(menuSep1)
-menuBox.appendChild(row9)
+// v880：避让 / 吸附 / 隐藏菜单按钮的控件已搬进控制台，不再重复进「更多设置」面板。
 // —— 吸附与翻转：自定义按钮（打开吸附/翻转设置弹窗），放在“避让滚动条”下一行 ——
 var rowSnap = menuRow()
 var snapRowLabel = document.createElement('span')
@@ -2548,7 +2802,7 @@ snapCustomBtn.title = '自定义各边吸附区宽度与翻转线位置'
 snapCustomBtn.addEventListener('click', function (e) { e.stopPropagation(); openSnapModal() })
 rowSnap.appendChild(snapRowLabel)
 rowSnap.appendChild(snapCustomBtn)
-menuBox.appendChild(rowSnap)
+// v880：吸附按钮已进控制台「交互与视窗吸附」，这里不进「更多设置」面板。
 // —— 隐藏菜单按钮:开启后右键/长按小鲸鱼可唤出菜单(位置与按钮唤出一致) ——
 var menuHideToggle = document.createElement('input')
 menuHideToggle.type = 'checkbox'
@@ -2559,7 +2813,7 @@ menuHideToggle.addEventListener('change', function () { setMenuBtnHide(menuHideT
 var rowHide = menuRow()
 rowHide.appendChild(menuLabel('隐藏菜单按钮'))
 rowHide.appendChild(menuHideToggle)
-menuBox.appendChild(rowHide)
+// v880：隐藏菜单按钮已作为控制台快捷开关，这里不进「更多设置」面板。
 // —— Codex 本机统计开关（issue #116）：v748 起**从主菜单挪进「Codex 模型的设置子菜单」** ——
 // 主菜单不再有这一项（它对没配 Codex 模型的用户没有意义）。宿主侧同样按"有没有 Codex 模型"兜底：
 // 没配 → 默认关闭、完全不扫 ~/.codex/sessions。这里只保留一个"当前挂载的那个复选框"的引用，
@@ -2587,15 +2841,15 @@ resOpenBtn.title = '集中管理当前导入插件的图片与音频资源'
 resOpenBtn.addEventListener('click', function (e) { e.stopPropagation(); openResManager() })
 rowRes.appendChild(menuLabel('资源管理'))
 rowRes.appendChild(resOpenBtn)
-menuBox.appendChild(rowRes)
+moreResource.push(rowRes)
 // —— 表情素材层：三行（启用开关 / 素材包 / 手动表情）——
 // ⚠️ 必须在下面「while (menuBox.firstChild) menuRootView.appendChild(...)」**之前** append：
 //    那一行会把此刻 menuBox 的所有子节点搬进 menuRootView，之后再加的行创建成功但永不显示、且不报错。
-try { exprBuildMenuRows(function (row) { menuBox.appendChild(row) }) } catch (err) {}
+try { exprBuildMenuRows(function (row) { moreExt.push(row) }) } catch (err) {}
 // 手动台词（读官方泡泡编辑器的随机句池）与火山额度（读可选附属插件 /api/volc-usage）同样必须
 // 在下面那次「搬空 menuBox」之前 append。
-try { lineBuildMenuRow(function (row) { menuBox.appendChild(row) }) } catch (err) {}
-try { volcBuildMenuRow(function (row) { menuBox.appendChild(row) }) } catch (err) {}
+try { lineBuildMenuRow(function (row) { moreExt.push(row) }) } catch (err) {}
+try { volcBuildMenuRow(function (row) { moreExt.push(row) }) } catch (err) {}
 // —— 用量记录:底部固定动作行由「用量记录 / ‹ 返回」共用(见下方 nav 行) ——
 
 // ===== 用量记录(主菜单内的子界面,不跳新页面)+ “更多消费记录”窗口 =====
@@ -2647,11 +2901,948 @@ function usageSettingsPut(patch, retried) {
 function saveUsageSettings(patch) {
   try { return usageSettingsPut(patch, false) } catch (err) { return null }
 }
-// 把主菜单已有行收进 menuRootView;用量记录作为 menuBox 内的子视图切换
+// ===== v881 桌面控制台：直接承载设计稿 assets/console.html =====
+// 设计稿（stitch_ (6)/code.html）原样转成独立页面，用 iframe 隔离加载：
+// Tailwind 的 preflight 不会污染宿主页面，样式也不再由手写 CSS 近似。
+var conFrame = null
+var conDoc = null
+var conReady = false
+var conSrcQ = null
+var conSrcA = null
+var conPillRefs = {}
+
+function conEl(tag, cls, txt) {
+  var e = document.createElement(tag)
+  if (cls) e.className = cls
+  if (txt != null) e.textContent = txt
+  return e
+}
+function conSetSw(sw, on) {
+  if (!sw) return
+  sw.classList.toggle('bg-[#1e3a8a]', !!on)
+  sw.classList.toggle('bg-slate-300', !on)
+  var th = sw.querySelector('div')
+  if (th) {
+    th.classList.toggle('translate-x-3', !!on)
+    th.classList.toggle('translate-x-0', !on)
+  }
+}
+function conSegStyle(btn, on) {
+  if (!btn) return
+  btn.classList.toggle('bg-white', on)
+  btn.classList.toggle('text-slate-900', on)
+  btn.classList.toggle('shadow-tactile-button', on)
+  btn.classList.toggle('border', on)
+  btn.classList.toggle('border-slate-200/70', on)
+  btn.classList.toggle('font-semibold', on)
+  btn.classList.toggle('text-slate-600', !on)
+  btn.classList.toggle('font-medium', !on)
+}
+function conFillSel(el, items, value) {
+  if (!el) return
+  while (el.firstChild) el.removeChild(el.firstChild)
+  for (var i = 0; i < items.length; i++) {
+    var o = document.createElement('option')
+    o.value = items[i][0]
+    o.textContent = items[i][1]
+    el.appendChild(o)
+  }
+  if (value != null) {
+    el.value = String(value)
+    if (el.value !== String(value) && el.options.length) el.selectedIndex = 0
+  }
+}
+function conMirrorSel(dst, src, value, muteFirst) {
+  if (!dst || !src) return
+  var items = []
+  if (muteFirst) items.push(['', '静音（不播放）'])
+  for (var i = 0; i < src.options.length; i++) {
+    items.push([String(src.options[i].value), String(src.options[i].textContent || '')])
+  }
+  conFillSel(dst, items, value)
+}
+function conOn(el, type, fn) {
+  if (!el) return
+  el.addEventListener(type, function (e) {
+    try { e.stopPropagation() } catch (err) {}
+    try { fn(e) } catch (err) {}
+  })
+}
+function conFindBtn(txt) {
+  try {
+    var bs = conDoc.querySelectorAll('button')
+    for (var i = 0; i < bs.length; i++) {
+      if (String(bs[i].textContent || '').replace(/\s+/g, '') === String(txt).replace(/\s+/g, '')) return bs[i]
+    }
+  } catch (err) {}
+  return null
+}
+function conFindText(txt) {
+  try {
+    var els = conDoc.querySelectorAll('span,label,div')
+    for (var i = 0; i < els.length; i++) {
+      var t = String(els[i].textContent || '').trim()
+      if (t === txt && !els[i].children.length) return els[i]
+    }
+  } catch (err) {}
+  return null
+}
+function conSelNear(txt) {
+  var lab = conFindText(txt)
+  if (!lab) return null
+  var box = lab.parentElement
+  for (var up = 0; up < 3 && box; up++) {
+    var s = box.querySelector('select')
+    if (s) return s
+    box = box.parentElement
+  }
+  return null
+}
+function conCfg(kind) {
+  try { return soundEventCfg(kind) } catch (err) { return {} }
+}
+function conSaveEvent(kind, cfg) {
+  try {
+    var ev = {}
+    ev[kind] = soundEventOut(cfg, true)
+    usageSet = usageSet || {}
+    usageSet.events = usageSet.events || {}
+    usageSet.events[kind] = cfg
+    saveUsageSettings({ events: ev })
+  } catch (err) {}
+}
+function conPct(v) {
+  var n = Number(v)
+  if (!isFinite(n) || n < 0) n = 0
+  return Math.round(n * 100) + '%'
+}
+
+// —— 建 frame（放在 menuRootView 内，用量子视图滑出时一起隐藏） ——
+function conBuildFrame() {
+  if (conFrame) return
+  conFrame = document.createElement('iframe')
+  conFrame.className = 'dshwv-console-frame'
+  conFrame.setAttribute('title', '小鲸鱼桌面控制台')
+  conFrame.setAttribute('scrolling', 'no')
+  conFrame.src = '/dsh-whale/console.html'
+  conFrame.addEventListener('load', function () {
+    conReady = false
+    conDoc = null
+    try { conBind() } catch (err) {}
+    try { conFit() } catch (err) {}
+  })
+  menuRootView.appendChild(conFrame)
+}
+function conFit() {
+  try {
+    var vp = viewport()
+    var w = Math.min(416, Math.max(280, vp.w - 24))
+    var h = Math.max(300, Math.min(700, vp.h - 24))
+    conFrame.style.width = w + 'px'
+    conFrame.style.height = h + 'px'
+    menuBox.style.width = w + 'px'
+    menuBox.style.maxWidth = 'calc(100vw - 12px)'
+  } catch (err) {}
+}
+
+// —— 绑定设计稿里的控件 ——
+function conBind() {
+  try { conDoc = conFrame.contentDocument || (conFrame.contentWindow && conFrame.contentWindow.document) } catch (err) { conDoc = null }
+  if (!conDoc || !conDoc.body) return
+  var doc = conDoc
+  if (conReady) return
+  conReady = true
+  var i
+  // 版本徽标
+  var verEl = doc.querySelector('header .font-mono')
+  if (verEl) {
+    verEl.id = 'dshwv-con-ver'
+    conOn(verEl, 'click', function () { try { toggleAboutSub() } catch (err) {} })
+  }
+  // 头部固定按钮：设计稿是「固定至桌面」，本插件没有该能力 → 收起来
+  // （角色 / 表情版本 / 台词 / 资源 等原菜单行已经移植进「更多功能」卡片，不再需要弹窗入口）
+  var pinBtn = doc.getElementById('pin-btn')
+  if (pinBtn) pinBtn.style.display = 'none'
+
+  // 形态分段
+  var segs = doc.querySelectorAll('main > div.p-3 > section > div.p-0\\.5 button')
+  var segWhale = segs[0] || conFindBtn('小鲸鱼形态')
+  var segPet = segs[1] || conFindBtn('桌宠形态')
+  conOn(segWhale, 'click', function () {
+    try { applyRole('default', '小鲸鱼', IMG_URL) } catch (err) {}
+    dshwvConSync()
+    try { dshwvPositionMenuSoon() } catch (err) {}
+  })
+  conOn(segPet, 'click', function () {
+    if (!petOn) { try { petEnable(true) } catch (err) {} }
+    dshwvConSync()
+    try { dshwvPositionMenuSoon() } catch (err) {}
+  })
+
+  // 大小
+  var sizeSlider = doc.getElementById('scale-slider')
+  var sizeVal = doc.getElementById('scale-value')
+  var sizeUnit = sizeVal && sizeVal.nextElementSibling
+  if (sizeUnit) sizeUnit.textContent = '级'
+  if (sizeSlider) {
+    sizeSlider.min = '1'
+    sizeSlider.max = '20'
+    sizeSlider.step = '1'
+    conOn(sizeSlider, 'input', function () {
+      var lv = Math.max(1, Math.min(20, Math.round(Number(sizeSlider.value) || 1)))
+      var s = MIN_SCALE + (lv - 1) * (MAX_SCALE - MIN_SCALE) / 19
+      try { setScale(s) } catch (err) {}
+      if (sizeVal) sizeVal.textContent = String(lv)
+    })
+  }
+
+  // 三列快捷开关
+  var labGap = conFindText('避让滚动条')
+  var labRoam = conFindText('屏幕漫游')
+  var labHide = conFindText('隐藏菜单栏')
+  function quickSw(lab) {
+    if (!lab) return null
+    var box = lab.parentElement
+    for (var up = 0; up < 3 && box; up++) {
+      var sw = box.querySelector('div.rounded-full')
+      if (sw) return sw
+      box = box.parentElement
+    }
+    return null
+  }
+  var swGap = quickSw(labGap)
+  var swRoam = quickSw(labRoam)
+  var swHide = quickSw(labHide)
+  function bindQuick(lab, fn) {
+    if (!lab) return
+    // 整张卡片都可点：只绑文字时，点右侧开关本体不会触发（用户报「点不动」）
+    var card = lab.closest('label') || lab
+    conOn(card, 'click', function (e) {
+      try { e.preventDefault() } catch (err) {}
+      try { fn() } catch (err) {}
+      dshwvConSync()
+    })
+  }
+  bindQuick(labGap, function () { setScrollGapOn(!scrollGapOn) })
+  bindQuick(labRoam, function () { petSetRoamOn(!petRoamOn) })
+  bindQuick(labHide, function () { setMenuBtnHide(!menuBtnHide) })
+  conPillRefs.swGap = swGap
+  conPillRefs.swRoam = swRoam
+  conPillRefs.swHide = swHide
+  conPillRefs.labRoam = labRoam
+
+  // 交互与视窗吸附
+  var pbSel = conSelNear('峰谷状态')
+  if (pbSel) {
+    conFillSel(pbSel, [['badge', '常驻徽标'], ['bubble', '气泡内'], ['hidden', '隐藏']], dshwPbModeGet())
+    conOn(pbSel, 'change', function () { dshwPbModeSet(pbSel.value) })
+  }
+  var snapSel = conSelNear('吸附与翻转')
+  if (snapSel) {
+    conFillSel(snapSel, [['ratio', '比例吸附'], ['px', '绝对吸附'], ['off', '关闭']], (snapConfig && snapConfig.mode) || 'ratio')
+    conOn(snapSel, 'change', function () {
+      try {
+        snapConfig.mode = snapSel.value || 'ratio'
+        if (snapConfig.mode === 'px') ensureSnapPx(snapConfig)
+        saveSnapConfig()
+        snapCheck()
+      } catch (err) {}
+    })
+  }
+  var homeBtn = conFindBtn('一键复位')
+  conOn(homeBtn, 'click', function () { try { petGoHome() } catch (err) {} })
+  conPillRefs.pbSel = pbSel
+  conPillRefs.snapSel = snapSel
+
+  // 主音量 = 全局增益，只乘在播放增益上；不修改按压/消耗/提问/授权的独立音量值
+  var master = doc.getElementById('master-vol-slider')
+  var masterNum = doc.getElementById('master-vol-num')
+  var pressVol = doc.getElementById('press-vol-slider')
+  var pressLab = doc.getElementById('press-vol-label')
+  function applyMaster(v) {
+    var p = Math.max(0, Math.min(100, Number(v) || 0))
+    try { masterVol = p / 100; saveMasterVol() } catch (err) {}
+    if (master) master.value = String(p)
+    if (masterNum) masterNum.textContent = p + '%'
+  }
+  function applyPress(v) {
+    var p = Math.max(0, Math.min(100, Number(v) || 0))
+    try { setVol(p / 100) } catch (err) {}
+    if (pressVol) pressVol.value = String(p)
+    if (pressLab) pressLab.textContent = p === 0 ? '静音' : (p + '%')
+    dshwvConPillSync()
+  }
+  conOn(master, 'input', function () { applyMaster(master.value) })
+  conOn(pressVol, 'input', function () { applyPress(pressVol.value) })
+
+  // 按压音效组
+  var pressSel = doc.querySelector('#panel-press select')
+  var pressPlay = doc.querySelector('#panel-press button[title="试听"]') || conFindBtn('试听')
+  conOn(pressSel, 'change', function () {
+    try { setSoundSet(pressSel.value) } catch (err) {}
+  })
+  var pressBtns = doc.querySelectorAll('#panel-press button')
+  for (i = 0; i < pressBtns.length; i++) {
+    if (String(pressBtns[i].textContent || '').trim() === '新建') {
+      conOn(pressBtns[i], 'click', function () { try { openAudioGroupEditor(null) } catch (err) {} })
+    }
+  }
+  var pressPlayBtns = doc.querySelectorAll('#panel-press button[title="试听"]')
+  conOn(pressPlayBtns[0] || pressPlay, 'click', function () {
+    try { playPress() } catch (err) {}
+    try { if (!pressAudio) playRelease() } catch (err) {}
+  })
+  var charChk = doc.querySelector('#panel-press input[type=checkbox]')
+  conOn(charChk, 'change', function () {
+    try {
+      usageSet = usageSet || {}
+      usageSet.wait = Object.assign({}, usageSet.wait || {}, { charClose: !!charChk.checked })
+      saveUsageSettings({ wait: { charClose: !!charChk.checked } })
+    } catch (err) {}
+  })
+  conPillRefs.pressSel = pressSel
+  conPillRefs.charChk = charChk
+
+  // 消耗：任务结束音（镜像隐藏的 taskEndSel）
+  var consumeSel = doc.querySelector('#panel-consume select')
+  var consumePlay = doc.querySelector('#panel-consume button[title="试听"]')
+  conOn(consumeSel, 'change', function () {
+    try {
+      if (consumeSel.value) { applyTaskEndLocal(true, consumeSel.value) } else { applyTaskEndLocal(false, undefined) }
+      commitTaskEnd()
+    } catch (err) {}
+    dshwvConSync()
+  })
+  conOn(consumePlay, 'click', function () {
+    try {
+      var sel = (usageSet && usageSet.taskEnd && usageSet.taskEnd.sel) || ''
+      playBindingSound({ on: true, sel: sel }, { vol: soundVol }, { preview: true })
+    } catch (err) {}
+  })
+  var consumeVol = doc.getElementById('consume-vol-slider')
+  var consumeVolLab = doc.getElementById('consume-vol-label')
+  var conTurnCostCfg = conCfg('turnCost')
+  if (consumeVol) consumeVol.max = '200'
+  conOn(consumeVol, 'input', function () {
+    var v = Number(consumeVol.value) / 100
+    conTurnCostCfg.vol = v
+    conTurnCostCfg.volSet = true
+    if (consumeVolLab) consumeVolLab.textContent = Math.round(v * 100) + '%'
+    dshwvConPillSync()
+  })
+  conOn(consumeVol, 'change', function () {
+    try { conSaveEvent('turnCost', conTurnCostCfg) } catch (err) {}
+  })
+  var bubToggle = doc.querySelector('#panel-consume input[type=checkbox]')
+  conOn(bubToggle, 'change', function () { try { setTurnCostOn(!!bubToggle.checked) } catch (err) {} })
+  var customBtn = conFindBtn('自定义文案')
+  conOn(customBtn, 'click', function () { try { usageAlertBudgetEditor('cost', null) } catch (err) {} })
+  // 自动关闭 chips（设计稿脚本只改样式，这里接真实值）
+  var chipEls = doc.querySelectorAll('#consume-duration-chips .duration-chip')
+  for (i = 0; i < chipEls.length; i++) {
+    (function (chip) {
+      conOn(chip, 'click', function () {
+        var raw = String(chip.getAttribute('data-time') || '')
+        var sec = raw === 'always' ? 0 : (parseInt(raw, 10) || 0)
+        try { setTurnCostClose(sec) } catch (err) {}
+        dshwvConSync()
+      })
+    })(chipEls[i])
+  }
+  var subChk = null
+  var ckAll = doc.querySelectorAll('#panel-consume input[type=checkbox]')
+  // 设计稿顺序：气泡卡片(0)、子智能体(1)
+  if (ckAll.length > 1) subChk = ckAll[ckAll.length - 1]
+  conOn(subChk, 'change', function () {
+    try {
+      usageSet = usageSet || {}
+      usageSet.subagent = Object.assign({}, usageSet.subagent || {}, { mute: !!subChk.checked })
+      saveUsageSettings({ subagent: { mute: !!subChk.checked } })
+    } catch (err) {}
+  })
+  conPillRefs.consumeSel = consumeSel
+  conPillRefs.consumeVol = consumeVol
+  conPillRefs.consumeVolLab = consumeVolLab
+  conPillRefs.bubToggle = bubToggle
+  conPillRefs.subChk = subChk
+
+  // 提问 / 授权
+  function bindWait(kind, panelId) {
+    var panelEl = doc.getElementById(panelId)
+    var sel = panelEl ? panelEl.querySelector('select') : null
+    var vol = doc.getElementById(panelId === 'panel-question' ? 'question-vol-slider' : 'auth-vol-slider')
+    var volLab = doc.getElementById(panelId === 'panel-question' ? 'question-vol-label' : 'auth-vol-label')
+    var play = panelEl ? panelEl.querySelector('button[title="试听"]') : null
+    var chks = panelEl ? panelEl.querySelectorAll('input[type=checkbox]') : []
+    var bub = chks[0]
+    var editBtn = null
+    if (panelEl) {
+      var pbs = panelEl.querySelectorAll('button')
+      for (var bi = 0; bi < pbs.length; bi++) {
+        if (String(pbs[bi].textContent || '').trim() === '编辑文案') { editBtn = pbs[bi]; break }
+      }
+    }
+    if (sel) {
+      var src = kind === 'question' ? conSrcQ : conSrcA
+      var c0 = conCfg(kind)
+      conMirrorSel(sel, src, (c0.soundOn === false) ? '' : c0.sel, true)
+      conOn(sel, 'change', function () {
+        try {
+          var c = conCfg(kind)
+          if (sel.value) { c.sel = sel.value; c.soundOn = true }
+          else c.soundOn = false
+          conSaveEvent(kind, c)
+        } catch (err) {}
+        dshwvConPillSync()
+      })
+    }
+    if (vol) vol.max = '200'
+    conOn(vol, 'input', function () {
+      var v = Number(vol.value) / 100
+      if (volLab) volLab.textContent = v === 0 ? '静音' : Math.round(v * 100) + '%'
+      dshwvConPillSync()
+    })
+    conOn(vol, 'change', function () {
+      try { var c = conCfg(kind); c.vol = Number(vol.value) / 100; conSaveEvent(kind, c) } catch (err) {}
+    })
+    conOn(play, 'click', function () {
+      try {
+        var c = conCfg(kind)
+        playBindingSound({ on: true, sel: c.sel }, { vol: c.vol }, { preview: true })
+      } catch (err) {}
+    })
+    conOn(bub, 'change', function () {
+      try { var c = conCfg(kind); c.bubbleOn = !!bub.checked; conSaveEvent(kind, c) } catch (err) {}
+    })
+    if (editBtn) conOn(editBtn, 'click', function () { try { usageAlertBudgetEditor(kind, null) } catch (err) {} })
+    return { sel: sel, vol: vol, volLab: volLab, bub: bub }
+  }
+  conPillRefs.q = bindWait('question', 'panel-question')
+  conPillRefs.a = bindWait('approval', 'panel-auth')
+
+  // 动作与待机（13 个分类的紧凑下拉；选项全部来自真实动画池，不再用设计稿里的假选项）
+  var actCard = doc.getElementById('action-standby-card')
+  var actSels = actCard ? actCard.querySelectorAll('select.con-act-sel') : []
+  function conActFill(sel, cat) {
+    var list = []
+    try { list = petFilter(petCategoryList(cat) || []) } catch (err) { list = [] }
+    if (!list.length) { try { list = petCategoryList(cat) || [] } catch (err2) { list = [] } }
+    if (!list.length) return
+    sel.textContent = ''
+    // 只有单段动画的分类（待机/转向/拖拽）不显示「自动随机」，避免两个选项同义
+    if (list.length > 1) {
+      var a = document.createElement('option')
+      a.value = 'auto:' + cat
+      a.textContent = '自动随机'
+      sel.appendChild(a)
+    }
+    for (var j = 0; j < list.length; j++) {
+      var op = document.createElement('option')
+      op.value = list[j]
+      op.textContent = list[j]
+      op.title = list[j]
+      sel.appendChild(op)
+    }
+  }
+  function conActSync() {
+    for (var k = 0; k < actSels.length; k++) {
+      var s = actSels[k]
+      var cat = s.getAttribute('data-act') || ''
+      var want = ''
+      if (cat === '待机') want = (petIdlePick && petHave(petIdlePick)) ? petIdlePick : PET_IDLE
+      else if (petPin && petPin.type === 'action' && petCategoryOfAction(petPin.value) === cat) want = petPin.value
+      if (!want && petPin && petPin.type === 'category' && petPin.value === cat) want = 'auto:' + cat
+      try {
+        var hit = false
+        for (var o = 0; o < s.options.length; o++) if (s.options[o].value === want) { hit = true; break }
+        s.value = hit ? want : (s.options.length ? s.options[0].value : '')
+      } catch (err) {}
+    }
+  }
+  for (var ai = 0; ai < actSels.length; ai++) {
+    (function (sel) {
+      var cat = sel.getAttribute('data-act') || ''
+      conActFill(sel, cat)
+      conOn(sel, 'change', function () {
+        var v = sel.value
+        try {
+          if (cat === '待机') petSurfaceIdle(v)
+          else petOnSelectCategory(cat, v)
+        } catch (err) {}
+        dshwvConSync()
+      })
+    })(actSels[ai])
+  }
+  conPillRefs.actSels = actSels
+  conPillRefs.actSync = conActSync
+  conPillRefs.actFill = function () {
+    for (var k = 0; k < actSels.length; k++) conActFill(actSels[k], actSels[k].getAttribute('data-act') || '')
+  }
+  conPillRefs.actCard = actCard
+
+  // 分身
+  var cloneCard = doc.getElementById('clones-panel') ? doc.getElementById('clones-panel').parentElement : null
+  var cloneSw = doc.querySelector('[role="switch"]')
+  conOn(cloneSw, 'click', function (e) {
+    try { e.preventDefault() } catch (err) {}
+    try {
+      if (petCloneCount > 0) { petCloneLastCount = petCloneCount; petCloneSetCount(0) }
+      else petCloneSetCount(Math.max(1, Math.min(3, petCloneLastCount || 1)))
+    } catch (err) {}
+    dshwvConSync()
+  })
+  var cloneMinus = null
+  var clonePlus = null
+  var cloneNumEl = null
+  var stepCell = doc.querySelector('#clones-panel .grid .flex.items-center.justify-between')
+  if (stepCell) {
+    var sb = stepCell.querySelectorAll('button')
+    cloneMinus = sb[0]
+    clonePlus = sb[1]
+    cloneNumEl = stepCell.querySelector('span.font-mono')
+  }
+  conOn(cloneMinus, 'click', function () {
+    try { petCloneSetCount(Math.max(0, (petCloneCount || 0) - 1)) } catch (err) {}
+    dshwvConSync()
+  })
+  conOn(clonePlus, 'click', function () {
+    try { petCloneSetCount(Math.min(3, (petCloneCount || 0) + 1)) } catch (err) {}
+    dshwvConSync()
+  })
+  var cloneSels = doc.querySelectorAll('#clones-panel select')
+  var strategySel = cloneSels[0]
+  var sizeSel = cloneSels[1]
+  try {
+    var stratLab = doc.querySelectorAll('#clones-panel span.font-mono')
+    if (stratLab.length >= 2) stratLab[1].textContent = '分身动作'
+  } catch (err) {}
+  if (strategySel) {
+    conOn(strategySel, 'change', function () {
+      try { petCloneSetPin(strategySel.value) } catch (err) {}
+      dshwvConSync()
+    })
+  }
+  if (sizeSel) {
+    conOn(sizeSel, 'change', function () {
+      try {
+        for (var k = 0; k < (petCloneCount || 0); k++) petCloneSetScale(k, sizeSel.value)
+      } catch (err) {}
+      dshwvConSync()
+    })
+  }
+  conPillRefs.cloneSw = cloneSw
+  conPillRefs.cloneNumEl = cloneNumEl
+  conPillRefs.strategySel = strategySel
+  conPillRefs.sizeSel = sizeSel
+  conPillRefs.cloneCard = cloneCard
+
+  // 底栏：左键「恢复默认」把控制台设置复位；右键「完成」= 关闭（设置即时生效）
+  var footBtns = doc.querySelectorAll('footer button')
+  if (footBtns[0]) {
+    footBtns[0].textContent = '恢复默认'
+    footBtns[0].title = '音量 / 提示 / 吸附 / 动作 / 分身 恢复出厂默认'
+    conOn(footBtns[0], 'click', function () { try { dshwvConResetAll() } catch (err) {} })
+  }
+  if (footBtns[1]) {
+    footBtns[1].textContent = '完成'
+    conOn(footBtns[1], 'click', function () { try { closeMenu() } catch (err) {} })
+  }
+
+  try { conBindExtras() } catch (err) {}
+  dshwvConSync()
+}
+
+// 「角色与外观」卡片：全部用控制台原生控件，绑到原有业务函数上
+function conBindExtras() {
+  try {
+    if (!conDoc) return
+    var doc = conDoc
+    var ex = conPillRefs.extra = conPillRefs.extra || {}
+    ex.roleSel = doc.getElementById('con-role-sel')
+    ex.roleImport = doc.getElementById('con-role-import')
+    ex.card = doc.getElementById('extra-card')
+    ex.rowRole = doc.getElementById('con-row-role')
+    ex.cellBlink = doc.getElementById('con-cell-blink')
+    ex.rowExpr = doc.getElementById('con-row-expr')
+    ex.gapWrap = doc.getElementById('con-gap-wrap')
+    ex.exprOn = null
+    ex.blink = doc.getElementById('con-blink')
+    ex.bubble = doc.getElementById('con-bubble')
+    ex.pack = doc.getElementById('con-expr-pack')
+    ex.exprItem = doc.getElementById('con-expr-item')
+    ex.line = doc.getElementById('con-line')
+    ex.pbLabel = doc.getElementById('con-pblabel')
+    ex.pbCustom = doc.getElementById('con-pbcustom')
+    ex.pbP = doc.getElementById('con-pbp')
+    ex.pbO = doc.getElementById('con-pbo')
+    ex.bubbleEdit = doc.getElementById('con-bubble-edit')
+    ex.res = doc.getElementById('con-res')
+    ex.gapPx = doc.getElementById('con-gap-px')
+    ex.volc = doc.getElementById('con-volc')
+
+    function swCell(el, fn) {
+      if (!el) return
+      var card = el.closest('label') || el
+      conOn(card, 'click', function (e) {
+        try { e.preventDefault() } catch (err) {}
+        try { fn() } catch (err) {}
+        dshwvConSync()
+      })
+    }
+    swCell(ex.blink, function () { try { exprSetBlink(!exprBlinkOn); saveConfig() } catch (err) {} })
+    swCell(ex.bubble, function () { try { setBubbleOn(!(bubbleOn !== false)) } catch (err) {} })
+
+    // 角色下拉：按 roleList 动态填充（导入后数量会变，签名变化时重建）
+    ex.roleFill = function () {
+      if (!ex.roleSel) return
+      var cur = (currentRole && currentRole.id) || 'default'
+      var sig = cur + '|'
+      for (var i = 0; i < roleList.length; i++) sig += (roleList[i].id || '') + ':'
+      if (ex.roleSel.getAttribute('data-sig') === sig) return
+      ex.roleSel.setAttribute('data-sig', sig)
+      ex.roleSel.textContent = ''
+      var d = doc.createElement('option')
+      d.value = 'default'
+      d.textContent = '小鲸鱼（默认）'
+      ex.roleSel.appendChild(d)
+      for (var j = 0; j < roleList.length; j++) {
+        var r = roleList[j]
+        if (!r || !r.id || r.id === 'default') continue
+        var o = doc.createElement('option')
+        o.value = r.id
+        o.textContent = r.name || r.id
+        ex.roleSel.appendChild(o)
+      }
+      try { ex.roleSel.value = cur } catch (err) {}
+    }
+    conOn(ex.roleImport, 'click', function () { try { roleFileInput.click() } catch (err) {} })
+    conOn(ex.roleSel, 'change', function () {
+      var id = ex.roleSel.value
+      try {
+        if (id === 'default') {
+          applyRole('default', '小鲸鱼', IMG_URL)
+        } else {
+          var name = id
+          for (var i = 0; i < roleList.length; i++) if (roleList[i].id === id) { name = roleList[i].name || id; break }
+          applyRole(id, name, roleUrl(id))
+        }
+      } catch (err) {}
+      dshwvConSync()
+    })
+
+    // 表情层：复用旧菜单的状态与填充函数
+    try { exprMenuRefs = { selPack: ex.pack, selExpr: ex.exprItem, chkOn: null, chkBlink: null } } catch (err) {}
+    conOn(ex.pack, 'change', function () {
+      try {
+        exprPack = ex.pack.value || ''
+        exprManual = null
+        exprBroken = {}
+        // 没有「表情层」开关了：选包/选表情即视为要显示表情层
+        if (!exprOn) exprEnable(true)
+        exprFillExprSelect()
+        exprRender()
+        exprRestartTimers()
+        saveConfig()
+      } catch (err) {}
+    })
+    conOn(ex.exprItem, 'change', function () {
+      try {
+        if (!exprOn) exprEnable(true)
+        exprSetManual(ex.exprItem.value || null)
+      } catch (err) {}
+    })
+
+    // 台词
+    try { lineMenuRefs = { sel: ex.line } } catch (err) {}
+    conOn(ex.line, 'change', function () {
+      var v = ex.line.value
+      ex.line.value = ''
+      if (!v) return
+      try {
+        lineLoadPool(function (pool) {
+          if (!pool.length) {
+            try { dshwvToast('还没有自定义台词：可在「泡泡编辑器」的随机语句模块里添加') } catch (err) {}
+            return
+          }
+          var pick = v === 'rand' ? pool[Math.floor(Math.random() * pool.length)] : pool[Number(v)]
+          lineShow(pick)
+        })
+      } catch (err) {}
+    })
+
+    // 徽标样式（峰/谷文字）
+    conOn(ex.pbLabel, 'change', function () {
+      try {
+        var v = dshwPbLabelGet()
+        v.mode = ex.pbLabel.value || 'mini'
+        dshwPbLabelSet(v)
+        if (typeof window.__dshwPbRender === 'function') window.__dshwPbRender()
+      } catch (err) {}
+      dshwvConSync()
+    })
+    function pbSave() {
+      try {
+        var v = dshwPbLabelGet()
+        v.p = (ex.pbP.value || '').trim() || '峰'
+        v.o = (ex.pbO.value || '').trim() || '谷'
+        dshwPbLabelSet(v)
+        if (typeof window.__dshwPbRender === 'function') window.__dshwPbRender()
+      } catch (err) {}
+    }
+    conOn(ex.pbP, 'change', pbSave)
+    conOn(ex.pbO, 'change', pbSave)
+
+    conOn(ex.bubbleEdit, 'click', function () { try { openBubbleEditor() } catch (err) {} })
+    conOn(ex.res, 'click', function () { try { openResManager() } catch (err) {} })
+    conOn(ex.gapPx, 'change', function () { try { setScrollGapPx(ex.gapPx.value) } catch (err) {} })
+    conOn(ex.gapPx, 'input', function () { try { setScrollGapPx(ex.gapPx.value) } catch (err) {} })
+
+    try { volcMenuRefs = { text: ex.volc } } catch (err) {}
+    try { volcRefresh() } catch (err) {}
+  } catch (err) {}
+}
+
+// —— 状态 → 设计稿控件 ——
+function dshwvConPillSync() {
+  try {
+    if (!conReady || !conDoc) return
+    var q = conCfg('question')
+    var a = conCfg('approval')
+    var tc = conCfg('turnCost')
+    var tcVol = (tc.volSet === true) ? Number(tc.vol) : Number(soundVol)
+    var vals = { press: conPct(soundVol), consume: conPct(tcVol), question: conPct(q.vol), auth: conPct(a.vol) }
+    var mute = {
+      press: soundOn === false,
+      consume: turnCostOn !== true,
+      question: q.on === false || q.soundOn === false,
+      auth: a.on === false || a.soundOn === false,
+    }
+    for (var k in vals) {
+      var el = conDoc.getElementById('pill-vol-' + k)
+      if (el) el.textContent = mute[k] ? '静音' : vals[k]
+    }
+    if (conPillRefs.consumeVol) {
+      conPillRefs.consumeVol.value = String(Math.round(tcVol * 100))
+      if (conPillRefs.consumeVolLab) conPillRefs.consumeVolLab.textContent = Math.round(tcVol * 100) + '%'
+    }
+  } catch (err) {}
+}
+function dshwvConSync() {
+  try {
+    if (!conReady || !conDoc) return
+    var doc = conDoc
+    var i
+    // 版本
+    var ver = doc.getElementById('dshwv-con-ver')
+    if (ver && lastVersionLabel) ver.textContent = lastVersionLabel
+    // 形态分段
+    var segs = doc.querySelectorAll('main > div.p-3 > section > div.p-0\\.5 button')
+    conSegStyle(segs[0], !petOn)
+    conSegStyle(segs[1], !!petOn)
+    // 大小
+    var sizeSlider = doc.getElementById('scale-slider')
+    var sizeVal = doc.getElementById('scale-value')
+    var lv = Math.max(1, Math.min(20, Math.round(Number(scaleNumber.value) || 1)))
+    if (sizeSlider) sizeSlider.value = String(lv)
+    if (sizeVal) sizeVal.textContent = String(lv)
+    // 快捷开关
+    conSetSw(conPillRefs.swGap, !!scrollGapOn)
+    conSetSw(conPillRefs.swRoam, !!petRoamOn)
+    conSetSw(conPillRefs.swHide, !!menuBtnHide)
+    // 交互
+    if (conPillRefs.pbSel) conPillRefs.pbSel.value = dshwPbModeGet()
+    if (conPillRefs.snapSel) conPillRefs.snapSel.value = (snapConfig && snapConfig.mode) || 'ratio'
+    // 音量
+    var master = doc.getElementById('master-vol-slider')
+    var masterNum = doc.getElementById('master-vol-num')
+    var pv = doc.getElementById('press-vol-slider')
+    var pl = doc.getElementById('press-vol-label')
+    var p100 = Math.round((Number(soundVol) || 0) * 100)
+    var m100 = Math.round((Number(masterVol) || 0) * 100)
+    if (master) master.value = String(m100)
+    if (masterNum) masterNum.textContent = m100 + '%'
+    if (pv) pv.value = String(p100)
+    if (pl) pl.textContent = p100 === 0 ? '静音' : (p100 + '%')
+    // 按压组
+    var pressSel = conPillRefs.pressSel
+    if (pressSel) {
+      var gitems = []
+      var gs = Array.isArray(audioGroups) ? audioGroups : []
+      for (i = 0; i < gs.length; i++) if (gs[i] && gs[i].id) gitems.push([String(gs[i].id), String(gs[i].name || gs[i].id)])
+      if (!gitems.length) gitems.push(['duck', '小黄鸭'])
+      conFillSel(pressSel, gitems, soundSet)
+    }
+    if (conPillRefs.charChk) conPillRefs.charChk.checked = !!(((usageSet || {}).wait || {}).charClose)
+    // 消耗
+    var cSel = conPillRefs.consumeSel
+    if (cSel) {
+      var teOn = !!(usageSet && usageSet.taskEnd && usageSet.taskEnd.on)
+      var teSelV = (usageSet && usageSet.taskEnd && usageSet.taskEnd.sel) || ''
+      conMirrorSel(cSel, taskEndSel, teOn ? teSelV : '', true)
+    }
+    if (conPillRefs.bubToggle) conPillRefs.bubToggle.checked = turnCostOn !== false
+    if (conPillRefs.subChk) conPillRefs.subChk.checked = ((((usageSet || {}).subagent || {}).mute) !== false)
+    var chips = doc.querySelectorAll('#consume-duration-chips .duration-chip')
+    var sec = Math.round((Number(turnCostCloseMs) || 0) / 1000)
+    for (i = 0; i < chips.length; i++) {
+      var rawT = String(chips[i].getAttribute('data-time') || '')
+      var sv = rawT === 'always' ? 0 : (parseInt(rawT, 10) || 0)
+      var on = sv === sec
+      chips[i].classList.toggle('bg-[#1e3a8a]', on)
+      chips[i].classList.toggle('text-white', on)
+      chips[i].classList.toggle('font-semibold', on)
+      chips[i].classList.toggle('bg-white', !on)
+      chips[i].classList.toggle('text-slate-500', !on)
+    }
+    // 提问 / 授权
+    ;['q', 'a'].forEach(function (key) {
+      var u = conPillRefs[key]
+      if (!u) return
+      var kind = key === 'q' ? 'question' : 'approval'
+      var c = conCfg(kind)
+      if (u.sel) {
+        var src = kind === 'question' ? conSrcQ : conSrcA
+        conMirrorSel(u.sel, src, (c.soundOn === false) ? '' : c.sel, true)
+      }
+      if (u.vol) {
+        u.vol.max = '200'
+        u.vol.value = String(Math.round(Number(c.vol) * 100))
+      }
+      if (u.volLab) u.volLab.textContent = Number(c.vol) === 0 ? '静音' : Math.round(Number(c.vol) * 100) + '%'
+      if (u.bub) u.bub.checked = c.bubbleOn !== false
+    })
+    // 动作与待机（13 分类下拉统一回填）
+    if (conPillRefs.actSync) { try { conPillRefs.actSync() } catch (err) {} }
+    // 分身
+    conSetSw(conPillRefs.cloneSw, (petCloneCount || 0) > 0)
+    if (conPillRefs.cloneSw) conPillRefs.cloneSw.setAttribute('aria-checked', (petCloneCount || 0) > 0 ? 'true' : 'false')
+    if (conPillRefs.cloneNumEl) conPillRefs.cloneNumEl.textContent = String(petCloneCount || 0)
+    if (conPillRefs.strategySel) {
+      var sitems = []
+      for (i = 0; i < petCloneActSel.options.length; i++) sitems.push([petCloneActSel.options[i].value, petCloneActSel.options[i].textContent])
+      conFillSel(conPillRefs.strategySel, sitems, petCloneActSel.value)
+    }
+    if (conPillRefs.sizeSel) {
+      var zitems = [['follow', '跟随主宠'], ['0.4', '40%'], ['0.5', '50%'], ['0.6', '60%'], ['0.7', '70%'], ['0.78', '78%'], ['0.9', '90%'], ['1.0', '100%'], ['1.1', '110%'], ['1.2', '120%']]
+      var zcur = '0.78'
+      try {
+        var saved = localStorage.getItem('dshw-pet-clone-scale-0')
+        if (saved === 'follow') zcur = 'follow'
+        else if (saved && isFinite(Number(saved))) zcur = String(Number(saved))
+      } catch (err) {}
+      conFillSel(conPillRefs.sizeSel, zitems, zcur)
+    }
+    // 仅桌宠可见
+    if (conPillRefs.actCard) conPillRefs.actCard.style.display = petOn ? '' : 'none'
+    if (conPillRefs.cloneCard) conPillRefs.cloneCard.style.display = petOn ? '' : 'none'
+    if (conPillRefs.labRoam) {
+      var roamWrap = conPillRefs.labRoam.parentElement
+      if (roamWrap) roamWrap.style.display = petOn ? '' : 'none'
+    }
+    var homeCell = conFindText('角色位置')
+    if (homeCell) {
+      var hc = homeCell.parentElement
+      if (hc && hc.parentElement) hc = hc.parentElement
+      if (hc) hc.style.display = petOn ? '' : 'none'
+    }
+    // 角色与外观
+    var ex = conPillRefs.extra
+    if (ex) {
+      try { if (ex.roleFill) ex.roleFill() } catch (err) {}
+      conSetSw(ex.blink, !!exprBlinkOn)
+      conSetSw(ex.bubble, bubbleOn !== false)
+      try {
+        var pbv = dshwPbLabelGet()
+        if (ex.pbLabel) ex.pbLabel.value = pbv.mode || 'mini'
+        if (ex.pbCustom) ex.pbCustom.classList.toggle('hidden', pbv.mode !== 'custom')
+        if (ex.pbP && pbv.mode === 'custom') ex.pbP.value = pbv.p
+        if (ex.pbO && pbv.mode === 'custom') ex.pbO.value = pbv.o
+      } catch (err) {}
+      if (ex.gapPx) {
+        ex.gapPx.value = String(scrollGapPx || 0)
+        ex.gapPx.disabled = !scrollGapOn
+      }
+      if (ex.gapWrap) ex.gapWrap.classList.toggle('hidden', !scrollGapOn)
+      if (ex.volc) { try { ex.volc.textContent = volcSummaryText() } catch (err) {} }
+      // 角色/表情/台词是「小鲸鱼形态」专属；通用设置卡片在两种形态都显示
+      if (ex.card) ex.card.style.display = petOn ? 'none' : ''
+    }
+    dshwvConPillSync()
+  } catch (err) {}
+}
+// 控制台底栏「恢复默认」：把界面上能改的设置复位（不动机身大小与屏幕位置）
+function dshwvConResetAll() {
+  try { setVol(0.9) } catch (err) {}
+  try { masterVol = 1; saveMasterVol() } catch (err) {}
+  try { setSoundOn(true) } catch (err) {}
+  try { setSoundSet('duck') } catch (err) {}
+  try { if (typeof pressOn !== 'undefined' && pressOn === false) setPressOn(true) } catch (err) {}
+  try { setScrollGapOn(false) } catch (err) {}
+  try { petSetRoamOn(true) } catch (err) {}
+  try { setMenuBtnHide(false) } catch (err) {}
+  try { dshwPbModeSet('badge') } catch (err) {}
+  // 表情层回到「自动包」+ 眨眼开（角色本身不动，避免误删用户外观）
+  try {
+    exprPack = ''
+    exprManual = null
+    exprBroken = {}
+    exprFillPackSelect()
+    exprFillExprSelect()
+    exprRender()
+    saveConfig()
+  } catch (err) {}
+  try { exprSetBlink(true) } catch (err) {}
+  try { setBubbleOn(true) } catch (err) {}
+  try {
+    snapConfig.mode = 'ratio'
+    saveSnapConfig()
+    snapCheck()
+  } catch (err) {}
+  try { conSaveEvent('turnCost', soundEventDefaults().turnCost) } catch (err) {}
+  try { conSaveEvent('question', soundEventDefaults().question) } catch (err) {}
+  try { conSaveEvent('approval', soundEventDefaults().approval) } catch (err) {}
+  try { applyTaskEndLocal(false, undefined); commitTaskEnd() } catch (err) {}
+  try {
+    petPin = null
+    petPinSave()
+    petIdlePick = ''
+    localStorage.removeItem('dshw-pet-idle')
+    petPinApply()
+  } catch (err) {}
+  try { if (petCloneCount > 0) petCloneSetCount(0) } catch (err) {}
+  try { dshwvConSync() } catch (err) {}
+}
+function dshwvConScaleMirror() {
+  try {
+    if (!conReady || !conDoc) return
+    var lv = Math.max(1, Math.min(20, Math.round(Number(scaleNumber.value) || 1)))
+    var s = conDoc.getElementById('scale-slider')
+    var v = conDoc.getElementById('scale-value')
+    if (s) s.value = String(lv)
+    if (v) v.textContent = String(lv)
+  } catch (err) {}
+}
+function dshwvConRefresh() { dshwvConSync() }
+function dshwvConChipSync() { dshwvConSync() }
+function dshwvConCloneSync() { dshwvConSync() }
+function dshwvConSegSync() { dshwvConSync() }
+
+// 音效源 select（隐藏，仅用于把真实音效清单镜像进设计稿下拉）
+conSrcQ = document.createElement('select')
+conSrcA = document.createElement('select')
+try { fillSoundSelect(conSrcQ, conCfg('question').sel) } catch (err) {}
+try { fillSoundSelect(conSrcA, conCfg('approval').sel) } catch (err) {}
+function dshwvConRefreshAudio() {
+  try { fillSoundSelect(conSrcQ, conCfg('question').sel) } catch (err) {}
+  try { fillSoundSelect(conSrcA, conCfg('approval').sel) } catch (err) {}
+}
+
+menuBox.classList.add('dshwv-menu-console')
 var menuRootView = document.createElement('div')
 menuRootView.className = 'dshwv-menuview'
-while (menuBox.firstChild) menuRootView.appendChild(menuBox.firstChild)
 menuBox.appendChild(menuRootView)
+conBuildFrame()
+
 var usagePanel = document.createElement('div')
 usagePanel.className = 'dshwv-usage-sub'
 usagePanel.style.display = 'none'
@@ -2663,6 +3854,7 @@ menuBox.appendChild(usageArea)
 usageArea.appendChild(usagePanel)
 // 底部固定动作行:始终可见;主菜单态=「用量记录」,用量态=「‹ 返回」
 var usageNavRow = menuRow()
+usageNavRow.classList.add('dshwv-keep-row')
 usageNavRow.style.flex = '0 0 auto'
 // v790（用户要求）：把最下方这个按钮行的**下边距**让给版本小字（5px → 0）。
 // 与菜单 padding-bottom 10 → 4 合起来正好腾出 11px = 版本行高 ⇒ 菜单总高不变（不会多占一行）。
@@ -2670,8 +3862,7 @@ usageNavRow.style.marginBottom = '0'
 usageRecBtn.style.width = '100%'
 usageNavRow.appendChild(usageRecBtn)
 menuBox.appendChild(usageNavRow)
-// v790：版本小字挂在菜单最后（在"最下方按钮 ↔ 菜单底边"那段空隙里居中，见 .dshwv-ver 的注释）
-menuBox.appendChild(menuVerEl)
+// v880：版本号已移进控制台头部（见 conHeadRow），这里不再追加到菜单底部。
 var usagePanelOpen = false
 var usageRefreshTimer = null
 var usageMainEl = null // 用量子界面可刷新内容区(保留顶部返回条)
@@ -2707,6 +3898,7 @@ function setUsageNavBtn(inUsage) {
 function showUsageSub() {
   try { if (usageHideTimer) { clearTimeout(usageHideTimer); usageHideTimer = null } } catch (err) {}
   usagePanelOpen = true
+  try { menuBox.classList.add('dshwv-sub-open') } catch (err) {}
   // 锁定外层 menuBox 当前可见的宽高;用量视图占按钮上方区域并内部滚动
   var w0 = 300
   var h0 = 360
@@ -2780,6 +3972,7 @@ function hideUsageSub() {
   // 否则会把主菜单行瞬移进 usageArea,造成"内容瞬隐、仅底部按钮淡出"。
   if (!usagePanelOpen) { setUsageNavBtn(false); return }
   usagePanelOpen = false
+  try { if (!aboutPanelOpen) menuBox.classList.remove('dshwv-sub-open') } catch (err) {}
   if (!usagePanel) { setUsageNavBtn(false); return }
   // 点击返回立即恢复主态按钮文案(不等动画结束)
   setUsageNavBtn(false)
@@ -3373,6 +4566,7 @@ function showAboutSub() {
   // 记账视图开着时先切走（两者不会同时存在）
   try { if (usagePanelOpen) { usagePanelOpen = false; usagePanel.style.display = 'none' } } catch (err) {}
   aboutPanelOpen = true
+  try { menuBox.classList.add('dshwv-sub-open') } catch (err) {}
   aboutEnsurePanel()
   var w0 = 300, h0 = 360
   try {
@@ -3440,6 +4634,7 @@ function hideAboutSub() {
   // 否则会把主菜单行瞬移进 usageArea，造成"内容瞬隐、仅底部按钮淡出"（与 hideUsageSub 同款守卫）
   if (!aboutPanelOpen) { setUsageNavBtn(false); return }
   aboutPanelOpen = false
+  try { if (!usagePanelOpen) menuBox.classList.remove('dshwv-sub-open') } catch (err) {}
   if (!aboutPanel) { setUsageNavBtn(false); return }
   setUsageNavBtn(false)
   // 与记账视图同一套编排：主菜单临时叠进同一可视区（位于关于内容之下），
@@ -20623,6 +21818,15 @@ function refresh(manual) {
 }
 var soundOn = true
 var soundVol = 0.9
+// 主音量（全局增益 0–1）：乘在每个音效的 GainNode 上，不改各通道自己的音量值。
+// 只存本机（每人设备响度不同），默认 100% 不改变既有听感。
+var masterVol = 1
+try {
+  var _mvRaw = localStorage.getItem('dshw-master-vol')
+  var _mv = _mvRaw == null ? NaN : Number(_mvRaw)
+  if (isFinite(_mv) && _mv >= 0 && _mv <= 1) masterVol = _mv
+} catch (err) { masterVol = 1 }
+function saveMasterVol() { try { localStorage.setItem('dshw-master-vol', String(masterVol)) } catch (err) {} }
 // v866（用户要求）：按压/松开音的**独立**开关 —— 以前 ① 区那个 [✓] 其实是全局 soundOn 兼着当它用，
 //   用户希望它"真正只管按压"。true/false 落 .dsh-size.json 的 pressOn；soundOn 改为**派生**（见 refreshSoundMaster()）。
 var pressOn = true
@@ -20872,6 +22076,7 @@ function setScale(v) {
   root.style.setProperty('--dshw-scale', String(next))
   scaleInput.value = String(next)
   scaleNumber.value = String(scaleToDisplay(next))
+  try { dshwvConScaleMirror() } catch (err) {}
   saveConfig()
   // keep the corner fixed while resizing; the position correction applies
   // instantly because the caller disables the transition for the whole drag
@@ -20884,6 +22089,7 @@ function setScale(v) {
   }
   state.top = clampWidgetTop(Math.min(Math.max(fy - r2.height, 0), Math.max(0, vp.h - r2.height)))
   express()
+  try { if (menuOpen) positionMenu() } catch (err) {}
   // 主宠改「大小」：先把主宠自身按新 root 尺寸重排，再让分身跟随（顺序不能反）
   try { if (petOn) petRefitNow() } catch (err) {}
   // 分身一起重算：固定百分比按新主宠尺寸等比变，「跟随主宠」保持与主宠同尺寸
@@ -21232,11 +22438,29 @@ function toggleMenu(anchorX, anchorY) {
     // 用户在官方泡泡编辑器里新加的随机句要重启应用才出现在下拉里（素材包清单则是每次重拉）。
     try { linePoolCache = null } catch (err) {}
     try { lineLoadPool(function () { lineFillSelect() }) } catch (err) {}
+    try { volcRefresh() } catch (err) {}
   }
-  if (menuOpen) positionMenu()
+  if (menuOpen) {
+    // v881：控制台滚动位置在 iframe 内，每次打开都回到顶部并重算高度
+    try { menuBox.scrollTop = 0 } catch (err) {}
+    try { dshwvConRefreshAudio() } catch (err) {}
+    // 动画清单可能比控制台晚到：每次打开都按真实动画池重填分类下拉
+    try { if (conPillRefs.actFill) conPillRefs.actFill() } catch (err) {}
+    try { conFit() } catch (err) {}
+    try { positionMenu() } catch (err) {}
+    try { dshwvConSync() } catch (err) {}
+    try {
+      if (conDoc) {
+        var conScroll = conDoc.querySelector('main > div.p-3')
+        if (conScroll) conScroll.scrollTop = 0
+      }
+    } catch (err) {}
+  }
   if (menuOpen) {
     try { petFillIdleSelect() } catch (err) {}
     try { petFillCategorySelects() } catch (err) {}
+    // v880：控制台里的音量/胶囊/自动关闭 chips 等随时同步
+    try { dshwvConRefresh() } catch (err) {}
   }
   menuBox.classList.toggle('dshwv-menu-open', menuOpen)
   try { root.classList.toggle('dshwv-menu-shown', menuOpen) } catch (err) {}
@@ -21248,6 +22472,7 @@ function toggleMenu(anchorX, anchorY) {
 function closeMenu() {
   menuOpen = false
   menuClosedAt = Date.now()
+  try { menuBox.classList.remove('dshwv-sub-open') } catch (err) {}
   menuBox.classList.remove('dshwv-menu-open')
   try { root.classList.remove('dshwv-menu-shown') } catch (err) {}
   try { petActsClose() } catch (err) {}
@@ -21305,47 +22530,77 @@ function snapCheck() {
     express()
   }
 }
+// 菜单贴靠的锚点：鲸鱼/桌宠的素材盒（img 的布局盒在两种形态下都保留），
+// 用 root 会把透明留白也算进去，菜单看起来离角色很远
+function dshwvMenuAnchorRect() {
+  try {
+    if (img) {
+      var b = img.getBoundingClientRect()
+      if (b.width > 8 && b.height > 8) return b
+    }
+  } catch (err) {}
+  return root.getBoundingClientRect()
+}
 function positionMenu() {
   try {
-    var r = root.getBoundingClientRect()
-    var b = menuBtn.getBoundingClientRect()
     var vp = viewport()
-    // 右键分身：菜单直接出现在点击点上方（不必再去找主宠）
+    var mw = menuBox.offsetWidth || Math.min(416, vp.w - 24)
+    var mh = menuBox.offsetHeight || 420
+    var gap = 4
+    // 右键分身：菜单出现在点击点上方，但必须夹在视口内（角色靠上时不再被裁掉）
     if (menuAnchor) {
       var ax = Math.min(Math.max(menuAnchor.x, 12), vp.w - 12)
       var ay = Math.min(Math.max(menuAnchor.y, 12), vp.h - 12)
       if (ax < vp.w / 2) {
         menuBox.style.left = ax + 'px'
         menuBox.style.right = 'auto'
-        menuBox.style.transformOrigin = 'bottom left'
+        menuBox.style.transformOrigin = 'center left'
       } else {
-        menuBox.style.right = (vp.w - ax) + 'px'
-        menuBox.style.left = 'auto'
-        menuBox.style.transformOrigin = 'bottom right'
+        menuBox.style.left = Math.max(8, Math.min(ax - mw, vp.w - mw - 8)) + 'px'
+        menuBox.style.right = 'auto'
+        menuBox.style.transformOrigin = 'center right'
       }
-      menuBox.style.bottom = (vp.h - ay + 8) + 'px'
-      menuBox.style.top = 'auto'
+      menuBox.style.top = Math.max(12, Math.min(vp.h - mh - 12, ay - mh - 8)) + 'px'
+      menuBox.style.bottom = 'auto'
       return
     }
-    var onLeft = r.left + r.width / 2 < vp.w / 2
-    // 菜单出现在按钮上方，锚定在按钮一侧：
-    // 右侧 → 菜单右下角对齐按钮右上角；左侧 → 菜单左下角对齐按钮左上角
-    if (onLeft) {
-      menuBox.style.left = b.left + 'px'
+    // 常态：菜单放在角色左侧或右侧，并与角色垂直居中 —— 角色贴顶/贴底都不会遮挡
+    var r = dshwvMenuAnchorRect()
+    var leftSpace = r.left - gap
+    var rightSpace = vp.w - r.right - gap
+    var side
+    if (rightSpace >= mw && rightSpace >= leftSpace) side = 'right'
+    else if (leftSpace >= mw) side = 'left'
+    else side = leftSpace > rightSpace ? 'left' : 'right'
+    if (side === 'left') {
+      menuBox.style.left = Math.max(8, r.left - gap - mw) + 'px'
       menuBox.style.right = 'auto'
-      menuBox.style.transformOrigin = 'bottom left'
+      menuBox.style.transformOrigin = 'center right'
     } else {
-      menuBox.style.right = (vp.w - b.right) + 'px'
-      menuBox.style.left = 'auto'
-      menuBox.style.transformOrigin = 'bottom right'
+      menuBox.style.left = Math.min(vp.w - mw - 8, r.right + gap) + 'px'
+      menuBox.style.right = 'auto'
+      menuBox.style.transformOrigin = 'center left'
     }
-    // 菜单底边悬在鲸鱼素材顶部上方：素材占挂件底部 59.45% 高度，
-    // 其顶部位于 root 底部往上 59.45% 处（= 距顶部 40.55%）。按钮顶边在
-    // 素材顶部下方 4px，若菜单底边对齐按钮顶边会压住素材顶部，导致被菜单遮挡。
-    var assetTop = r.bottom - r.height * 0.5945
-    menuBox.style.bottom = (vp.h - assetTop) + 6 + 'px'
-    menuBox.style.top = 'auto'
+    var cy = r.top + r.height / 2
+    menuBox.style.top = Math.max(12, Math.min(vp.h - mh - 12, cy - mh / 2)) + 'px'
+    menuBox.style.bottom = 'auto'
   } catch (err) {}
+}
+
+// 换形态/改大小后布局会再落定几次（缩放/画面比例要等素材就绪）：
+// 立即贴一次，再短时间轮询贴边，稳定后自动停止 —— 不是持续跟随
+var menuSettleTimer = 0
+function dshwvPositionMenuSoon() {
+  try { if (menuOpen) positionMenu() } catch (err) {}
+  try { if (menuSettleTimer) clearInterval(menuSettleTimer) } catch (err) {}
+  var n = 0
+  menuSettleTimer = setInterval(function () {
+    n++
+    try {
+      if (!menuOpen || n > 12) { clearInterval(menuSettleTimer); menuSettleTimer = 0; return }
+      positionMenu()
+    } catch (err) {}
+  }, 180)
 }
 
 // —— 自定义角色：列表 / 选择 / 置顶 / 删除 / 导入裁剪 ——
@@ -21360,6 +22615,7 @@ function loadRoles() {
         if (!d || !d.ok || !Array.isArray(d.roles)) return
         roleList = d.roles
         renderRolePanel()
+        try { if (conPillRefs.extra && conPillRefs.extra.roleFill) conPillRefs.extra.roleFill() } catch (err) {}
         // 恢复上次选择的角色
         var saved = ''
         try { saved = localStorage.getItem('dshw-role') || '' } catch (err) {}
@@ -21960,12 +23216,15 @@ var PET_POOLS = {
     { id: '吃什么', w: 16, list: ['吃白饭', '大口吃零食', '吃Token', '吃早餐', '吃午餐', '吃晚餐', '吃冰淇淋融化', '吃大闸蟹', '吃糖葫芦', '吃长寿面', '吃西瓜', '涮火锅'] },
     { id: '时节', w: 14, list: ['被落叶淹没', '中秋赏月吃月饼', '堆雪人', '放烟花', '吃粽子', '吃年糕', '吃青团', '吃腊八粥', '吃重阳糕', '收红包', '写福字', '穿针乞巧', '舞狮头', '讨糖南瓜灯', '插茱萸赏菊', '放河灯', '萌化小幽灵', '装点圣诞树', '放孔明灯', '吃汤圆', '吃饺子'] },
     // noMirror：带文字，镜像会颠倒 —— 宠物朝右（被镜像）时不抽这一类（与 dsh-pet 同规则）
-    { id: '文字', w: 10, noMirror: true, list: ['是啊，吃什么', '深度思考碎碎念'] }
+    { id: '文字', w: 10, noMirror: true, list: ['是啊，吃什么', '深度思考碎碎念'] },
+    { id: '余额档位', w: 4, list: ['余额-袋空如洗', '余额-分文不剩', '余额-金袋叮当', '余额-钱袋满溢', '余额-钱袋如常', '余额-数金皱眉'] },
+    { id: '碎碎念', w: 3, list: ['碎碎念-擦桌碎碎念', '碎碎念-对屏碎碎念', '碎碎念-发呆碎碎念'] }
   ],
   // v0.4.4：待机占比 10→55，并把待机停留从 8–20s 拉长到 25–45s。
   // 旧权重下 80% 都走随机分类，几秒换一段，看起来"待机动作切换太快"。
   weights: { idle: 55, turn: 5, move: 5 },
-  work: { waiting: '工作状态-原地踱步张望', success: '工作状态-雀跃庆祝' }
+  work: { waiting: '工作状态-原地踱步张望', success: '工作状态-雀跃庆祝' },
+  workList: ['工作状态-垂头叹气冒汗', '工作状态-忙碌点按', '工作状态-清点归档', '工作状态-雀跃庆祝', '工作状态-思考冒泡', '工作状态-原地踱步张望']
 }
 var PET_IDLE_MIN_MS = 25000
 var PET_IDLE_SPAN_MS = 20000
@@ -22014,13 +23273,10 @@ function petPinSave() {
 function petCategoryList(id) {
   if (id === '待机') return PET_POOLS.idle
   if (id === '转向') return PET_POOLS.turn
+  if (id === '拖拽') return PET_POOLS.drag
   if (id === '移动') return PET_POOLS.moves
   if (id === '点击回应') return PET_POOLS.clicks
-  if (id === '工作状态') {
-    var w = []
-    Object.keys(PET_POOLS.work).forEach(function (k) { if (PET_POOLS.work[k]) w.push(PET_POOLS.work[k]) })
-    return w
-  }
+  if (id === '工作状态') return PET_POOLS.workList
   for (var i = 0; i < PET_POOLS.cats.length; i++) if (PET_POOLS.cats[i].id === id) return PET_POOLS.cats[i].list
   return null
 }
@@ -22056,10 +23312,10 @@ function petPinApply() {
 function petCategoryOfAction(name) {
   if (PET_POOLS.idle.indexOf(name) >= 0) return '待机'
   if (PET_POOLS.turn.indexOf(name) >= 0) return '转向'
+  if (PET_POOLS.drag.indexOf(name) >= 0) return '拖拽'
   if (PET_POOLS.moves.indexOf(name) >= 0) return '移动'
   if (PET_POOLS.clicks.indexOf(name) >= 0) return '点击回应'
-  var wk = Object.keys(PET_POOLS.work)
-  for (var w = 0; w < wk.length; w++) if (PET_POOLS.work[wk[w]] === name) return '工作状态'
+  if (PET_POOLS.workList.indexOf(name) >= 0) return '工作状态'
   for (var i = 0; i < PET_POOLS.cats.length; i++) {
     if (PET_POOLS.cats[i].list.indexOf(name) >= 0) return PET_POOLS.cats[i].id
   }
@@ -22114,6 +23370,8 @@ function petSyncCategorySelects() {
       }
       petSetSelValue(petCatSels[id], v)
     })
+    // 合并后的「动作分类 + 具体动作」也要跟着回填
+    try { if (typeof petActMergeSync === 'function') petActMergeSync() } catch (err) {}
   } catch (err) {}
 }
 var petOn = false // 是否处于桌宠形态
@@ -22635,6 +23893,13 @@ function petCloneSetScale(i, sc) {
 // 菜单里「分身N大小」只显示当前存在的分身；数值始终与场上实例同步
 function petCloneSizeMenuSync() {
   try {
+    // 没有分身时：数量 / 分身动作 / 各自大小一并隐藏；有分身时恢复，并同步勾选与数量显示
+    var on = petCloneCount > 0
+    if (on) petCloneLastCount = petCloneCount
+    try { petCloneOnChk.checked = on } catch (err) {}
+    try { if (on) petCloneSel.value = String(Math.max(1, Math.min(3, petCloneCount))) } catch (err) {}
+    try { rowPetClone.classList.toggle('dshwv-pet-hide', !on) } catch (err) {}
+    try { rowPetCloneAct.classList.toggle('dshwv-pet-hide', !on) } catch (err) {}
     if (typeof petCloneSizeSels === 'undefined' || !petCloneSizeSels.length) return
     for (var i = 0; i < petCloneSizeSels.length; i++) {
       var item = petCloneSizeSels[i]
@@ -22655,6 +23920,7 @@ function petCloneSizeMenuSync() {
       item.sel.value = String(want)
       if (item.sel.value !== String(want) && item.sel.options.length) item.sel.value = '0.78'
     }
+    try { dshwvConCloneSync() } catch (err) {}
   } catch (err) {}
 }
 try {
@@ -23882,39 +25148,26 @@ function petLoadAnims(cb) {
 }
 // 桌宠形态：整块换成桌宠菜单 —— 只保留这些行，其余（角色下拉/记账/避让/资源/表情…）全部隐藏。
 // 切回小鲸鱼由专用行「切回小鲸鱼」承担，所以不需要保留「角色」下拉行。
-var PET_MENU_KEEP = ['切回小鲸鱼', '待机', '转向', '移动', '点击回应', '小动作', '玩耍', '吃什么', '时节', '文字', '工作状态', '屏幕漫游', '分身', '分身动作', '分身1大小', '分身2大小', '分身3大小', '回到初始位置', '峰谷显示', '大小', '音效与提示', '隐藏菜单按钮']
-var PET_MENU_ONLY = ['切回小鲸鱼', '待机', '转向', '移动', '点击回应', '小动作', '玩耍', '吃什么', '时节', '文字', '工作状态', '屏幕漫游', '分身', '分身动作', '分身1大小', '分身2大小', '分身3大小', '回到初始位置']
+// —— 桌宠专属行由控制台的 .dshwv-con-pet-only 类名统一显隐 ——
 function petApplyMenuMode() {
   try {
-    var rows = document.querySelectorAll('.dshwv-menu-row')
-    for (var i = 0; i < rows.length; i++) {
-      var row = rows[i]
-      var txt = String(row.textContent || '')
-      var keep = false
-      for (var k = 0; k < PET_MENU_KEEP.length; k++) {
-        if (txt.indexOf(PET_MENU_KEEP[k]) === 0) { keep = true; break }
-      }
-      var petOnly = false
-      for (var j = 0; j < PET_MENU_ONLY.length; j++) {
-        if (txt.indexOf(PET_MENU_ONLY[j]) === 0) { petOnly = true; break }
-      }
-      // 桌宠形态：不在保留名单 ⇒ 隐藏；鲸鱼形态：只隐藏桌宠专用行
-      row.classList.toggle('dshwv-pet-hide', petOn ? !keep : petOnly)
-    }
-    // 分组分隔线只在桌宠形态显示
-    var seps = document.querySelectorAll('.dshwv-pet-only')
-    for (var s = 0; s < seps.length; s++) seps[s].classList.toggle('dshwv-pet-hide', !petOn)
+    // v880：控制台用显式类名标记桌宠专属区（屏幕漫游 / 动作与待机 / 分身 / 一键复位），
+    // 不再靠行首文字匹配 —— 文案一改就失效的老问题一并去掉。
+    var petOnlyEls = menuBox.querySelectorAll('.dshwv-con-pet-only')
+    for (var i = 0; i < petOnlyEls.length; i++) petOnlyEls[i].classList.toggle('dshwv-pet-hide', !petOn)
+    try { rowPetSettings.style.display = 'none' } catch (err) {}
     petSyncNavRow()
     // 「分身N大小」只保留当前存在的分身行
     try { petCloneSizeMenuSync() } catch (err) {}
+    try { dshwvConRefresh() } catch (err) {}
   } catch (err) {}
 }
-// 底部“记账/返回”行：桌宠主菜单里隐藏；子页（关于/用量）打开时显示，充当返回按钮
+// 底部“记账/返回”行：只在子页（关于/用量）打开时显示，充当返回按钮
 function petSyncNavRow() {
   try {
     if (!usageNavRow) return
     var sub = !!(usagePanelOpen || aboutPanelOpen)
-    usageNavRow.classList.toggle('dshwv-pet-hide', !!petOn && !sub)
+    usageNavRow.classList.toggle('dshwv-pet-hide', !sub)
   } catch (err) {}
 }
 function petEnable(byUser) {
@@ -24234,12 +25487,23 @@ function toggleRolePanel() {
   try {
     var b = roleBtn.getBoundingClientRect()
     var vp = viewport()
+    // 行被搬进控制台 iframe 后，按钮坐标是 iframe 视口坐标 → 叠加 iframe 的屏幕偏移，
+    // 否则角色面板会飘到别处
+    var offX = 0
+    var offY = 0
+    try {
+      if (roleBtn.ownerDocument && roleBtn.ownerDocument !== document && conFrame) {
+        var fr = conFrame.getBoundingClientRect()
+        offX = fr.left
+        offY = fr.top
+      }
+    } catch (err) {}
     // 固定面板宽度（与触发按钮一致，最小 200px）：防止长名称把面板撑宽，
     // 超出部分由名称 ellipsis 省略 / 面板横向滚动
     var panelW = Math.max(200, Math.round(b.width))
     rolePanel.style.width = panelW + 'px'
-    rolePanel.style.left = Math.max(4, Math.min(b.left, vp.w - panelW - 4)) + 'px'
-    rolePanel.style.top = (b.bottom + 6) + 'px'
+    rolePanel.style.left = Math.max(4, Math.min(b.left + offX, vp.w - panelW - 4)) + 'px'
+    rolePanel.style.top = (b.bottom + offY + 6) + 'px'
     rolePanel.style.display = 'block'
     rolePanel.classList.add('dshwv-rolelist-open')
   } catch (err) {}
@@ -25982,7 +27246,7 @@ function onDocClickStopper(e) {
   if (!isWhaleHit(e)) return
   try { e.preventDefault(); e.stopPropagation() } catch (err) {}
 }
-// 右键小鲸鱼唤出菜单(仅在开启「隐藏菜单按钮」时生效;菜单位置与按钮唤出一致)
+// 右键小鲸鱼唤出菜单（小鲸鱼/桌宠都生效；隐藏菜单按钮时仍然有入口）
 function onDocContextMenu(e) {
   try {
     // 桌宠形态：右键主宠或任意分身都直接打开**同一个主菜单**
@@ -25996,7 +27260,6 @@ function onDocContextMenu(e) {
         return
       }
     }
-    if (!menuBtnHide) return
     // 触摸端:原生 contextmenu(部分 Android 约 500ms 就补发)一律吞掉不触发,
     // 唤出时机统一由我们的长按计时决定,避免早于设定时长或重复开合
     if (touchDrag || (touchEndedAt > 0 && Date.now() - touchEndedAt < 1500) || longPressRecent()) {
