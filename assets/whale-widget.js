@@ -3212,9 +3212,13 @@ function aboutRender() {
   if (pkgV) {
     consistent = pkgV === p.version
     vWhy = '运行中 ' + (p.version || '?') + ' vs package.json ' + pkgV
+  } else if (lits.length) {
+    consistent = lits.every(function (x) { return x === p.version })
+    vWhy = '源码字面量 ' + lits.join(' / ') + ' vs 上报 ' + (p.version || '?')
   } else {
-    consistent = lits.length > 0 && lits.every(function (x) { return x === p.version })
-    vWhy = '源码字面量 ' + (lits.join(' / ') || '?') + ' vs 上报 ' + (p.version || '?')
+    // 新宿主不再下发字面量、旧宿主又没有 packageVersion：无法对照，显示"未知"而不是误报红
+    consistent = true
+    vWhy = '宿主未提供对照值（按一致处理）'
   }
   row('版本自洽', consistent ? '一致' : '不一致', '版本自洽: ' + (consistent ? '一致' : '不一致') + '（' + vWhy + '）' +
     (consistent ? '' : ' · 修改 package.json 后需重启 dsh web'),
@@ -4985,7 +4989,13 @@ function usageAlertBudgetEditor(key, onSave) {
               else if (mm.type === 'image') txt += '[图片]'
               else if (mm.type === 'today') txt += String(mm.tpl || '今日已用 {expense_ds}')
             }
-            pvElRef.innerHTML = '<div class="dshwv-hint" style="white-space:pre-wrap">' + txt + '</div>'
+            // 兜底渲染也不要把用户文本当 HTML：用 textContent 构造，避免配置里的标记被执行
+            var fb = document.createElement('div')
+            fb.className = 'dshwv-hint'
+            fb.style.whiteSpace = 'pre-wrap'
+            fb.textContent = txt
+            pvElRef.innerHTML = ''
+            pvElRef.appendChild(fb)
           } catch (e3) {}
         }
       } catch (err) {}
@@ -20638,6 +20648,11 @@ var configLoaded = false        // 首次 GET 应用完成前，一律不 PUT
 var configSavePending = false   // 加载期间被挡下的保存，加载完成后补一次
 var dshwvToastEl = null
 var dshwvToastTimer = null
+// toast 是按 HTML 设计的（部分调用点传的字面量里带 `<br>`）；任何**动态值**必须先过这里，
+// 否则会把服务端错误 / 用户台词当 HTML 执行。
+function dshwvToastText(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
 // 固定定位的小提示条（自动消失；同一时刻只留一条）
 // v796（用户反馈）：① 复制类提示**别停 8 秒**（太久）② 别复用深红"报错条"外观（用户觉得像系统自带的、与主题不一致）
 //   ⇒ 加 kind：'ok' 用与菜单一致的浅色卡片 + 1.4 秒；'err'（默认值，既有调用不用改）仍是深红 + 8 秒。
@@ -20676,8 +20691,7 @@ function configSaveFailNotice(detail) {
   // 「动态数据进 HTML 位置」。当前来源都在本地信任边界内、构造不出真实利用，但把 provider 回包、
   // 模型名之类接进同一个 toast 时它会立刻变成真洞 —— 所以只转义这一个动态值，toast 自身的
   // `<br>` 保留。
-  var safe = String(detail || '').slice(0, 120)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  var safe = dshwvToastText(String(detail || '').slice(0, 120))
   dshwvToast('⚠ 设置保存失败：' + safe +
     '<br>已自动重试一次。若持续失败，请检查 DSH 数据目录是否可写。')
 }
@@ -21021,9 +21035,7 @@ var releaseAudio = null
 var pressing = false
 var pressEnded = false
 var releasePlayed = false
-// 本次手势是否**真的起播**过按压音（拖动/甩抛时为 false ⇒ 松手音也不响）
-var pressAudioStarted = false
-// v745：不再需要 releaseTimer —— 点按时由 playReleaseAt() 在**音频线程**排期（见 pressUp）
+// v745：点按的按压/松开都在「点击」完成时播（拖动/甩抛不播），不再需要 releaseTimer。
 // —— v752：本体按压/松开音改走「片段路由」——
 // 起因：issue 里那台机器上 /dsh-whale/sound/press.mp3?set=… 会被本机的一层东西（代理/安全软件）
 // 拦成**空的 204**（响应头里没有 Date、还多出 pragma: no-cache，不是本进程发出的），
@@ -21049,7 +21061,10 @@ function soundSlotUrls(slot, groupId) {
 // ===== 桌宠语音（点击回应 / 拖拽甩出 / 硬落地 / Q 弹落地）=====
 // 音量跟随「按压音量」soundVol，总开关跟随 soundOn；与按压/松开“咔哒”互斥：
 // 桌宠形态下不再播咔哒，由这里按行为播对应语音。
-var PET_VOICE_KEYS = ['qtan', 'heng', 'weiqu', 'bing']
+// 只保留仍会被行为触发的两段：轻落 Q弹 / 重摔 委屈。
+// 冰冰冰与哼不理你了已改为「按压音效组」的素材（点击/甩出不再用 playPetVoice 播），
+// 留在这里只会每次启动多预取两段永远不会播的文件。
+var PET_VOICE_KEYS = ['qtan', 'weiqu']
 var petVoiceEls = {}
 function petVoiceUrl(key) { return '/dsh-whale/sound/voice.mp3?name=' + encodeURIComponent(key) }
 function petVoiceUrls() {
@@ -21100,7 +21115,7 @@ function applySoundSet() {
     // ⚠️ 不变式：这里预热的 URL 必须与上面建元素用的 URL **逐字符相同**（同一个变量，不再各写一遍字面量）——
     //    一旦"预热 A、播放 B"，点按就会退回异步解码路径，手感立刻变钝（0.3.3 那次"变钝"的根因）。
     dshwvWarm([pu.empty ? '' : pu.url, ru.empty ? '' : ru.url])
-    // 桌宠语音也预热（四条合计约 100KB；与音效组无关，固定 URL）
+    // 桌宠语音也预热（两条：轻落 Q弹 / 重摔 委屈；与音效组无关，固定 URL）
     try { dshwvWarm(petVoiceUrls()) } catch (err) {}
   } catch (err) {}
 }
@@ -21133,7 +21148,6 @@ function playPress() {
   }
   pressEnded = false
   releasePlayed = false
-  pressAudioStarted = true
   if (!pressAudio) {
     // 按压槽留空:按压事件静音,但状态已复位 → 每次松开都还能正常发声
     pressEnded = true
@@ -21167,23 +21181,8 @@ function playRelease() {
     if (p && typeof p.catch === 'function') p.catch(function () {})
   } catch (err) {}
 }
-// 把松开音**排期到 delaySec 秒之后**（音频线程时间轴）：起播时刻精确、不受主线程抖动影响。
-function playReleaseAt(delaySec) {
-  if (releasePlayed || !releaseAudio || !soundOn) return
-  releasePlayed = true
-  try {
-    releaseAudio.currentTime = 0 // 复位（同时停掉上一条已排期/在播的松开音）
-    if (delaySec > 0 && typeof releaseAudio.playAt === 'function') {
-      releaseAudio.playAt(delaySec)
-      return
-    }
-    var p = releaseAudio.play()
-    if (p && typeof p.catch === 'function') p.catch(function () {})
-  } catch (err) {}
-}
 function pressDown() {
   pressVisualStartedAt = performance.now()
-  pressAudioStarted = false // 新手势：按压音是否已起播（松手音只跟随本次真实按压）
   body.style.transform = SQUISH
   pressing = true
   // 按压闭眼：按住期间切当前素材包的「闭眼」帧（松开由 pressUp 还原；无该帧的包自动无此效果）
@@ -21204,41 +21203,9 @@ function pressUp() {
   pressing = false
   // 按压闭眼还原（即便按压音效关着也要还原 —— 表情与音效是两条独立链路）
   try { exprPressEnd() } catch (err) {}
-  // 本次手势没起播过按压音（拖动/甩抛，或还没点成）⇒ 松开音也不响，避免"拖着拖着突然咔哒"
-  if (!pressAudioStarted) {
-    try { releasePlayed = true } catch (err) {}
-    return
-  }
-  // v868：静音按压时松开音也不响（顺手把 releasePlayed 标记收干净，避免下次误触发）
-  if (pressOn === false) {
-    try { releasePlayed = true } catch (err) {}
-    return
-  }
-  // 桌宠形态：松开也不播“咔哒”（同一次手势的语音在点击/甩出时播）
-  if (petOn) {
-    try { releasePlayed = true } catch (err) {}
-    return
-  }
-  if (pressEnded) {
-    // hold (or released after Ya1 finished) → Ya2 now
-    playRelease()
-    return
-  }
-  // click：把松开音排到"按压音结束前 RELEASE_LEAD_MS 毫秒"（默认 0 = 正好接上）
-  var durKnown = false
-  var remainSec = 0
-  try {
-    var dur = pressAudio ? pressAudio.duration : 0
-    if (isFinite(dur) && dur > 0) {
-      durKnown = true
-      remainSec = Math.max(0, dur - pressAudio.currentTime)
-    }
-  } catch (err) {}
-  if (durKnown) {
-    playReleaseAt(Math.max(0, remainSec - RELEASE_LEAD_MS / 1000))
-    return
-  }
-  // 时长未知（预热失败/解码异常）→ 交给 pressAudio.onended 兜底（见 playPress）
+  // 按压音只在「点击」时由 whaleClick() 播放（拖动/甩抛不播），松手音由 playPress 的 onended 收尾；
+  // 这里不再排期松开音，顺手把标记收干净，避免下一次误触发。
+  try { releasePlayed = true } catch (err) {}
 }
 var menuOpen = false
 var menuClosedAt = 0 // 最近一次关闭菜单的时刻(用于避免"关掉后同一次手势又把它长按打开")
@@ -22434,6 +22401,9 @@ try { if (localStorage.getItem('dshw-pet-roam') === '0') petRoamOn = false } cat
 var petRoamRaf = 0
 var petRoamToken = 0
 var petRoamActive = false
+// 下一次「主动漫游」的到期时刻：漫游开启时定期插播一段移动动画，
+// 否则移动类只占轮播权重 5%，用户几乎看不到位移（反馈「开了像没开」）。
+var petRoamNextAt = 0
 var petThrowRaf = 0
 var petThrowToken = 0
 var petThrowActive = false
@@ -22450,6 +22420,7 @@ function petStopRoam() {
 function petSetRoamOn(on) {
   petRoamOn = !!on
   try { localStorage.setItem('dshw-pet-roam', petRoamOn ? '1' : '0') } catch (err) {}
+  if (petRoamOn) petRoamNextAt = Date.now() + 4000 // 打开后几秒内先走一段，便于确认真的生效
   if (!petRoamOn) {
     try { petStopRoam() } catch (err) {}
     for (var i = 0; i < petClones.length; i++) { try { petCloneStopRoam(petClones[i]) } catch (err) {} }
@@ -22725,6 +22696,9 @@ function petCloneApply(c) {
     c.el.style.left = c.x.toFixed(1) + 'px'
     c.el.style.top = c.y.toFixed(1) + 'px'
     c.el.style.transform = 'scaleX(' + (c.faceR ? -1 : 1) + ')'
+    // 气泡正锚定在这只分身上：位置一变就同步重算偏移（拖动/甩抛/漫游都走这里）。
+    // 否则气泡只在每秒的巡检里更新一次，拖完会明显"跑偏"（用户反馈）。
+    try { if (bubbleCloneAnchor === c && bubbleShown) petBubbleAnchorApply() } catch (err) {}
   } catch (err) {}
 }
 function petCloneVideoSquash(c) {
@@ -23233,7 +23207,6 @@ function petCloneClick(c) {
   if (name) petClonePlay(c, name, false)
   // 与主宠点击一致：弹出消息气泡，并锚定到**这只分身**上方
   try {
-    bubbleCloneAnchor = c
     whaleBubbleTap()
     if (!bubbleShown) {
       // 这次点击把气泡收起了：偏移先留着走完淡出，不能立刻弹回主宠位置
@@ -23241,6 +23214,9 @@ function petCloneClick(c) {
     } else if (bubbleScene && (bubbleScene.kind === 'cost' || bubbleScene.kind === 'alert' || bubbleScene.kind === 'wait')) {
       petBubbleAnchorReset()
     } else {
+      // ⚠️ 必须在 whaleBubbleTap() **之后**再写锚点：内部若走收起/重开路径会释放锚点，
+      // 先写会被清掉 ⇒ 气泡停在主宠位置（用户反馈"点分身气泡跑到别处"）。
+      bubbleCloneAnchor = c
       petBubbleAnchorSchedule()
     }
   } catch (err) { try { petBubbleAnchorReset() } catch (e) {} }
@@ -23265,6 +23241,7 @@ function petCloneRemoveAll() {
       c.vA.pause(); c.vB.pause()
       c.vA.removeAttribute('src'); c.vB.removeAttribute('src')
       try { dshwBodyDetach(c.el) } catch (err) { try { c.el.remove() } catch (e) {} }
+      if (bubbleCloneAnchor === c) { try { petBubbleAnchorReset() } catch (e) {} }
     } catch (err) {}
   }
   petClones = []
@@ -23355,6 +23332,8 @@ function petCloneSetCount(n) {
       if (c.squashRaf) cancelAnimationFrame(c.squashRaf)
       c.vA.pause(); c.vB.pause()
       try { dshwBodyDetach(c.el) } catch (err) { try { c.el.remove() } catch (e) {} }
+      // 气泡正锚定在这只被删掉的分身上：立刻解锁，否则它会一直停在旧偏移（目标已不存在）
+      if (bubbleCloneAnchor === c) { try { petBubbleAnchorReset() } catch (e) {} }
     } catch (err) {}
   }
   for (var i = petClones.length; i < want; i++) {
@@ -23573,6 +23552,18 @@ function petRunChain() {
     } catch (err) {}
     petTimer = setTimeout(petRunChain, 350)
     return
+  }
+  // 屏幕漫游开启：定期主动插一段移动类动画（真正横向走 60–150px）。
+  // 放在「固定动作」分支**之前**：否则只要用户固定了某个动作（如宅舞），这里永远走不到，
+  // 漫游看起来就是"开了没效果"。插播结束后 petOnEnded → petRunChain 会自动回到固定动作。
+  // 移动类在轮播里只占 5%，靠这个兜底每 25–45s 走一段；拖拽/甩抛期间不打断。
+  if (petRoamOn && !document.hidden && !(drag && drag.active) && !petThrowActive && Date.now() >= petRoamNextAt) {
+    var mvRoam = petPickNew(PET_POOLS.moves, petCur)
+    if (mvRoam) {
+      petRoamNextAt = Date.now() + 25000 + Math.random() * 20000
+      petSwitchTo(mvRoam, false)
+      return
+    }
   }
   // —— 固定动作/分类（下拉选择）优先：固定动作循环播放；固定分类只在该分类内轮播 ——
   if (petPin) {
@@ -24126,7 +24117,8 @@ function lineShow(text) {
   try {
     if (whaleSysPush({ kind: 'alert', mods: [{ type: 'text', text: s, size: 7, bold: true }], rank: 3, ttlMs: 6000 })) return
   } catch (err) {}
-  try { dshwvToast(s) } catch (err2) {}
+  // toast 走 innerHTML（自身模板里有 <br>），所以这里的自定义台词必须先转义
+  try { dshwvToast(dshwvToastText(s)) } catch (err2) {}
 }
 function lineFillSelect() {
   if (!lineMenuRefs || !lineMenuRefs.sel) return
@@ -25884,8 +25876,10 @@ function onDocPointerDown(e) {
     return
   }
   if (e.button !== 0 && e.pointerType === 'mouse') return
-  // 分身：先判分身命中（它不在主挂件 root 里，isWhaleHit 覆盖不到）；主宠区域优先
-  if (petOn && !isWhaleHit(e)) {
+  // 分身命中**优先于主宠**：分身可能叠在主宠区域上方/旁边，用户点的是那一只，
+  // 必须先让分身接管（否则会落到主宠 → 气泡跑到主宠上方，正是"点 A 却在 B 上出气泡"）。
+  // petCloneHitAt 用的是不透明命中盒，透明留白不会抢主宠的点击。
+  if (petOn) {
     var pcHit = petCloneHitAt(e.clientX, e.clientY)
     if (pcHit) { petCloneDragStart(pcHit, e); return }
   }
