@@ -616,6 +616,8 @@ var css = [
   // 桌宠形态：与 img 完全同框同几何（命中矩形/翻转/压扁全部复用 img 那套），
   // 双层 video 做交叉淡入（切换动画零空白帧）；pointer-events:none —— 事件仍由 img 接。
   '.dshwv-petwrap{position:absolute;right:0;bottom:0;height:66%;width:auto;aspect-ratio:640/360;display:none;pointer-events:none;transform-origin:50% 100%}',
+  // 双形态共存（v0.6.9）：桌宠脱离挂件，成为独立 fixed 实例 —— 自己定位/拖动/缩放，与小鲸鱼互不影响
+  '.dshwv-petwrap.dshwv-petwrap-stand{position:fixed;right:auto;bottom:auto;z-index:9999;display:block}',
   '.dshwv-petvid{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:right bottom;opacity:0;transition:opacity .22s ease;pointer-events:none;-webkit-user-drag:none;user-select:none}',
   // 拖拽弹簧 / 甩抛 / 漫游期间禁用 root 的 left/top 过渡，否则逐帧写位置会被过渡拖成"果冻"
   '.dshwv-root.dshwv-pet-move{transition:none}',
@@ -817,6 +819,10 @@ var css = [
   '.dshwv-btnlabel{display:block;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:normal}',
   '.dshwv-roleimport{border:1px solid rgba(32,49,112,.4);border-radius:6px;background:#203170;color:#fff;font-size:12px;padding:3px 8px;cursor:pointer;flex:0 0 auto}',
   '.dshwv-roleimport:hover{background:#2f4488}',
+  // 二值开关按钮（屏幕漫游 / 双形态共存）：aria-checked 就是状态本身。
+  // 旧版没有任何状态样式，按钮永远同一个深蓝，用户看不出开没开。
+  '.dshwv-roleimport[aria-checked="false"]{background:rgba(32,49,112,.12);color:#203170;border-color:rgba(32,49,112,.35)}',
+  '.dshwv-roleimport[aria-checked="true"]{background:#203170;color:#fff;border-color:rgba(32,49,112,.6)}',
   '.dshwv-rolelist{position:fixed;z-index:10001;box-sizing:border-box;background:rgba(255,255,255,.98);border:1px solid rgba(32,49,112,.35);border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.18);padding:4px;max-height:240px;overflow-y:auto;display:none;color-scheme:light}',
   '.dshwv-rolelist.dshwv-rolelist-open{display:block}',
   '.dshwv-roleitem{display:flex;align-items:center;gap:6px;padding:4px 6px;border-radius:6px;cursor:pointer;color:#203170;font-size:12px;white-space:nowrap;min-width:0}',
@@ -2188,9 +2194,11 @@ function petFormBtn(text, tip, fn) {
   return b
 }
 rowForm.appendChild(petFormBtn('小鲸鱼', '切回小鲸鱼形态', function () {
+  if (petCoexist) { try { setConFormTarget('whale') } catch (err) {} ; return }
   try { applyRole('default', '小鲸鱼', IMG_URL) } catch (err) {}
 }))
 rowForm.appendChild(petFormBtn('桌宠', '切换到桌宠（动画）形态', function () {
+  if (petCoexist) { try { setConFormTarget('pet') } catch (err) {} ; return }
   if (!petOn) { try { petEnable(true) } catch (err) {} }
 }))
 menuBox.appendChild(rowForm)
@@ -3067,22 +3075,28 @@ function conBind() {
   var pinBtn = doc.getElementById('pin-btn')
   if (pinBtn) pinBtn.style.display = 'none'
 
-  // 形态分段
+  // 形态分段：共存时只切换控制台编辑的形态（两只都保持显示）；未共存时切换实际显示的形象
   var segs = doc.querySelectorAll('main > div.p-3 > section > div.p-0\\.5 button')
   var segWhale = segs[0] || conFindBtn('小鲸鱼形态')
   var segPet = segs[1] || conFindBtn('桌宠形态')
+  conPillRefs.segWhale = segWhale
+  conPillRefs.segPet = segPet
   conOn(segWhale, 'click', function () {
+    if (petCoexist) { setConFormTarget('whale'); try { dshwvPositionMenuSoon() } catch (err) {} ; return }
     try { applyRole('default', '小鲸鱼', IMG_URL) } catch (err) {}
+    conFormTarget = 'whale'
     dshwvConSync()
     try { dshwvPositionMenuSoon() } catch (err) {}
   })
   conOn(segPet, 'click', function () {
+    if (petCoexist) { setConFormTarget('pet'); try { dshwvPositionMenuSoon() } catch (err) {} ; return }
     if (!petOn) { try { petEnable(true) } catch (err) {} }
+    conFormTarget = 'pet'
     dshwvConSync()
     try { dshwvPositionMenuSoon() } catch (err) {}
   })
 
-  // 大小
+  // 大小：共存时按当前形态页分别调 —— 桌宠页调独立大小（4~20 档 = 40%~200%），小鲸鱼页调挂件缩放
   var sizeSlider = doc.getElementById('scale-slider')
   var sizeVal = doc.getElementById('scale-value')
   var sizeUnit = sizeVal && sizeVal.nextElementSibling
@@ -3093,6 +3107,12 @@ function conBind() {
     sizeSlider.step = '1'
     conOn(sizeSlider, 'input', function () {
       var lv = Math.max(1, Math.min(20, Math.round(Number(sizeSlider.value) || 1)))
+      if (petCoexist && conFormTarget === 'pet') {
+        petSizeLevel = Math.max(4, Math.min(20, lv))
+        if (sizeVal) sizeVal.textContent = String(petSizeLevel)
+        try { petStandScaleSet(petSizeLevel / 10) } catch (err) {}
+        return
+      }
       var s = MIN_SCALE + (lv - 1) * (MAX_SCALE - MIN_SCALE) / 19
       try { setScale(s) } catch (err) {}
       if (sizeVal) sizeVal.textContent = String(lv)
@@ -3129,6 +3149,10 @@ function conBind() {
   bindQuick(labGap, function () { setScrollGapOn(!scrollGapOn) })
   bindQuick(labRoam, function () { petSetRoamOn(!petRoamOn) })
   bindQuick(labHide, function () { setMenuBtnHide(!menuBtnHide) })
+  var labCoexist = conFindText('双形态共存')
+  var swCoexist = quickSw(labCoexist)
+  if (labCoexist) bindQuick(labCoexist, function () { petSetCoexist(!petCoexist) })
+  conPillRefs.swCoexist = swCoexist
   conPillRefs.swGap = swGap
   conPillRefs.swRoam = swRoam
   conPillRefs.swHide = swHide
@@ -3638,20 +3662,27 @@ function dshwvConSync() {
     // 版本
     var ver = doc.getElementById('dshwv-con-ver')
     if (ver && lastVersionLabel) ver.textContent = lastVersionLabel
-    // 形态分段
+    // 形态分段：共存时反映「当前编辑的形态页」，未共存时反映实际形态
+    var tgtPet = petCoexist ? (conFormTarget === 'pet') : !!petOn
     var segs = doc.querySelectorAll('main > div.p-3 > section > div.p-0\\.5 button')
-    conSegStyle(segs[0], !petOn)
-    conSegStyle(segs[1], !!petOn)
-    // 大小
+    conSegStyle(segs[0], !tgtPet)
+    conSegStyle(segs[1], tgtPet)
+    // 大小：小鲸鱼页 = 挂件缩放档位；桌宠页 = 独立大小档位（4~20 档）
     var sizeSlider = doc.getElementById('scale-slider')
     var sizeVal = doc.getElementById('scale-value')
-    var lv = Math.max(1, Math.min(20, Math.round(Number(scaleNumber.value) || 1)))
-    if (sizeSlider) sizeSlider.value = String(lv)
-    if (sizeVal) sizeVal.textContent = String(lv)
+    if (petCoexist && conFormTarget === 'pet') {
+      if (sizeSlider) { sizeSlider.min = '4'; sizeSlider.max = '20'; sizeSlider.value = String(petSizeLevel) }
+      if (sizeVal) sizeVal.textContent = String(petSizeLevel)
+    } else {
+      var lv = Math.max(1, Math.min(20, Math.round(Number(scaleNumber.value) || 1)))
+      if (sizeSlider) { sizeSlider.min = '1'; sizeSlider.max = '20'; sizeSlider.value = String(lv) }
+      if (sizeVal) sizeVal.textContent = String(lv)
+    }
     // 快捷开关
     conSetSw(conPillRefs.swGap, !!scrollGapOn)
     conSetSw(conPillRefs.swRoam, !!petRoamOn)
     conSetSw(conPillRefs.swHide, !!menuBtnHide)
+    conSetSw(conPillRefs.swCoexist, !!petCoexist)
     // 交互
     if (conPillRefs.pbSel) conPillRefs.pbSel.value = dshwPbModeGet()
     if (conPillRefs.snapSel) conPillRefs.snapSel.value = (snapConfig && snapConfig.mode) || 'ratio'
@@ -3743,9 +3774,9 @@ function dshwvConSync() {
       } catch (err) {}
       conFillSel(conPillRefs.sizeSel, zitems, zcur)
     }
-    // 仅桌宠可见
-    if (conPillRefs.actCard) conPillRefs.actCard.style.display = petOn ? '' : 'none'
-    if (conPillRefs.cloneCard) conPillRefs.cloneCard.style.display = petOn ? '' : 'none'
+    // 仅桌宠可见（共存时跟随「当前编辑的形态页」）
+    if (conPillRefs.actCard) conPillRefs.actCard.style.display = petUiOn() ? '' : 'none'
+    if (conPillRefs.cloneCard) conPillRefs.cloneCard.style.display = petUiOn() ? '' : 'none'
     if (conPillRefs.labRoam) {
       // 屏幕漫游仅桌宠可用：只隐藏它自己这张卡。
       // 注意设计稿里「屏幕漫游」的 <label> 本身就是卡片（直接子节点），而「避让滚动条」「隐藏菜单栏」
@@ -3755,13 +3786,18 @@ function dshwvConSync() {
         var rp = roamCard.parentElement
         roamCard = (rp && rp.classList && rp.classList.contains('grid')) ? roamCard : rp
       }
-      if (roamCard) roamCard.style.display = petOn ? '' : 'none'
+      if (roamCard) roamCard.style.display = petUiOn() ? '' : 'none'
+    }
+    // 双形态共存开关：两种形态下都常驻显示，不再绑定桌宠形态
+    if (conPillRefs.swCoexist) {
+      var coexistCard = conPillRefs.swCoexist.closest('label')
+      if (coexistCard) coexistCard.style.display = ''
     }
     var homeCell = conFindText('角色位置')
     if (homeCell) {
       var hc = homeCell.parentElement
       if (hc && hc.parentElement) hc = hc.parentElement
-      if (hc) hc.style.display = petOn ? '' : 'none'
+      if (hc) hc.style.display = petUiOn() ? '' : 'none'
     }
     // 角色与外观
     var ex = conPillRefs.extra
@@ -3782,8 +3818,8 @@ function dshwvConSync() {
       }
       if (ex.gapWrap) ex.gapWrap.classList.toggle('hidden', !scrollGapOn)
       if (ex.volc) { try { ex.volc.textContent = volcSummaryText() } catch (err) {} }
-      // 角色/表情/台词是「小鲸鱼形态」专属；通用设置卡片在两种形态都显示
-      if (ex.card) ex.card.style.display = petOn ? 'none' : ''
+      // 角色/表情/台词是「小鲸鱼形态」专属；共存时在小鲸鱼页显示
+      if (ex.card) ex.card.style.display = petWhaleUiOn() ? '' : 'none'
     }
     dshwvConPillSync()
   } catch (err) {}
@@ -16056,7 +16092,7 @@ function petBubbleAnchorSchedule() {
 function measureCharTopPx() {
   try {
     var el = null, isVideo = false
-    if (petOn) {
+    if (petOn && !petStandActive()) {
       var pv = petVidCur()
       if (pv && pv.videoWidth > 0 && pv.readyState >= 2) { el = pv; isVideo = true }
     }
@@ -19807,10 +19843,13 @@ function bubbleRenderCostMods(amount, tokens) {
 function bubbleRenderCostTokenMods(tokens) {
   var n = Number(tokens) || 0
   var txt = n >= 10000 ? (Math.round(n / 100) / 10) + 'k' : String(n)
+  // 注意：模块的 size 是**字号档位 1..50**（bubbleModuleFontU：40u…240u），不是像素。
+  // 旧版写死的 12/22/10 是 px；直接塞进档位会被放大 2~4 倍，泡泡被撑到超出视口（用户截图里的巨型气泡）。
+  // 与 usageTurnCostDefaultLines（8 / 24 / 2）保持同一套视觉层级。
   var mods = [
-    { type: 'text', text: '本轮用量', size: 12, color: '#203170', row: 1 },
-    { type: 'text', text: txt + ' tok', size: 22, bold: true, color: '#203170', row: 2 },
-    { type: 'text', text: '该模型未配置单价，暂不折算金额', size: 10, color: '#8a8fa3', row: 3 },
+    { type: 'text', text: '本轮用量', size: 8, color: '#203170', row: 1 },
+    { type: 'text', text: txt + ' tok', size: 24, bold: true, color: '#203170', nowrap: true, row: 2 },
+    { type: 'text', text: '该模型未配置单价，暂不折算金额', size: 2, color: '#8a8fa3', row: 3 },
   ]
   bubbleRenderModules(mods)
 }
@@ -20823,7 +20862,8 @@ function bubbleRowsTo(parentEl, mods, keepPeak) {
     var money = m.type === 'balance' || m.type === 'bonus' || m.type === 'recharge' || m.type === 'today'
     if (m.type === 'balance' || m.type === 'bonus' || m.type === 'recharge') row.classList.add('dshwv-money')
     // 峰谷/时段倒计时块不受自动换行影响:保持单行显示
-    if (money || m.type === 'peak' || m.type === 'nextpeak') {
+    // nowrap:内部生成的提示模块（如「1082.1k tok」）也不许折行 —— 数字与单位被拆成两行泡泡会突然变高。
+    if (money || m.type === 'peak' || m.type === 'nextpeak' || m.nowrap) {
       row.style.whiteSpace = 'nowrap'
       row.style.maxWidth = 'none'
     }
@@ -20879,6 +20919,9 @@ function bubbleRowsTo(parentEl, mods, keepPeak) {
   // 预览与真实共用此逻辑,保证两者一致
   function maybeWrap(blk) {
     if (!blk || blk.peak || blk.money) return
+    // 内部生成的单行模块（m.nowrap，例如「1082.1k tok」）不参与折行判定：
+    // 否则这里会把它已经写好的 nowrap 覆盖成 normal，数字与单位被拆成两行、泡泡瞬间变高。
+    if (blk.mod && blk.mod.nowrap) return
     try {
       var compFs = window.getComputedStyle ? parseFloat(window.getComputedStyle(blk.el).fontSize) : 0
       var multNow = bubbleModuleFontU(blk.fSize)
@@ -21176,10 +21219,10 @@ function bubblePreviewInto(container, mods, widthPx, opts) {
 //  - 正显示第 2 次及以后的泡泡:回到序列开头(重开第 1 次点击泡泡)
 //  - 正显示第 1 次点击泡泡:不切换内容,仅重置留存计时
 function whaleClick() {
-  try { if (petOn) petClickReact() } catch (err) {}
+  try { if (petOn && !petStandActive()) petClickReact() } catch (err) {}
   // 鲸鱼形态：按压音只在"点击"（松手且未发生拖动）时播；拖动/甩抛不响。
   // 试听走 playPress() 本身不受 pressOn 影响，所以开关判断放在这里。
-  if (!petOn && pressOn !== false) { try { playPress() } catch (err) {} }
+  if ((!petOn || petStandActive()) && pressOn !== false) { try { playPress() } catch (err) {} }
   var wasShown = bubbleShown
   whaleBubbleTap()
   // 气泡仍在显示（打开/翻到下一项）⇒ 归位到主宠；这次点击把气泡收起了 ⇒ 偏移留到淡出结束，
@@ -21672,6 +21715,8 @@ function settle() {
     try { saveAnchorPos() } catch (err) {}
   }
   refreshFlip()
+  // 共存时桌宠站哪一侧取决于挂件在屏幕的左右半边：位置/翻转变了要按新位置重排一次
+  if (petOn) { try { petRefitNow() } catch (err) {} }
 }
 // 阈值坐标（px）：按当前配置计算四条吸附区边界与翻转线的屏幕坐标；'off' 返回全屏默认。
 function snapBounds(vp) {
@@ -22651,6 +22696,8 @@ function loadRoles() {
           applyRole('default', '小鲸鱼', IMG_URL)
         }
         // 若 saved 为空或为 default：保持当前（initRoleUrl 已是 IMG_URL）
+        // 上次开着双形态共存（即使主形态记的是小鲸鱼）⇒ 启动时把桌宠也带起来
+        if (petCoexist && !petOn) { try { petEnable(false) } catch (err) {} }
       })
       .catch(function () {})
   } catch (err) {}
@@ -23393,6 +23440,47 @@ function petSyncCategorySelects() {
   } catch (err) {}
 }
 var petOn = false // 是否处于桌宠形态
+// 双形态共存（v0.6.9）：两种形态同时显示 —— 小鲸鱼留在主挂件，桌宠成为独立实例（自己拖动/缩放/被点击）。
+// 共存开启时，顶部「形态」分段只切换菜单页，不再切换实际显示的形象。
+var petCoexist = false
+try { if (localStorage.getItem('dshw-coexist') === '1') petCoexist = true } catch (err) {}
+// 独立桌宠实例的状态
+var petStandReady = false // petWrap 是否已脱离挂件、以 fixed 独立实例显示
+var petStandBaseH = 0 // 独立实例的基准可见高度（进入共存时按挂件高度定一次，之后与挂件缩放无关）
+var petStandFitH = 0 // 锁定的动画框高度（避免逐段动画大小跳变）
+var petStandFitW = 0
+var petStandX = 0
+var petStandY = 0
+var petStandPosSet = false // 位置是否已确定（false = 首次进入，自动摆在挂件旁边）
+var petStandRX = 0.5 // 相对视口的位置（0~1），窗口变化后仍保持相对落点
+var petStandRY = 0.5
+var petStandScale = 1 // 独立大小倍率（0.4~2.0）
+var petStandRatio = 0 // 锁定的角色占帧比例（持久化，刷新后尺寸不漂移）
+var petSizeLevel = 10 // 控制台「大小」滑块在桌宠页对应的档位（10 = 100%）
+var dualWhaleRole = null // 进入共存前的小鲸鱼角色（手动关闭共存回到鲸鱼形态时恢复）
+var conFormTarget = 'whale' // 控制台当前编辑/调整的形态：'whale' | 'pet'
+try {
+  var pst = Number(localStorage.getItem('dshw-pet-scale'))
+  if (isFinite(pst) && pst >= 0.4 && pst <= 2) { petStandScale = pst; petSizeLevel = Math.max(4, Math.min(20, Math.round(pst * 10))) }
+} catch (err) {}
+try {
+  // 基准高度单独持久化：之后用户改小鲸鱼大小也不会带着桌宠一起缩放（真正各调各的）
+  var pbs = Number(localStorage.getItem('dshw-pet-base'))
+  if (isFinite(pbs) && pbs > 40) petStandBaseH = pbs
+} catch (err) {}
+try {
+  // 角色占帧比例也持久化：避免刷新后首个动画段不同导致独立桌宠尺寸漂移
+  var prt = Number(localStorage.getItem('dshw-pet-ratio'))
+  if (isFinite(prt) && prt > 0.15 && prt < 1.2) petStandRatio = prt
+} catch (err) {}
+try {
+  var psp = JSON.parse(localStorage.getItem('dshw-pet-pos') || 'null')
+  if (psp && isFinite(psp.rx) && isFinite(psp.ry)) {
+    petStandPosSet = true
+    petStandRX = Number(psp.rx)
+    petStandRY = Number(psp.ry)
+  }
+} catch (err) {}
 var petAnims = null // 宿主清单：name -> true（null = 还没拉过）
 var petLoading = false
 var petShown = 0 // 0/1：当前显示的是 A 还是 B 层
@@ -23432,8 +23520,11 @@ function petIsNoMirror(name) {
 }
 function petApplyFacing() {
   try {
-    var k = petNoMirror ? 1 : (petFacingR ? -1 : 1)
-    if (petNoMirror && state && state.flip) k = -1
+    // 目标屏幕朝向：带文字的动画永远正读，其余按桌宠自己的朝向
+    var want = petNoMirror ? 1 : (petFacingR ? -1 : 1)
+    // 独立实例已脱离挂件：挂件的整体镜像不再作用于它，需要自己补上 state.flip；
+    // 在挂件内部时由 root 的镜像负责翻转，这里只叠自己的朝向。
+    var k = petStandActive() ? want : ((state && state.flip) ? -want : want)
     petWrap.style.transform = 'scaleX(' + k + ') scaleY(' + petSquashSY + ')'
   } catch (err) {}
 }
@@ -23657,6 +23748,12 @@ function petGoHome() {
     state.top = clampWidgetTop(vp.h - h, Math.max(0, vp.h - h))
     settle()
     saveConfig()
+    // 共存：独立桌宠一起复位到挂件旁（用户点「一键复位」时两只都回位）
+    if (petStandActive()) {
+      petStandPosSet = false
+      try { localStorage.removeItem('dshw-pet-pos') } catch (err) {}
+      try { petStandPlace(); petStandSavePos() } catch (err) {}
+    }
     if (petClones.length) {
       var rr = root.getBoundingClientRect()
       for (var i = 0; i < petClones.length; i++) {
@@ -23711,6 +23808,8 @@ function petRoamStart(v, name) {
     var lead = Math.min(0.8, dur * 0.22)
     var tail = Math.min(0.8, dur * 0.22)
     var travel = Math.max(0.1, dur - lead - tail)
+    // 共存独立实例：漫游只走桌宠自己，不带动小鲸鱼挂件
+    if (petStandActive()) { petStandRoamStart(v, name, dur, lead, travel); return }
     // 朝向 → 走路方向：素材原片朝左；整棵挂件镜像 XOR 桌宠自身朝向 = 屏幕上的朝向
     var dir = (!!state.flip !== !!petFacingR) ? 1 : -1
     var vp = viewport()
@@ -23755,6 +23854,8 @@ function petStopThrow() {
 function petStartThrow(vx, vy) {
   try {
     if (!petOn) return
+    // 共存时主挂件是小鲸鱼，甩抛物理不再作用于它（独立桌宠用弹簧拖拽）
+    if (petStandActive()) return
     // 甩出**不播音效**：用户要求拖动/甩抛保持安静，只有点击才触发按压音效。
     petStopRoam()
     petStopThrow()
@@ -24648,6 +24749,8 @@ function petCloneRefit() {
 // 于是点的永远是角色身体、透明处穿透（isWhaleHit 原样复用，含左右翻转的坐标换算）。
 function petUpdateHit() {
   try {
+    // 双形态共存：命中图继续代表小鲸鱼（独立桌宠的命中用 petStandHitAt 的矩形，不占用这张画布）
+    if (petStandActive()) return
     var v = petVidCur()
     if (!v || !v.videoWidth || !v.videoHeight) return
     if (!hitCanvas) { hitCanvas = document.createElement('canvas'); hitCanvas.width = 610; hitCanvas.height = 610 }
@@ -24659,7 +24762,10 @@ function petUpdateHit() {
     ctx.drawImage(v, 610 - dw, 610 - dh, dw, dh)
     hitReady = true
     hitFailed = false
-    applyHitClip(buildHitClipPath())
+    // 共存时 img 仍然可见（显示小鲸鱼），而这张命中图画的是桌宠轮廓：
+    // 若照旧裁上去，鲸鱼会被桌宠的轮廓切掉。共存态改用鲸鱼自己的轮廓裁剪
+    // （透明角落依然穿透，同时鲸鱼完整显示）；轮廓与当前图不匹配就不裁。
+    applyHitClip(petCoexist ? (hitClipMatchesImg() ? whaleHitClip : '') : buildHitClipPath())
   } catch (err) { hitFailed = true; hitReady = false; applyHitClip('') }
 }
 var petFitH = 0 // 动画层高度（只按第一段动画定一次；其余动画只调底边，避免大小跳变）
@@ -24712,17 +24818,25 @@ var petBubbleBaseTop = null // bubbleFitContent 算出的自然 top（相对 .ds
 var petRightPad = 0
 var petFrameW = 0
 var petRootH = 0
+var petRoom = 0 // 共存时当前一侧可用的宽度（换边/换尺寸都要重算）
 function petAutoFit(v) {
   try {
     var m = petMeasure(v)
     if (!m || !(m.charRatio > 0.15)) return
+    // 双形态共存：桌宠是独立实例，尺寸/位置与挂件无关（几何全由 petStandFit 管）
+    if (petStandActive()) {
+      petStandFit(v, m)
+      // 气泡属于小鲸鱼：按鲸鱼自己的头顶避让，不能拿桌宠的头去抬
+      applyBubbleAvoid()
+      return
+    }
     var rootRect = root.getBoundingClientRect()
     var rootH2 = rootRect.height || 400
     // 与鲸鱼 img 同高：img 占挂件 59.45% 且不透明角色几乎填满该框 ⇒ 桌宠可见高度也取 59.45%，
     // 这样脚底/头顶与鲸鱼完全同区间，气泡位置自然一致，不需要另算一套避让。
     var wantH = rootH2 * 0.5945
     if (!(wantH > 40) || !(wantH < 600)) wantH = 230
-    // 窗口/缩放变化 ⇒ 重新定尺寸；同一尺寸下只按首段动画锁一次，避免逐段跳大小
+    // 缓存失效条件：挂件尺寸变了（独占形态下桌宠始终贴着挂件框）
     if (!petFitH || Math.abs(petRootH - rootH2) > 4) {
       petRootH = rootH2
       petFitH = wantH / m.charRatio
@@ -24733,8 +24847,9 @@ function petAutoFit(v) {
       petRightPad = 10 - m.rightGapRatio * petFrameW
       petWrap.style.height = petFitH.toFixed(1) + 'px'
       petWrap.style.width = petFrameW.toFixed(1) + 'px'
-      petWrap.style.right = petRightPad.toFixed(1) + 'px'
     }
+    // 独占形态：按帧内留白贴挂件右边
+    petWrap.style.right = petRightPad.toFixed(1) + 'px'
     // 底边：不透明脚底贴挂件底边（各段底部留白不同，逐段校正；负值 = wrap 下探出挂件）
     petWrap.style.bottom = (0 - m.gapRatio * petFitH).toFixed(1) + 'px'
     petUpdateHit()
@@ -24743,6 +24858,409 @@ function petAutoFit(v) {
     var charTopAbs = petWrap.getBoundingClientRect().top + m.topRatio * petFitH
     applyBubbleAvoid(charTopAbs)
   } catch (err) {}
+}
+// ===== 双形态共存：桌宠独立实例（fixed 容器、独立位置/大小/拖拽/点击）=====
+function petStandActive() { return !!(petOn && petCoexist && petStandReady) }
+function petStandWhaleUrl() {
+  // 优先用「当前真实选中的角色图」：共存时 img 显示/命中轮廓必须取自同一张图，
+  // 否则 clip-path 会按另一套轮廓把角色裁掉。dualWhaleRole 只是退出共存时的回退快照。
+  if (currentRole && currentRole.id !== PET_ROLE_ID && currentRole.url) return currentRole.url
+  return (dualWhaleRole && dualWhaleRole.url) ? dualWhaleRole.url : IMG_URL
+}
+function petStandSavePos() {
+  try {
+    var vp = viewport()
+    petStandRX = petStandX / Math.max(1, vp.w)
+    petStandRY = petStandY / Math.max(1, vp.h)
+    petStandPosSet = true
+    localStorage.setItem('dshw-pet-pos', JSON.stringify({ rx: petStandRX, ry: petStandRY }))
+  } catch (err) {}
+}
+function petStandSaveScale() {
+  try { localStorage.setItem('dshw-pet-scale', String(petStandScale)) } catch (err) {}
+}
+// 独立实例尺寸：基准高度 × 倍率，帧高按首帧角色占比锁死（逐段动画大小不跳）
+function petStandFit(v, m) {
+  try {
+    if (!petStandBaseH || !(petStandBaseH > 40)) petStandBaseH = 230
+    if (!petStandFitH || !petStandFitW) {
+      // 比例只取第一次（并持久化）：刷新后首帧可能落到别的动画段，charRatio 有 ±2% 差异，
+      // 若每次都用当前帧比例重算，独立桌宠的尺寸/位置就会随刷新漂移。
+      if (!petStandRatio) {
+        var cr = Number(m && m.charRatio)
+        petStandRatio = (isFinite(cr) && cr > 0.15 && cr < 1.2) ? cr : 0.75
+        try { localStorage.setItem('dshw-pet-ratio', String(petStandRatio)) } catch (err) {}
+      }
+      var visH = petStandBaseH * petStandScale
+      petStandFitH = visH / Math.max(0.15, petStandRatio)
+      petStandFitW = petStandFitH * (v.videoWidth / v.videoHeight)
+      petWrap.style.width = petStandFitW.toFixed(1) + 'px'
+      petWrap.style.height = petStandFitH.toFixed(1) + 'px'
+    }
+    petStandPlace()
+  } catch (err) {}
+}
+function petStandPlace() {
+  try {
+    if (!petStandActive()) return
+    // 拖拽/甩抛期间禁止按「上次落盘位置」重排：动画换段、气泡重排、窗口缩放都会走到这里，
+    // 一旦用旧的 petStandRX/RY 覆盖 petStandX/Y，正在被拖的角色就会被拽回原位
+    // （表现就是"只能停在挂件旁边，拖不到它上方"）。
+    if (petStandDrag || petStandThrowActive) return
+    var vp = viewport()
+    var w = petStandFitW || 10
+    var h = petStandFitH || 10
+    var first = !petStandPosSet
+    if (first) {
+      // 首次进入：摆在挂件旁边（左边放不下就放右边），脚底与挂件底边对齐
+      var rr = root.getBoundingClientRect()
+      petStandX = rr.left - w - 14
+      petStandY = rr.top + rr.height - h
+      if (petStandX < 8) petStandX = Math.min(Math.max(0, vp.w - w - 8), rr.right + 14)
+      petStandRX = petStandX / Math.max(1, vp.w)
+      petStandRY = petStandY / Math.max(1, vp.h)
+    } else {
+      petStandX = petStandRX * vp.w
+      petStandY = petStandRY * vp.h
+    }
+    petStandX = clamp(petStandX, 0, Math.max(0, vp.w - w))
+    petStandY = clampWidgetTop(petStandY, Math.max(0, vp.h - h))
+    if (first) petStandPosSet = true
+    petWrap.style.left = petStandX.toFixed(1) + 'px'
+    petWrap.style.top = petStandY.toFixed(1) + 'px'
+  } catch (err) {}
+}
+function petStandApply() {
+  try {
+    if (!petStandActive()) return
+    petWrap.style.left = petStandX.toFixed(1) + 'px'
+    petWrap.style.top = petStandY.toFixed(1) + 'px'
+    try { if (bubbleCloneAnchor && bubbleCloneAnchor.el === petWrap && bubbleShown) petBubbleAnchorApply() } catch (err) {}
+  } catch (err) {}
+}
+function petStandHitAt(x, y) {
+  if (!petStandActive()) return false
+  try {
+    var r = petWrap.getBoundingClientRect()
+    if (!(r.width > 0)) return false
+    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom
+  } catch (err) { return false }
+}
+// 进入/退出独立实例：把 petWrap 在「挂件内」与「body 顶层 fixed」之间搬移
+function petStandSetOn(on) {
+  try {
+    if (!petWrap) return
+    var want = !!on && !!petCoexist && !!petOn
+    if (want === petStandReady) {
+      if (want) { dshwBodyAppend(petWrap); petStandPlace() }
+      return
+    }
+    petStandReady = want
+    if (want) {
+      if (!petStandBaseH || !(petStandBaseH > 40)) {
+        var rr = root.getBoundingClientRect()
+        petStandBaseH = Math.max(40, (rr.height || 400) * 0.5945)
+        try { localStorage.setItem('dshw-pet-base', String(petStandBaseH)) } catch (err) {}
+      }
+      petStandFitH = 0
+      petStandFitW = 0
+      petStandScaleClamp()
+      petWrap.classList.add('dshwv-petwrap-stand')
+      dshwBodyAppend(petWrap)
+      petWrap.style.display = 'block'
+      petWrap.style.right = 'auto'
+      petWrap.style.bottom = 'auto'
+      try { bubbleAvoidHead = null } catch (err) {}
+      // 命中图必须重新代表小鲸鱼（进入共存前可能已被桌宠轮廓覆盖）。
+      // 同时把 img 拉回同一张图：进共存前 img 可能停在表情图（表情层在桌宠形态下不刷新），
+      // 若命中图按基础形象算、img 却显示表情图，clip-path 会按另一套轮廓把角色裁掉
+      // （表现就是角色右/下被切一块且切口外全透明）。
+      try {
+        var wu = petStandWhaleUrl()
+        if (!hitClipMatchesImg()) img.src = wu
+        setupHitTest(wu)
+      } catch (err) {}
+    } else {
+      try { petStopStandThrow() } catch (err) {}
+      petWrap.classList.remove('dshwv-petwrap-stand')
+      body.appendChild(petWrap)
+      petWrap.style.left = ''
+      petWrap.style.top = ''
+      petWrap.style.width = ''
+      petWrap.style.height = ''
+      petStandFitH = 0
+      petStandFitW = 0
+      try { bubbleAvoidHead = null } catch (err) {}
+      if (bubbleCloneAnchor && bubbleCloneAnchor.el === petWrap) { try { petBubbleAnchorReset() } catch (err) {} }
+    }
+    try { petApplyFacing() } catch (err) {}
+    try { petRefitNow() } catch (err) {}
+  } catch (err) {}
+}
+function petStandScaleClamp() {
+  petStandScale = Math.max(0.4, Math.min(2, Number(petStandScale) || 1))
+  if (petStandScale === 1) petStandScale = 1
+}
+// 独立大小：以脚底为基准缩放（视觉上"原地长高/缩矮"）
+function petStandScaleSet(sc) {
+  try {
+    var v = Math.max(0.4, Math.min(2, Number(sc) || 1))
+    if (!petStandActive() || Math.abs(v - petStandScale) < 0.001) { petStandScale = v; petStandSaveScale(); return }
+    var oldH = petStandFitH || 0
+    petStandScale = v
+    petStandSaveScale()
+    petStandFitH = 0
+    petStandFitW = 0
+    petRefitNow()
+    if (oldH > 0 && petStandFitH > 0) {
+      petStandY += oldH - petStandFitH
+      petStandPlace()
+      petStandSavePos()
+    }
+  } catch (err) {}
+}
+function petStandRefit() {
+  try {
+    if (!petStandActive()) return
+    petStandFitH = 0
+    petStandFitW = 0
+    petRefitNow()
+    petStandPlace()
+  } catch (err) {}
+}
+var petStandDrag = null
+var petStandTrail = [] // 松手前的拖动轨迹（用于估算甩抛初速）
+var petStandLastPressAt = 0 // 双击弹弓判定
+var petStandThrowRaf = 0
+var petStandThrowToken = 0
+var petStandThrowActive = false
+function petStopStandThrow() {
+  try {
+    petStandThrowToken++
+    if (petStandThrowRaf) { try { cancelAnimationFrame(petStandThrowRaf) } catch (err) {} }
+    petStandThrowRaf = 0
+    petStandThrowActive = false
+  } catch (err) {}
+}
+// 独立桌宠的甩抛：与独占桌宠同一套重力/碰壁反弹/落地 Q 弹，
+// 只是把坐标换成 petStandX/Y、边界换成独立实例的宽高，落定后写回自己的位置。
+function petStandStartThrow(vx, vy, freeFall) {
+  try {
+    if (!petOn || !petStandActive()) return
+    petStopRoam()
+    petStopStandThrow()
+    var w = petStandFitW || petWrap.offsetWidth || 0
+    var h = petStandFitH || petWrap.offsetHeight || 0
+    var token = ++petStandThrowToken
+    var st = { x: petStandX, y: petStandY, vx: vx, vy: vy }
+    var last = performance.now()
+    var startedAt = last
+    var vp0 = viewport()
+    // 落地基准：普通松手 = 松手点（自由摆件，要能停在任意高度，例如小鲸鱼上方的空间）；
+    // 弹弓 = 屏幕底边（明确"甩出去"的手势，落地仍按老规则掉到最下方）。
+    // 若拿屏幕底边当所有甩抛的地面，任何带速度的松手都会把角色一路拽回底部，
+    // 看上去就像"上方被锁定占用、只能停在旁边"。
+    var floorY = freeFall ? Math.max(0, vp0.h - h) : clamp(st.y, 0, Math.max(0, vp0.h - h))
+    // 甩抛从"腾空"起算：第一次触地（回到 floorY）才给落地 Q 弹与语音
+    var prevGrounded = freeFall ? (st.y >= floorY - 1) : false
+    var voiceLanded = false
+    petStandThrowActive = true
+    function step(ts) {
+      if (token !== petStandThrowToken || !petOn || !petStandActive()) {
+        petStandThrowActive = false
+        petStandThrowRaf = 0
+        return
+      }
+      if (ts - startedAt > 8000) {
+        // 安全阀：正常重力下 2s 内必然落地
+        petStandThrowActive = false
+        petStandThrowRaf = 0
+        petStandSavePos()
+        return
+      }
+      var dt = Math.min((ts - last) / 1000, PET_PHYS.MAX_STEP)
+      last = ts
+      var vp = viewport()
+      var b = { minX: 0, minY: 0, maxX: Math.max(0, vp.w - w), maxY: Math.min(floorY, Math.max(0, vp.h - h)) }
+      var fallVy = st.vy
+      var sub = petThrowSubsteps(st.vx, st.vy, dt)
+      var res = petThrowStep(st, dt / sub, b)
+      for (var i = 1; i < sub && !res.atRest; i++) res = petThrowStep(res, dt / sub, b)
+      st = { x: res.x, y: res.y, vx: res.vx, vy: res.vy }
+      try { st = petCollideMain(st, w, h) } catch (err) {}
+      petStandX = st.x
+      petStandY = st.y
+      petStandApply()
+      var grounded = st.y >= b.maxY - 1
+      if (res.bounced && grounded && !prevGrounded) {
+        try { petStartSquash(petLandingSquash(fallVy)) } catch (err) {}
+        if (!voiceLanded) {
+          voiceLanded = true
+          try { playPetVoice(Math.abs(fallVy) >= 900 ? 'weiqu' : 'qtan') } catch (err) {}
+        }
+      }
+      prevGrounded = grounded
+      if (res.atRest) {
+        petStandThrowActive = false
+        petStandThrowRaf = 0
+        petStandSavePos()
+        return
+      }
+      petStandThrowRaf = requestAnimationFrame(step)
+    }
+    petStandThrowRaf = requestAnimationFrame(step)
+  } catch (err) {}
+}
+function petStandDragStart(e) {
+  try {
+    e.preventDefault()
+    e.stopPropagation()
+  } catch (err) {}
+  try { petStopRoam() } catch (err) {}
+  try { petStopStandThrow() } catch (err) {}
+  petStandTrail = []
+  // 弹弓：连续第二下按住拖（与独占桌宠同阈值）
+  var pressNow = performance.now()
+  var sling = pressNow - petStandLastPressAt < PET_SLING_DOUBLE_MS
+  petStandLastPressAt = sling ? 0 : pressNow
+  petStandDrag = {
+    sx: e.clientX, sy: e.clientY, ox: petStandX, oy: petStandY,
+    tx: petStandX, ty: petStandY, vx: 0, vy: 0,
+    last: performance.now(), raf: 0, moved: false, lift: false,
+    sling: sling,
+    ax: petStandX + (petStandFitW || 0) / 2,
+    ay: petStandY + (petStandFitH || 0) / 2
+  }
+  document.addEventListener('pointermove', petStandDragMove, true)
+  document.addEventListener('pointerup', petStandDragUp, true)
+  document.addEventListener('pointercancel', petStandDragUp, true)
+}
+function petStandDragMove(e) {
+  var d = petStandDrag
+  if (!d) return
+  petTrailPush(petStandTrail, e)
+  var dx = e.clientX - d.sx
+  var dy = e.clientY - d.sy
+  if (dx * dx + dy * dy >= CLICK_SQ) d.moved = true
+  if (d.moved && !d.lift) { d.lift = true; try { petDragStart() } catch (err) {} }
+  var vp = viewport()
+  d.tx = clamp(d.ox + dx, 0, Math.max(0, vp.w - (petStandFitW || 10)))
+  d.ty = clampWidgetTop(d.oy + dy, Math.max(0, vp.h - (petStandFitH || 10)))
+  if (!d.raf) { d.last = performance.now(); d.raf = requestAnimationFrame(petStandDragStep) }
+}
+function petStandDragStep(ts) {
+  var d = petStandDrag
+  if (!d) return
+  var dt = Math.min((ts - d.last) / 1000, 1 / 30)
+  d.last = ts
+  d.vx = petSpringStep(d.vx, petStandX, d.tx, dt)
+  d.vy = petSpringStep(d.vy, petStandY, d.ty, dt)
+  var vp = viewport()
+  petStandX = clamp(petStandX + d.vx * dt, 0, Math.max(0, vp.w - (petStandFitW || 10)))
+  petStandY = clampWidgetTop(petStandY + d.vy * dt, Math.max(0, vp.h - (petStandFitH || 10)))
+  petStandApply()
+  d.raf = requestAnimationFrame(petStandDragStep)
+}
+function petStandDragUp(e) {
+  var d = petStandDrag
+  if (!d) return
+  petStandDrag = null
+  document.removeEventListener('pointermove', petStandDragMove, true)
+  document.removeEventListener('pointerup', petStandDragUp, true)
+  document.removeEventListener('pointercancel', petStandDragUp, true)
+  if (d.raf) { try { cancelAnimationFrame(d.raf) } catch (err) {} }
+  d.raf = 0
+  var noCoord = (!e || typeof e.clientX !== 'number' || typeof e.clientY !== 'number' ||
+    !isFinite(e.clientX) || !isFinite(e.clientY))
+  if ((e && e.type === 'pointercancel') || noCoord) {
+    petStandX = d.ox
+    petStandY = d.oy
+    petStandApply()
+    return
+  }
+  if (!d.moved) { petStandClick(); return }
+  try { petDragEnd(true) } catch (err) {}
+  // 弹弓：力度 = 拉距，方向 = 拉的相反方向
+  if (d.sling) {
+    try {
+      var pullX = (petStandX + petStandFitW / 2) - d.ax
+      var pullY = (petStandY + petStandFitH / 2) - d.ay
+      var pullDist = Math.sqrt(pullX * pullX + pullY * pullY)
+      if (pullDist > 4) {
+        var slingRef = Math.max(1, petStandFitW * PET_SLING_REF_RATIO)
+        var slingSpeed = PET_THROW_ANCHOR * (pullDist / slingRef)
+        petStandStartThrow(-pullX / pullDist * slingSpeed, -pullY / pullDist * slingSpeed, true)
+        return
+      }
+    } catch (err) {}
+  }
+  // 松手初速够大 ⇒ 甩出去（重力 + 碰壁反弹 + 落地 Q 弹），落定后才写回位置
+  var rv = null
+  try { rv = petTrailVelocity(petStandTrail) } catch (err) {}
+  if (rv) {
+    try { petStandStartThrow(rv.vx, rv.vy) } catch (err) {}
+    return
+  }
+  petStandSavePos()
+}
+function petStandClick() {
+  try {
+    petClickReact()
+    whaleBubbleTap()
+    if (!bubbleShown) {
+      if (bubbleCloneAnchor && bubbleCloneAnchor.el === petWrap) petBubbleAnchorRelease()
+    } else if (bubbleScene && (bubbleScene.kind === 'cost' || bubbleScene.kind === 'alert' || bubbleScene.kind === 'wait')) {
+      petBubbleAnchorReset()
+    } else {
+      bubbleCloneAnchor = { el: petWrap }
+      petBubbleAnchorSchedule()
+    }
+    refresh(true)
+  } catch (err) {}
+}
+// 独立实例漫游：横向走一段，脚底高度不变（与小鲸鱼挂件互不牵连）
+function petStandRoamStart(v, name, dur, lead, travel) {
+  try {
+    var dir = petFacingR ? 1 : -1
+    if (petStandThrowActive) return // 飞行中不接漫游，落地后再走
+    var vp = viewport()
+    var w = petStandFitW || petWrap.offsetWidth || 0
+    var maxL = Math.max(0, vp.w - w)
+    var dist = 60 + Math.random() * 90
+    var target = clamp(petStandX + dir * dist, 0, maxL)
+    if (Math.abs(target - petStandX) < 10) return
+    petStopRoam()
+    var token = ++petRoamToken
+    var startL = petStandX
+    var t0 = performance.now()
+    petRoamActive = true
+    petMoveClassSync()
+    function step(now) {
+      if (token !== petRoamToken || !petOn || !petStandActive()) { petRoamActive = false; petMoveClassSync(); petRoamRaf = 0; return }
+      var t = (now - t0) / 1000
+      var p = t <= lead ? 0 : (t >= lead + travel ? 1 : (t - lead) / travel)
+      petStandX = startL + (target - startL) * p
+      petStandApply()
+      if (p < 1) { petRoamRaf = requestAnimationFrame(step) }
+      else {
+        petRoamRaf = 0
+        petRoamActive = false
+        petMoveClassSync()
+        petStandSavePos()
+      }
+    }
+    petRoamRaf = requestAnimationFrame(step)
+  } catch (err) {}
+}
+function petStandDragCancel() {
+  var d = petStandDrag
+  if (!d) return
+  petStandDrag = null
+  document.removeEventListener('pointermove', petStandDragMove, true)
+  document.removeEventListener('pointerup', petStandDragUp, true)
+  document.removeEventListener('pointercancel', petStandDragUp, true)
+  if (d.raf) { try { cancelAnimationFrame(d.raf) } catch (err) {} }
+  d.raf = 0
 }
 // 立即按"当前可见层"重排一次（供气泡内容变化、窗口缩放、角色切换调用）
 function petRefitNow() {
@@ -24781,7 +25299,11 @@ function petSwitchTo(name, loop) {
       }
       back.style.opacity = '1'
       cur.style.opacity = '0'
-      if (!petFirstFrame) { petFirstFrame = true; try { img.style.visibility = 'hidden' } catch (err) {} }
+      if (!petFirstFrame) {
+        petFirstFrame = true
+        // 共存时小鲸鱼必须一直显示，不能在这里再隐藏一次
+        if (!petCoexist) { try { img.style.visibility = 'hidden' } catch (err) {} }
+      }
       setTimeout(function () { petAutoFit(back) }, 0)
       petShown = 1 - petShown
       petNoMirror = petIsNoMirror(name)
@@ -25175,13 +25697,22 @@ function petApplyMenuMode() {
     // v880：控制台用显式类名标记桌宠专属区（屏幕漫游 / 动作与待机 / 分身 / 一键复位），
     // 不再靠行首文字匹配 —— 文案一改就失效的老问题一并去掉。
     var petOnlyEls = menuBox.querySelectorAll('.dshwv-con-pet-only')
-    for (var i = 0; i < petOnlyEls.length; i++) petOnlyEls[i].classList.toggle('dshwv-pet-hide', !petOn)
+    for (var i = 0; i < petOnlyEls.length; i++) petOnlyEls[i].classList.toggle('dshwv-pet-hide', !petUiOn())
     try { rowPetSettings.style.display = 'none' } catch (err) {}
     petSyncNavRow()
     // 「分身N大小」只保留当前存在的分身行
     try { petCloneSizeMenuSync() } catch (err) {}
     try { dshwvConRefresh() } catch (err) {}
   } catch (err) {}
+}
+// 控制台「当前调整的形态」：共存时由顶部形态按钮决定（只看菜单，不影响显示），
+// 非共存时就是实际显示的形态。
+function petUiOn() { return !!petOn && (!petCoexist || conFormTarget === 'pet') }
+function petWhaleUiOn() { return !petOn || (petCoexist && conFormTarget === 'whale') }
+function setConFormTarget(t) {
+  conFormTarget = (t === 'pet') ? 'pet' : 'whale'
+  try { dshwvConSync() } catch (err) {}
+  try { petApplyMenuMode() } catch (err) {}
 }
 // 底部“记账/返回”行：只在子页（关于/用量）打开时显示，充当返回按钮
 function petSyncNavRow() {
@@ -25191,9 +25722,56 @@ function petSyncNavRow() {
     usageNavRow.classList.toggle('dshwv-pet-hide', !sub)
   } catch (err) {}
 }
+// 双形态共存（v0.6.9）：小鲸鱼留在主挂件、桌宠作为独立实例同时显示。
+// 开关在小鲸鱼/桌宠两种形态下都常驻；开启时顶部分段只切换菜单页，不会关闭它。
+function petSetCoexist(on) {
+  var was = petCoexist
+  petCoexist = !!on
+  try { localStorage.setItem('dshw-coexist', petCoexist ? '1' : '0') } catch (err) {}
+  // 从小鲸鱼形态开启共存：直接补一只桌宠（独立实例，鲸鱼不受影响）
+  if (!was && petCoexist && !petOn) { try { petEnable(true) } catch (err) {} }
+  try { petApplyCoexist() } catch (err) {}
+  try { dshwvConSync() } catch (err) {}
+}
+function petApplyCoexist() {
+  if (!petOn) {
+    // 桌宠还没起来：共存开关只记录偏好（鲸鱼照常显示）
+    if (petCoexist) { try { img.style.visibility = '' } catch (err) {} }
+    return
+  }
+  if (petCoexist) {
+    try { img.style.visibility = '' } catch (err) {} // 小鲸鱼常驻
+    conFormTarget = conFormTarget === 'pet' ? 'pet' : 'whale'
+    petFitH = 0
+    petRootH = 0
+    try { petStandSetOn(true) } catch (err) {}
+    try { petRefitNow() } catch (err) {}
+    try { petUpdateHit() } catch (err) {}
+  } else {
+    try { petStandSetOn(false) } catch (err) {}
+    petFitH = 0
+    petRootH = 0
+    if (conFormTarget === 'whale') {
+      // 手动关闭共存、且当前编辑的是小鲸鱼 ⇒ 回到纯小鲸鱼形态（桌宠收起）
+      var wr = dualWhaleRole || { id: 'default', name: '小鲸鱼', url: IMG_URL }
+      try { applyRole(wr.id, wr.name, wr.url) } catch (err) {}
+    } else {
+      // 手动关闭共存、当前编辑的是桌宠 ⇒ 保留桌宠独占形态
+      conFormTarget = 'pet'
+      try { img.style.visibility = 'hidden' } catch (err) {}
+      try { petRefitNow() } catch (err) {}
+      try { petUpdateHit() } catch (err) {}
+    }
+  }
+  try { petApplyFacing() } catch (err) {}
+}
 function petEnable(byUser) {
   if (petOn) return
   if (!petWrap) return
+  // 记下进入桌宠前的小鲸鱼角色：共存关闭后要能原样回到这个形象
+  try {
+    if (currentRole && currentRole.id && currentRole.id !== PET_ROLE_ID) dualWhaleRole = { id: currentRole.id, name: currentRole.name, url: currentRole.url }
+  } catch (err) {}
   petLoadAnims(function (ok) {
     if (petOn) return
     if (!ok) { try { dshwvToast('桌宠素材缺失，已回退默认角色') } catch (err) {} return }
@@ -25225,7 +25803,9 @@ function petEnable(byUser) {
       bootVid.style.opacity = '1'
       petVidB.style.opacity = '0'
       petFirstFrame = true
-      try { img.style.visibility = 'hidden' } catch (err) {}
+      // 共存：桌宠脱离挂件成为独立实例（fixed），小鲸鱼照常显示；独占：沿用挂件内贴右的旧布局
+      if (petCoexist) { try { petStandSetOn(true) } catch (err) {} }
+      else { try { img.style.visibility = 'hidden' } catch (err) {} }
       try { var pp = bootVid.play(); if (pp && pp.catch) pp.catch(function () {}) } catch (err) {}
       petAutoFit(bootVid)
       petUpdateHit()
@@ -25287,6 +25867,10 @@ function petDisable() {
     petVidA.load(); petVidB.load()
   } catch (err) {}
   try { petWrap.style.display = 'none' } catch (err) {}
+  // 共存独立实例：退出桌宠时把 wrap 搬回挂件内，清掉独立定位/大小
+  try { petStandSetOn(false) } catch (err) {}
+  try { petStandDragCancel() } catch (err) {}
+  try { petStopStandThrow() } catch (err) {}
   petFirstFrame = false
   petFitH = 0
   petRootH = 0
@@ -25562,6 +26146,7 @@ function renderRolePanel() {
       petItem.addEventListener('click', function (e) {
         e.stopPropagation()
         closeRolePanel()
+        if (petCoexist) { try { setConFormTarget('pet') } catch (err) {} ; return }
         if (petOn) applyRole('default', '小鲸鱼', IMG_URL)
         else petEnable(true)
       })
@@ -26982,6 +27567,15 @@ audioEditReleaseBtn.addEventListener('click', function (e) { e.stopPropagation()
 var hitCanvas = null
 var hitReady = false
 var hitFailed = false // 命中图加载失败（如图片 404/资源缺失）：退回矩形区域判定，绝不吞掉整页事件
+var whaleHitClip = '' // 小鲸鱼自己的不透明轮廓裁剪；共存时 img 仍可见，要复用它（不能用桌宠的命中图轮廓）
+var hitProbeUrl = '' // whaleHitClip 是按哪张图量的（共存时要确认 img 显示的正是这张，否则不裁，避免切图）
+// img 当前显示的地址是否就是命中图量的那张（currentSrc 是绝对地址，去掉 origin 再比）
+function hitClipMatchesImg() {
+  try {
+    var rel = (img.currentSrc || img.src || '').replace(/^([a-z]+:)?\/\/[^/]+/i, '')
+    return !!hitProbeUrl && rel === hitProbeUrl
+  } catch (err) { return false }
+}
 function setupHitTest(url) {
   try {
     hitCanvas = document.createElement('canvas')
@@ -27015,11 +27609,16 @@ function setupHitTest(url) {
             if (ctx.getImageData(px, py, 1, 1).data[3] > 10) opaque++
           }
         }
-        if (!opaque) { hitReady = false; hitFailed = true; applyHitClip(''); return }
+        if (!opaque) { hitReady = false; hitFailed = true; whaleHitClip = ''; applyHitClip(''); return }
         hitReady = true
         // v757（issue #147）：命中图可用 → 用不透明区域的凸包裁掉 img 的透明边距，
         // 这样"身体自己接事件"不会把透明角落的点击也吞掉。
-        applyHitClip(buildHitClipPath())
+        whaleHitClip = buildHitClipPath()
+        hitProbeUrl = url || IMG_URL
+        // 只有"命中图量的就是 img 正在显示的那张"才把轮廓裁上去：
+        // 切角色/切表情/进共存时 img 与命中图可能短暂不是同一张，
+        // 拿另一张图的轮廓裁当前角色会把角色右/下切掉一块（切口外全透明）。
+        applyHitClip(hitClipMatchesImg() ? whaleHitClip : '')
       } catch (err) {
         hitFailed = true
         applyHitClip('')
@@ -27029,6 +27628,7 @@ function setupHitTest(url) {
       // 图片加载失败：不能把整页当成鲸鱼命中区吞掉事件（会全页面点不动），
       // 标记失败，命中判定退回图像矩形区域。
       hitFailed = true
+      whaleHitClip = ''
       applyHitClip('')
     }
     probe.src = url || IMG_URL
@@ -27098,11 +27698,13 @@ function buildHitClipPath() {
   }
 }
 function isWhaleHit(e) {
-  // 桌宠形态：以动画层矩形为准（视频帧的透明边距很小，且逐帧重算凸包成本高、易错）。
-  if (petOn) {
+  // 桌宠独占形态：以动画层矩形为准（视频帧的透明边距很小，且逐帧重算凸包成本高、易错）。
+  // 双形态共存时桌宠是独立实例（petStandHitAt 单独判定），主挂件这里只代表小鲸鱼，走鲸鱼命中图。
+  if (petOn && !petStandActive()) {
     try {
       var pr = petWrap.getBoundingClientRect()
-      return pr.width > 0 && e.clientX >= pr.left && e.clientX <= pr.right && e.clientY >= pr.top && e.clientY <= pr.bottom
+      if (pr.width > 0 && e.clientX >= pr.left && e.clientX <= pr.right && e.clientY >= pr.top && e.clientY <= pr.bottom) return true
+      return false
     } catch (err) { return false }
   }
   // 命中图未就绪/失败时：绝不默认“全屏都是鲸鱼”。
@@ -27161,6 +27763,8 @@ function onDocPointerDown(e) {
     return
   }
   if (e.button !== 0 && e.pointerType === 'mouse') return
+  // 双形态共存：桌宠是独立实例 —— 点它只拖它自己，主挂件（小鲸鱼）完全不动
+  if (petStandHitAt(e.clientX, e.clientY)) { petStandDragStart(e); return }
   // 分身命中**优先于主宠**：分身可能叠在主宠区域上方/旁边，用户点的是那一只，
   // 必须先让分身接管（否则会落到主宠 → 气泡跑到主宠上方，正是"点 A 却在 B 上出气泡"）。
   // petCloneHitAt 用的是不透明命中盒，透明留白不会抢主宠的点击。
@@ -27169,14 +27773,16 @@ function onDocPointerDown(e) {
     if (pcHit) { petCloneDragStart(pcHit, e); return }
   }
   if (!isWhaleHit(e)) return
+  // 共存时主挂件代表小鲸鱼 ⇒ 拖动走普通挂件路径，不套桌宠弹簧/甩抛物理
+  var petRootPrimary = petOn && !petStandActive()
   try { e.preventDefault(); e.stopPropagation() } catch (err) {}
   var vp = viewport()
   var rect = root.getBoundingClientRect()
   drag = { active: true, startX: e.clientX, startY: e.clientY, origLeft: rect.left, origTop: rect.top, w: rect.width, h: rect.height, moved: false, vp: vp }
   root.classList.add('dshwv-dragging')
   pressDown()
-  petDragArmed = !!petOn // 记一笔：等真正移动时才播"被拎起"动画
-  if (petOn) {
+  petDragArmed = !!petRootPrimary // 记一笔：等真正移动时才播"被拎起"动画
+  if (petRootPrimary) {
     // —— 点击积分：按下瞬间读取飞行速度（在 petStopThrow 清零之前）——
     petScoreFired = false
     try {
@@ -27225,7 +27831,7 @@ function onDocPointerMove(e) {
   // Keep the pre-drag flip orientation while dragging (state.h/v stay as they
   // were); on release endDrag() recomputes the anchors and settle() flips the
   // class with a smooth transition instead of reverting instantly.
-  if (petOn) {
+  if (petOn && !petStandActive()) {
     // 桌宠：只喂目标点，位置由过阻尼弹簧追赶（与 dsh-pet 同一套手感）
     petDragTarget = {
       x: clamp(drag.origLeft + dx, 0, Math.max(0, drag.vp.w - drag.w)),
@@ -27260,6 +27866,10 @@ function onDocClickStopper(e) {
         e.target.closest('.dshwv-resmask') ||
         e.target.closest('.dshwv-custmenu') || e.target.closest('.dshwv-custbtn')) return
   }
+  if (petStandHitAt(e.clientX, e.clientY)) {
+    try { e.preventDefault(); e.stopPropagation() } catch (err) {}
+    return
+  }
   if (petOn && petCloneHitAt(e.clientX, e.clientY) && !isWhaleHit(e)) {
     try { e.preventDefault(); e.stopPropagation() } catch (err) {}
     return
@@ -27267,15 +27877,27 @@ function onDocClickStopper(e) {
   if (!isWhaleHit(e)) return
   try { e.preventDefault(); e.stopPropagation() } catch (err) {}
 }
-// 右键小鲸鱼唤出菜单（小鲸鱼/桌宠都生效；隐藏菜单按钮时仍然有入口）
+// 右键：点哪只就打开对应形态的菜单页（共存时两只都在，各自独立）
 function onDocContextMenu(e) {
   try {
-    // 桌宠形态：右键主宠或任意分身都直接打开**同一个主菜单**
+    // 双形态共存：独立桌宠右键 = 切到桌宠页；小鲸鱼右键 = 切到小鲸鱼页
     if (petOn) {
-      if (isWhaleHit(e)) { e.preventDefault(); toggleMenu(); return }
+      if (petStandHitAt(e.clientX, e.clientY)) {
+        e.preventDefault()
+        setConFormTarget('pet')
+        toggleMenu(e.clientX, e.clientY)
+        return
+      }
+      if (isWhaleHit(e)) {
+        e.preventDefault()
+        setConFormTarget(petStandActive() ? 'whale' : 'pet')
+        toggleMenu()
+        return
+      }
       var pcCtx = petCloneHitAt(e.clientX, e.clientY)
       if (pcCtx) {
         e.preventDefault()
+        setConFormTarget('pet')
         // 菜单直接出现在右键位置上方，不用再去找主宠
         toggleMenu(e.clientX, e.clientY)
         return
@@ -27343,11 +27965,12 @@ function fireTouchLongPressMenu() {
 }
 function onDocTouchStart(e) {
   try {
-    if (touchDrag) return
+    if (touchDrag || petStandDrag) return
     if (!e.touches || e.touches.length !== 1) return
     // 挂件自身 UI(气泡/菜单/各类面板)不拦截:它们各有自己的点击与滚动需求
     if (widgetUiHit(e.target)) return
     var t = e.touches[0]
+    if (petStandHitAt(t.clientX, t.clientY)) return // 独立桌宠由 pointer 拖拽接管
     if (!isWhaleHit({ clientX: t.clientX, clientY: t.clientY })) {
       // 分身同样要能按住拖动：否则触摸端手势会被页面滚动抢走（pointercancel）
       if (!(petOn && petCloneHitAt(t.clientX, t.clientY))) return
@@ -27462,7 +28085,7 @@ function onDocPointerMoveCursor(e) {
     if (!menuBtnHide) menuBtn.classList.add('dshwv-menu-btn-visible')
     return
   }
-  var over = isWhaleHit(e)
+  var over = isWhaleHit(e) || petStandHitAt(e.clientX, e.clientY)
   setWidgetCursor(over ? 'grab' : '')
   // 触屏上必须把 dshwvTouchUI() 也当作"该显示"：拖动鲸鱼时 pointermove 的 over 为 false，
   // 否则这一次 toggle 会把常显状态撤掉（issue #91 缺陷2 修完又被自己抹掉）。
@@ -27480,8 +28103,8 @@ function endDrag(e, clickAllowed, cancelled) {
   document.removeEventListener('pointerup', onDocPointerUp, true)
   document.removeEventListener('pointercancel', onDocPointerCancel, true)
   pressUp()
-  if (petOn) petDragEnd(drag && drag.moved === true)
-  if (petOn) petDragFollowStop()
+  if (petOn && !petStandActive()) petDragEnd(drag && drag.moved === true)
+  if (petOn && !petStandActive()) petDragFollowStop()
   root.classList.remove('dshwv-dragging')
   // issue #79 缺陷2：pointercancel（Android 把手势判成页面滚动、或系统抢走手势时派发）的
   // clientX/clientY 常常是 0，而 endDrag 又是「按坐标收尾 + saveConfig() 落盘」——
@@ -27511,7 +28134,7 @@ function endDrag(e, clickAllowed, cancelled) {
   // v785：落位计算也要先排除"窗口控件带"（否则吸附判定点会用到带内的 top）
   var top = clampWidgetTop(drag.origTop + dy, Math.max(0, drag.vp.h - drag.h))
   // 松手初速够大 ⇒ 甩出去（重力 + 碰壁反弹 + 地面摩擦，落定后才落盘）
-  if (petOn) {
+  if (petOn && !petStandActive()) {
     // 弹弓：力度 = 拉距（与手速无关），方向 = 拉的**反方向**；之后复用同一条抛掷物理
     if (drag.sling) {
       try {
@@ -27612,6 +28235,7 @@ function applyAnchorPos() {
 }
 window.addEventListener('resize', function () {
   try { petCloneRefit() } catch (err) {}
+  try { petStandRefit() } catch (err) {}
   if (state.h === null && state.v === null && applyAnchorPos()) return
   settle()
 })
