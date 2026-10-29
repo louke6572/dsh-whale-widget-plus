@@ -13,13 +13,17 @@ DSH（DeepSeek Harness）右下角的常驻小鲸鱼挂件：余额、今日已�
 
 ## 亮点
 
-- **余额与记账**：60 秒自动刷新；余额差 + 会话事件算今日已用；逐轮真实 usage 换算金额；明细保留 90 天、逐日汇总 365 天。
+- **余额与记账**：60 秒自动刷新；余额差 + 会话事件算今日已用；逐轮真实 usage 换算金额；
+  明细保留 90 天（或最多 2 万条），逐日汇总保留 365 天。
 - **峰谷常驻徽标**：峰/谷状态与倒计时无需点开气泡，贴在人物左下角；贴左吸附时自动换边。
-- **桌宠（动画）角色形态**：106 段 VP9-alpha 透明动画，双击缓冲交叉淡入；动作按分类下拉切换，可固定也可自动轮播；v0.6.3 起支持点击 Q 弹、弹簧拖拽、甩抛反弹、屏幕漫游、飞行积分、双击弹弓与多只分身。
+- **桌宠（动画）角色形态**：106 段 VP9-alpha 透明动画，双层 video 缓冲交叉淡入；
+  13 个动作分类下拉，可固定也可自动轮播；v0.6.3 起支持点击 Q 弹、弹簧拖拽、甩抛反弹、
+  屏幕漫游、飞行积分、双击弹弓与多只分身；v0.6.9 起支持**双形态共存**（小鲸鱼与桌宠同时显示）。
 - **泡泡编辑器**：点击序列、并列加权、模块化排版、随机语句/随机图片、拖拽排序、模块库。
 - **表情与音效**：5 套表情素材包、情绪/眨眼/卖萌/疲惫；按压/每轮消耗/提问/授权四通道音效，每通道独立音量；
   桌宠语音（点击/轻落/重摔）也作为音效组出现在「按压音效组」里；拖动与甩抛不播音效。
-- **多厂商与扩展**：33 家厂商额度模板、自定义 API 模型、火山 coding plan 额度、Codex 本地会话统计。
+- **多厂商与扩展**：34 套内置额度/用量模板（含自定义、OpenAI 兼容与本地端点）、
+  自定义 API 模型、火山 coding plan 额度、Codex 本地会话统计。
 
 ## 安装
 
@@ -27,27 +31,31 @@ DSH（DeepSeek Harness）右下角的常驻小鲸鱼挂件：余额、今日已�
 
 ### DSH Web（`dsh web`）
 
-任选一种：
+> ⚠️ 本包**尚未发布到 npm**（`npm view dsh-whale-widget-plus` 会 404），
+> 所以 `dsh plugin add dsh-whale-widget-plus` 装不上，请用下面两种来源之一：
 
 ```powershell
-# npm（已发布时）
-dsh plugin --profile web add dsh-whale-widget-plus
-
-# 直接从 GitHub
+# 直接从 GitHub（推荐）
 dsh plugin --profile web add github:louke6572/dsh-whale-widget-plus
 
 # 本地仓库 / 完整资源包（link: 为软链，源目录不能移动）
 dsh plugin --profile web add link:D:\Plugins\dsh-whale-widget-plus
 ```
 
-安装后重启 `dsh web`，浏览器 `Ctrl+F5` 刷新。若之前装过同名插件，先执行
-`dsh plugin --profile web remove dsh-whale-widget-plus` 再装，避免版本冲突。
+安装后重启 `dsh web`，在它打印的 URL 上打开页面并 `Ctrl+F5` 刷新。
+若之前装过同名插件，先执行 `dsh plugin --profile web remove dsh-whale-widget-plus` 再装，避免版本冲突。
+GitHub 来源**不要锁旧 commit**：v0.6.8 及更早的提交里没有 `assets/pet-video/`（106 段动画），
+装上去桌宠会提示素材缺失。
 
 ### 官方桌面端（Electron）
 
-桌面端读的是 **`desktop` profile**，不能用 `--profile web`；而 `--profile desktop`
-会被 CLI 拒绝，这是设计如此。正确做法是在桌面客户端会话里让宿主内置的
-`plugin_manager` 安装：
+桌面端读的是 **`desktop` profile**，这个 profile 由桌面客户端独占，CLI 直接操作会被拒绝：
+
+```text
+error: profile "desktop" is managed exclusively by the Electron application
+```
+
+正确做法是在桌面客户端会话里让宿主内置的 `plugin_manager` 安装：
 
 > 请使用当前桌面端内置的 `plugin_manager` 安装 `dsh-whale-widget-plus`。
 > 先核对当前 profile、已安装来源与版本；按工具支持的方式完成后告诉我结果，并说明是否需要重启。
@@ -61,7 +69,7 @@ dsh plugin --profile web add link:D:\Plugins\dsh-whale-widget-plus
 dsh plugin --profile web remove dsh-whale-widget-plus
 ```
 
-升级时不要混用 npm、GitHub、本地目录三种来源；先在插件管理页或 CLI 里移除旧来源，再按同一来源安装。
+升级时不要混用 GitHub、本地目录两种来源；先在插件管理页或 CLI 里移除旧来源，再按同一来源安装。
 用户数据（记账、泡泡配置、自定义素材）都在 `$DSH_HOME` 下，卸载插件不会删除它们。
 
 ## 凭据与安全
@@ -76,15 +84,28 @@ dsh plugin --profile web remove dsh-whale-widget-plus
 
 不需要 `DEEPSEEK_PLATFORM_TOKEN`。今日已用统一由「小鲸鱼记账」（余额差 + 会话事件）计算。
 
-### 安全边界
+### 访问控制（三层信任栅栏）
+
+所有 `/dsh-whale/*` 路由共用同一入口校验，按顺序是：
+
+1. **插件自带的轻量校验**（永远先跑）：Host 必须是回环权威（`127.0.0.0/8`、`localhost`、`::1`）
+   或 `DSHW_TRUSTED_HOSTS` 里显式声明的；`Sec-Fetch-Site: cross-site` 一律拒；
+   带 `Origin` 时必须与 Host 同源（`Origin: null` 的桌面端 `file://` 放行）。
+2. **委托宿主栅栏**：DSH 的 `connection.requestRejection` 可用时交给它判（它带浏览器鉴权，未认证返回 401）；
+   它抛异常按**拒绝**处理，不会静默放行。
+3. **宿主不支持时**（旧版 DSH 没有这个方法）：只靠第 1 层，并在插件加载时打一条醒目 warn。
+   这时若 DSH 部署在非回环地址（反代/局域网），用 `DSHW_TRUSTED_HOSTS=192.0.2.10:3080,myhost.lan` 声明。
+
+**写请求（POST/PUT/PATCH/DELETE）还必须来自本机回环**，否则 `403`；只读接口不受影响。
+需要远端管理时显式声明 `DSHW_ADMIN_HOSTS`（逗号分隔，可带端口，默认空）。
+
+### 凭据外发边界
 
 1. **凭据只发往厂商模板里写死的端点**。自定义地址默认拿不到凭据；确需自建网关时，在**本机**
    打开面板，对该模型勾选「允许把凭据发送到自定义地址」。
-2. **写请求只接受本机来源**（`127.0.0.1` / `localhost` / `[::1]`），否则 `403`；只读接口不受影响。
-   需要远端管理时用 `DSHW_ADMIN_HOSTS=192.0.2.10:3080,myhost.lan` 显式声明。
-3. 接口地址不允许携带用户名密码；凭据名只允许字母、数字与下划线。
+2. 接口地址不允许携带用户名密码；凭据名只允许字母、数字与下划线。
    **内网 / 回环地址默认拒绝**（防 SSRF）；同样只有勾选「允许把凭据发送到自定义地址」的模型才放行。
-4. **接口不再下发通配 CORS**（`Access-Control-Allow-Origin: *` 已移除）：只对同源 / 本机 `file://`
+3. **不下发通配 CORS**（没有 `Access-Control-Allow-Origin: *`）：只对同源 / 本机 `file://`
    （官方桌面端，`Origin: null`）回显；跨站请求一律 `403`。所有响应带 `X-Content-Type-Options: nosniff`。
 
 ### 其它厂商凭据（按需配置）
@@ -112,12 +133,17 @@ dsh plugin --profile web remove dsh-whale-widget-plus
 - **每轮消耗**：读取本机会话 `turn/end` 的真实 usage（input / cache / output / reasoning），
   换算金额并弹泡泡；金额按 8 位小数记账，显示保留两位。
 - **用量记录**：今日消费、近 7 天、全部记录、模型占比、按日展开明细，支持按日期或模型名搜索。
-- **模型名标注**：`deepseek-flash` 显示为 `DeepSeek-V4.1-Flash`，旧名自动归并到同一模型。
+- **模型名标注**：`deepseek-flash` 显示为 `DeepSeek-V4.1-Flash`，旧名 `deepseek-v4-flash`、
+  `deepseek-v4-flash-vision-exp` 自动归并到同一模型。
 
-### 峰谷时段显示（v0.4.3 起）
+### 峰谷时段与计价（2026-08-17 起）
 
 峰/谷状态字 + 距下一时段倒计时外移到人物左下角，不点气泡也能看到；与人物底边对齐，
 贴左吸附时自动换到人物右侧。状态字样式可选：**峰/谷、梁文峰/梁文谷、高峰/低谷、自定义**。
+
+- 高峰 = 工作日 9:00–12:00、14:00–18:00（北京时间），其余时段按谷价。
+- **2026-08-23 00:00 起**：周六/周日全天谷价。
+- **2026-09-19 起**：调休上班的周末、以及中国法定节假日全天，也按谷价（只维护「放假」日期表）。
 
 主菜单「峰谷显示」可选三种方式（v0.6.0 起）：
 
@@ -128,21 +154,20 @@ dsh plugin --profile web remove dsh-whale-widget-plus
 | 隐藏 | 徽标与气泡内都不显示 |
 
 选择保存在 `localStorage` 的 `dshw-pbmode`，修改后立即生效，刷新后保持。
-倒计时带描边框，与状态字严格等高，颜色随峰/谷自动红/绿切换。
 
 ### 桌宠（动画）角色形态（v0.5.0 起，v0.6.3 补全物理交互）
 
 在「角色」里选「桌宠（动画）」即可切换，随包带 **106 段 VP9-alpha `.webm`**；
-双层 video 交叉淡入，换段不出现空白帧。
+双层 video 交叉淡入，换段不出现空白帧。渲染端不支持 VP9-alpha 时会回退普通角色并提示。
 
 **v0.6.7 起两种形态共用同一个「桌面控制台」菜单**（416px 单面板，浅色 Precision Slate 风格），
-不再有「按钮入口 + 独立设置面板」的分裂结构。自上而下：
+不再有「按钮入口 + 独立设置面板」的分裂结构：
 
 | 区块 | 内容 |
 |---|---|
 | 头部 | 标题 + 版本徽标（点版本号打开「关于 / 自检」）；滚动时固定在顶部 |
 | 形态 | `小鲸鱼` / `桌宠` 分段控件，当前形态高亮；开启「双形态共存」时只切换控制台编辑的形态页 |
-| 大小 | 1–20 级滑块 + 可编辑数值框（右上角） |
+| 大小 | 小鲸鱼页 1–20 级、桌宠页 4–20 级（40%–200%）滑块 + 可编辑数值框 |
 | 快捷开关 | 避让滚动条（默认关闭＝贴边；开启后在卡片内展开「宽度 px」）/ 屏幕漫游（仅桌宠）/ 隐藏菜单栏 |
 | 交互与视窗吸附 | 峰谷状态下拉、吸附与翻转（自定义）、角色位置「一键复位」（仅桌宠） |
 | 提示与音效调度 | 主音量滑块（全局增益）+ 按压/消耗/提问/授权四路胶囊（显示百分比或「静音」）+ 对应 Tab |
@@ -151,6 +176,9 @@ dsh plugin --profile web remove dsh-whale-widget-plus
 | 分身设置 | **仅桌宠**，折叠卡；开启分身开关、数量步进器（最多 3 只）、分身动作、分身 1/2/3 大小 |
 | 通用设置 | 两种形态都显示：气泡开关、徽标样式、自定义峰谷文字、导入角色、按压泡泡设置、资源管理、火山额度 |
 | 底栏 | 恢复默认 / 完成（吸底）；下方固定「小鲸鱼记账」入口 |
+
+控制台整体宽 416px、高度按视口自适应（最高 700px），内容区最高 620px，超出时**内部滚动**；
+滚动条透明，不会顶出屏幕。
 
 v0.6.8 修复：分身动作选过分类后切不回「自动随机」；首次进入默认差一条滚动条宽度（看起来在「避开滚动条」）；
 配置里已开启避让时首进不生效（要手动开关一次）；小鲸鱼形态下三列快捷开关被整行隐藏；开关关闭态拇指不复位（看起来永远是开）。
@@ -204,16 +232,16 @@ v0.6.9 重做双形态共存：开关在「小鲸鱼 / 桌宠」两种形态下�
 - 每个分类下拉里的 `自动随机` = **只在该分类内轮播**；选中具体动作 = **固定循环**。
 - 「待机」只有「待机呼吸休闲」一项；选它会清掉固定项、回到待机语义。
 - 固定项与自定义待机保存在浏览器 `localStorage`（`dshw-pet-pin` / `dshw-pet-idle`），刷新和重启后保持。
-- 面板高度按视口自适应（最高 700px），超出时**面板内部滚动**，滚动条透明；不会顶出屏幕。
 - 贴左吸附时整体镜像；带文字的台词动作会反向抵消镜像，画面文字始终正读，峰谷徽标也不会被人物遮挡。
-- **小鲸鱼 / 桌宠都支持右键角色打开同一个主菜单**，再右键一次关闭；隐藏菜单按钮后仍然有入口。菜单打开时气泡自动淡出，避免与下拉互相遮挡。
+- **小鲸鱼 / 桌宠都支持右键角色打开同一个主菜单**，再右键一次关闭；隐藏菜单按钮后仍然有入口（手机端长按约 1.5 秒）。
+  菜单打开时气泡自动淡出，避免与下拉互相遮挡。
 
 **v0.6.3 补齐的 dsh-pet 原版能力**
 
 - **点击 Q 弹**：点角色立刻垂直压扁再回弹（底部锚定）；`prefers-reduced-motion` 时自动跳过。
 - **弹簧拖拽**：拖动不再是硬跟手，位置以过阻尼弹簧追赶指针（K=200 / C=30），抹平高频抖动。
 - **甩抛与反弹**：松手速度超过 500px/s 即甩出——重力 1400px/s²、四边反弹（恢复系数 0.78）、
-  地面摩擦与静止判定；落地按冲击速度触发 Q 弹（轻落 ~0.8、重砸 ~0.55）。
+  地面摩擦与静止判定；落地按冲击速度触发 Q 弹与语音。
 - **屏幕漫游**：移动类动画（螃蟹走路等）会按动画时长横向走 60–150px，到边界自动停在原地；
   开启后每 25–45 秒会主动插一段走动（即使固定了某个动作也会走完再回到固定动作），不会"开了没效果"；
   漫游/甩抛结束后落点作为自由位置保存（`localStorage` 的 `dshw-pos`）。
@@ -224,13 +252,13 @@ v0.6.9 重做双形态共存：开关在「小鲸鱼 / 桌宠」两种形态下�
   碰撞采用「位置分离 + 动量交换 + 每对 500ms 冷却」，不会出现多只重叠后无限互撞的鬼畜循环。
   数量与位置分别保存在 `dshw-pet-clones` / `dshw-pet-clone-pos`。
 - **分身动作可调**：「分身动作」可选择自动随机、跟随主宠当前动画，或固定在
-  待机/转向/移动/点击回应/小动作/玩耍/吃什么/时节/文字/工作状态某一类内轮播；
-  下拉即生效，选择保存在 `dshw-pet-clone-pin`。
+  转向 / 拖拽 / 移动 / 点击回应 / 小动作 / 玩耍 / 吃什么 / 时节 / 文字 / 余额档位 / 碎碎念 / 工作状态
+  某一类内轮播；下拉即生效，选择保存在 `dshw-pet-clone-pin`。
 - **分身大小可调**：每只分身单独一行「分身N大小」（跟随主宠 / 40%~120%，默认 78%），
   以脚底为基准缩放并自动夹回视口；碰撞盒与命中区随尺寸同步，保存在
   `dshw-pet-clone-scale-<序号>`（`follow` = 跟随主宠）。
-- **大小联动**：选择「跟随主宠」后分身与主宠同尺寸；主菜单调整「大小」时，
-  所有分身会一起重算（固定百分比按新主宠尺寸等比缩放）。
+- **大小联动**：选择「跟随主宠」后分身与主宠同尺寸；调整主宠「大小」时，
+  所有分身会一起重算（固定百分比按新主宠尺寸等比缩放，跟随模式直接同尺寸）。
 - **点击积分**：飞行中（速度 ≥ 400px/s）按下角色瞬间爆发粒子，并弹出 `+N` 分数卡片
   （分数 = 速度/100 × 462/角色尺寸，越快/越小分越高）；本次不再重复播放普通点击回应。
 - **双击弹弓**：320ms 内第二次按住角色并拖动，松手时按**拉距的反方向**弹射；
@@ -278,11 +306,12 @@ v0.6.9 重做双形态共存：开关在「小鲸鱼 / 桌宠」两种形态下�
 
 ## 本仓库与官方的关系
 
-本仓库基于官方 `MeteorNOX/DeepSeek-Balance-Whale-Widget`，保留其全部能力，并额外提供：
+本仓库基于官方 `MeteorNOX/DeepSeek-Balance-Whale-Widget`（v0.4.2），保留其全部能力，并额外提供：
 
 - 峰谷时段常驻徽标（官方在气泡内，本仓库外移）。
 - 桌宠（动画）角色形态与分类动作下拉（内置 `dsh-pet` 动画链）。
 - 桌宠物理交互：点击 Q 弹、弹簧拖拽、甩抛/重力反弹/地面摩擦、屏幕漫游、多只分身与碰撞（v0.6.3）。
+- 双形态共存（小鲸鱼与桌宠同时显示，各自独立位置/大小/交互）（v0.6.9）。
 - 5 套表情素材包、自定义角色/泡泡图库/音频资源管理。
 - 火山 coding plan 额度附属插件。
 - 更完整的 CI 审计（路由安全、设置死键、并列候选、泡泡配置语义）。
@@ -303,10 +332,12 @@ dsh-whale-widget-plus/
 │   └── accounting.mjs        # 记账内核（定点金额 + 观测/校正）
 ├── assets/
 │   ├── whale-widget.js       # 前端挂件本体（宿主按 mtime 热读取）
+│   ├── console.html          # 桌面控制台页面（iframe 加载，precompiled Tailwind）
 │   ├── pet-video/            # 106 段桌宠透明动画
-│   ├── v1 ~ v5/              # 表情素材包
+│   ├── v1 ~ v5/              # 表情素材包（各含 pack.json）
 │   └── DSniang1.png 等        # 角色图、音效、泡泡图
-├── tools/                    # CI 审计脚本
+├── plugins/volc-usage/       # 火山 coding plan 额度附属插件
+├── tools/                    # CI 审计与冒烟脚本
 └── whale-widget-prompt.md    # 完整规格与二次开发提示
 ```
 
@@ -320,12 +351,13 @@ dsh-whale-widget-plus/
 | `.dshw-api.json` | 自定义 API 模型注册表（不含密钥） |
 | `.dshw-usage-archive.json` | 超过保留期的明细与逐日归档 |
 | `.dshw-codex.json` | Codex 本地统计缓存（不含凭据） |
-| `whale-roles/` `whale-audio/` `whale-bubble-imgs/` | 自定义角色、音频、泡泡图资源 |
+| `whale-roles/` `whale-audio/` `whale-bubble-imgs/` `whale-expressions/` | 自定义角色、音频、泡泡图、表情包资源 |
 
 ## 验证
 
 ```powershell
 dsh --profile web --dump-config | Select-String -Pattern "whale"
+# 端口以 dsh web 启动时打印的 URL 为准，下面假设是 3080
 curl http://127.0.0.1:3080/dsh-whale/balance.json
 curl http://127.0.0.1:3080/dsh-whale/widget.js
 curl http://127.0.0.1:3080/dsh-whale/pet-animations.json
@@ -337,31 +369,33 @@ curl http://127.0.0.1:3080/dsh-whale/pet-animations.json
   素材缺失时 `{ok:false, error:"pet-assets-missing", reason, dir, hint}`（见「常见问题」）
 - 浏览器 `Ctrl+F5` 后右下角出现挂件
 
-> 全部 **35 个** `/dsh-whale/*` 路由都接入了 DSH 浏览器信任栅栏。不带会话凭据的裸 `curl`
+> 全部 **35 个** `/dsh-whale/*` 路由共用三层信任栅栏（见「访问控制」）。不带会话凭据的裸 `curl`
 > 返回 `401`（伪造 Host 为 `403`）是预期行为，不代表接口坏了；写请求还必须是本机来源。
 
 ## 常见问题
 
 - **挂件不出现**：确认安装规格是 `dsh-whale-widget-plus`；`dsh --profile web --dump-config`
   能看到它；重启 `dsh web` 后刷新。桌面端确认装在 `desktop` profile，并完全退出客户端再打开。
+- **npm 装不上**：本包尚未发布 npm（404），请用 `github:louke6572/dsh-whale-widget-plus` 或本地 `link:` 安装。
 - **桌宠提示「素材未安装」**：说明安装包里没有 `assets/pet-video/`（v0.6.8 及更早的 GitHub 提交确实没带这 106 段），
   先重装最新版 `github:louke6572/dsh-whale-widget-plus`（**不要锁旧 commit**）；
   仍缺就把 106 段 `.webm` 放进插件目录的 `assets/pet-video/` 再刷新。
-  想看宿主判定原因：`curl http://127.0.0.1:3080/dsh-whale/pet-animations.json` 会回 `reason` 与 `dir`。
+  想看宿主判定原因：`curl http://127.0.0.1:<dsh web 端口>/dsh-whale/pet-animations.json` 会回 `reason` 与 `dir`。
 - **余额报「未配置 DEEPSEEK_API_KEY」**：配置 API key，或在「设置 → 账号与余额」登录 DeepSeek 账号。
-- **保存设置报 403**：写操作只能在运行 DSH 的本机、用 `127.0.0.1` 打开时进行；远端管理用 `DSHW_ADMIN_HOSTS`。
+- **保存设置报 403**：写操作只能在运行 DSH 的本机、用 `127.0.0.1` 打开时进行；远端管理用 `DSHW_ADMIN_HOSTS` 声明。
 - **提示「该地址不是内置端点，已拒绝发送凭据」**：自定义网关需在本机面板对该模型勾选「允许把凭据发送到自定义地址」。
 - **今日已用显示 `--`**：等待一次成功的余额观测；统计从该时刻开始，之前的消费不计入。
 - **今日已用与官网不一致**：核对同一账户、同一币种、同一区间；充值与消费同区间时用「余额校正」补录到账金额。
 - **每轮消耗/任务结束音不出现**：在「音效与提示 → 全局设置」展开「每轮消耗提示」，确认左侧开关与音量；一轮完整结束才结算。
 - **等待提问/授权的气泡关不掉**：点一下气泡即可收起；也可在音效面板底部开启「点按角色关闭提示气泡」。
 - **隐藏了菜单按钮**：电脑端右键角色，手机端长按约 1.5 秒。
-- **改了前端不生效**：`assets/whale-widget.js` 按 mtime 热读取，硬刷新即可；改 `lib/index.js` 必须重启 `dsh web`。
+- **改了前端不生效**：`assets/whale-widget.js`、`assets/console.html` 按 mtime 热读取，硬刷新即可；
+  改 `lib/index.js` 必须重启 `dsh web`。
 
 ## 定价表
 
 金额按 **CNY / 百万 tokens**，格式为 `[空闲, 高峰]`。高峰 = 工作日 9:00–12:00、14:00–18:00
-（北京时间），空闲价为高峰的一半；2026-08-23 起周末全天谷价。
+（北京时间），空闲价为高峰的一半；周末、调休上班的周末与法定节假日全天按空闲价（2026-08-23 / 09-19 起）。
 
 | 模型 | 缓存命中 | 缓存未命中 | 输出 |
 |---|---|---|---|
@@ -373,10 +407,14 @@ curl http://127.0.0.1:3080/dsh-whale/pet-animations.json
 ## 开发与维护
 
 - `lib/index.js`（宿主）、`lib/client.js`（生命周期）、`lib/accounting.mjs`（记账内核）、
-  `assets/whale-widget.js`（前端）。宿主改动需重启 `dsh web`，前端改动硬刷新即可。
+  `assets/whale-widget.js`（前端）、`assets/console.html`（控制台）。宿主改动需重启 `dsh web`，前端改动硬刷新即可。
 - 本地联调：`dsh plugin --profile web add link:.`。
-- CI：`node tools/ci-audit.mjs --no-pack` 会检查路由安全、README 路由条数、设置死键、
-  并列候选和泡泡配置语义；`node tools/check-dead-settings.mjs` 可单独运行。
+- 脚本（`tools/`）：
+  - `node tools/ci-audit.mjs --no-pack`：路由安全 / README 路由条数 / 打包可运行 / CI 覆盖 / 动态 HTML 来源。
+  - `node tools/ci-audit-selftest.mjs`：上面那套审计自身的用例。
+  - `node tools/check-dead-settings.mjs`：设置键的死键检查（运行时读点 + 契约表）。
+  - `node tools/expr-smoke.mjs`：表情包清单/路由/配置键冒烟（mock 宿主，不联网）。
+  - `node tools/z-layer-audit.mjs`、`tools/bubble-config-audit.mjs`、`tools/choice-options-audit.mjs`：分层/泡泡/并列候选专项。
 - 完整规格与视觉参数见 [`whale-widget-prompt.md`](whale-widget-prompt.md)。
 
 ## 致谢
