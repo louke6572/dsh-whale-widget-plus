@@ -16126,7 +16126,7 @@ function measureCharTopPx() {
     var c = document.createElement('canvas')
     c.width = W
     c.height = H
-    var x = c.getContext('2d')
+    var x = c.getContext('2d', { willReadFrequently: true })
     x.clearRect(0, 0, W, H)
     x.drawImage(el, 0, 0, W, H)
     var d = x.getImageData(0, 0, W, H).data
@@ -17801,7 +17801,7 @@ function frameSafeEstimateFromCanvas(frame) {
     var cv = document.createElement('canvas')
     cv.width = FRAME_SAFE_SW
     cv.height = FRAME_SAFE_SH
-    var ctx = cv.getContext ? cv.getContext('2d') : null
+    var ctx = cv.getContext ? cv.getContext('2d', { willReadFrequently: true }) : null
     if (!ctx) return { safe: null, why: '取不到画布（无法测量）' }
     var t0 = now()
     var sx = FRAME_SAFE_SW / FRAME_W
@@ -18000,7 +18000,7 @@ function frameEditImageOpaqueRaw(id, cb) {
         var cv = document.createElement('canvas')
         cv.width = cw
         cv.height = ch
-        var cx = cv.getContext('2d')
+        var cx = cv.getContext('2d', { willReadFrequently: true })
         cx.drawImage(im, 0, 0, cw, ch)
         var data = cx.getImageData(0, 0, cw, ch).data
         var minX = cw, minY = ch, maxX = -1, maxY = -1
@@ -24795,7 +24795,7 @@ function petUpdateHit() {
     var v = petVidCur()
     if (!v || !v.videoWidth || !v.videoHeight) return
     if (!hitCanvas) { hitCanvas = document.createElement('canvas'); hitCanvas.width = 610; hitCanvas.height = 610 }
-    var ctx = hitCanvas.getContext('2d')
+    var ctx = hitCanvas.getContext('2d', { willReadFrequently: true })
     var sc = Math.min(610 / v.videoWidth, 610 / v.videoHeight)
     var dw = v.videoWidth * sc
     var dh = v.videoHeight * sc
@@ -24810,16 +24810,29 @@ function petUpdateHit() {
   } catch (err) { hitFailed = true; hitReady = false; applyHitClip('') }
 }
 var petFitH = 0 // 动画层高度（只按第一段动画定一次；其余动画只调底边，避免大小跳变）
+// 量像素用的画布复用：petMeasure 每次点击都可能调用（桌宠命中区按不透明包围盒判定），
+// 每次 new canvas + getImageData 开销不小；固定一块画布 + willReadFrequently 让浏览器走
+// 软件绘制路径，避免 GPU 读回。与官方 PR #300 同一处理。
+var petMeasureCv = null
+var petMeasureCtx = null
+function petMeasureContext() {
+  if (!petMeasureCtx) {
+    try {
+      petMeasureCv = document.createElement('canvas')
+      petMeasureCtx = petMeasureCv.getContext('2d', { willReadFrequently: true })
+    } catch (err) { petMeasureCv = null; petMeasureCtx = null }
+  }
+  return petMeasureCtx
+}
 function petMeasure(v) {
   // 量「当前帧的不透明包围盒」：返回角色在帧内的高度占比与**底部留白占比**
   try {
     if (!v || !v.videoWidth || !v.videoHeight) return null
     var W = 128
     var H = Math.max(1, Math.round(W * v.videoHeight / v.videoWidth))
-    var c = document.createElement('canvas')
-    c.width = W
-    c.height = H
-    var ctx = c.getContext('2d')
+    var ctx = petMeasureContext()
+    if (!ctx) return null
+    if (petMeasureCv.width !== W || petMeasureCv.height !== H) { petMeasureCv.width = W; petMeasureCv.height = H }
     ctx.clearRect(0, 0, W, H)
     ctx.drawImage(v, 0, 0, W, H)
     var d = ctx.getImageData(0, 0, W, H).data
@@ -27684,7 +27697,7 @@ function setupHitTest(url) {
     var probe = new Image()
     probe.onload = function () {
       try {
-        var ctx = hitCanvas.getContext('2d')
+        var ctx = hitCanvas.getContext('2d', { willReadFrequently: true })
         // 按 object-fit:contain + object-position:right bottom 的实际几何绘制，
         // 使非正方形（如 GIF 动图）的命中区域与显示一致
         var iw = probe.width || 610
@@ -27771,7 +27784,7 @@ function convexHull(pts) {
 }
 function buildHitClipPath() {
   try {
-    var c = hitCanvas && hitCanvas.getContext ? hitCanvas.getContext('2d') : null
+    var c = hitCanvas && hitCanvas.getContext ? hitCanvas.getContext('2d', { willReadFrequently: true }) : null
     if (!c) return ''
     var data = c.getImageData(0, 0, 610, 610).data // 只读一次（1.5MB），别逐行读
     var pts = []
@@ -27820,7 +27833,7 @@ function isWhaleHit(e) {
     if (state.flip) lx = 610 - lx
     var data
     try {
-      data = hitCanvas.getContext('2d').getImageData(Math.floor(lx), Math.floor(ly), 1, 1).data
+      data = hitCanvas.getContext('2d', { willReadFrequently: true }).getImageData(Math.floor(lx), Math.floor(ly), 1, 1).data
     } catch (err) {
       // v756（issue #144）：画布读不出来（隐私保护/跨域污染）→ 立刻降级为矩形判定，
       // 并且**记住**这个状态，后续调用直接走矩形，不再每次抛错。
@@ -28546,7 +28559,7 @@ var waitSeenId = ''
 function waitEventCfg(kind) {
   try { return ((usageSet || {}).events || {})[kind] || {} } catch (err) { return {} }
 }
-function pollWaitState() {
+function pollWaitState(done) {
   try {
     fetch(WAIT_URL, { cache: 'no-store' })
       .then(function (r) { return r.json() })
@@ -28596,9 +28609,10 @@ function pollWaitState() {
         if (on && sel && ev.soundOn !== false) playBindingSound({ on: true, sel: sel }, ev)
       })
       .catch(function () {})
-  } catch (err) {}
+      .finally(function () { if (typeof done === 'function') done() })
+  } catch (err) { if (typeof done === 'function') done() }
 }
-function pollLastTurn() {
+function pollLastTurn(done) {
   try {
     fetch(LAST_TURN_URL, { cache: 'no-store' })
       .then(function (r) { return r.json() })
@@ -28632,13 +28646,14 @@ function pollLastTurn() {
         }
       })
       .catch(function () {})
-  } catch (err) {}
+      .finally(function () { if (typeof done === 'function') done() })
+  } catch (err) { if (typeof done === 'function') done() }
 }
 // —— 逐步骤金额滚动：轮询 last-step.json，seq 变化即显示「-x.xx」并向上滚一次 ——
 var STEP_COST_URL = '/dsh-whale/last-step.json'
 var lastStepSeq2 = 0
 var lastStepAligned = false
-function pollStepCost() {
+function pollStepCost(done) {
   try {
     fetch(STEP_COST_URL, { cache: 'no-store' })
       .then(function (r) { return r.json() })
@@ -28666,9 +28681,45 @@ function pollStepCost() {
         setTimeout(function () { try { boxEl.classList.remove('dshwv-steproll') } catch (err) {} }, 1450)
       })
       .catch(function () {})
+      .finally(function () { if (typeof done === 'function') done() })
+  } catch (err) { if (typeof done === 'function') done() }
+}
+// —— 轮询节奏自适应（官方 PR #304 同款思路）——
+// 可见时 1 秒一拍、隐藏时 5 秒一拍：隐藏窗口仍要能发现新的挂起（否则「等你回来才响」），
+// 但没必要每秒打三个接口。上一拍还有请求没回来就跳过这一拍，慢网络/主线程卡顿时不叠请求；
+// 超过 15 秒仍未回来则视为卡死照常发，避免一次挂住的请求让轮询永久停摆。
+var POLL_MS_VISIBLE = 1000
+var POLL_MS_HIDDEN = 5000
+var POLL_STALE_MS = 15000
+var POLL_FN_N = 3
+var pollInFlight = 0
+var pollStartedAt = 0
+var pollTimer = 0
+function pollTick() {
+  try {
+    if (pollInFlight > 0 && Date.now() - pollStartedAt < POLL_STALE_MS) return
+    pollInFlight = POLL_FN_N
+    pollStartedAt = Date.now()
+    var done = function () { if (pollInFlight > 0) pollInFlight -= 1 }
+    try { pollLastTurn(done) } catch (err) { done() }
+    try { pollWaitState(done) } catch (err) { done() }
+    try { pollStepCost(done) } catch (err) { done() }
   } catch (err) {}
 }
-setInterval(function () { pollLastTurn(); pollWaitState(); pollStepCost() }, 1000)
+function pollSchedule() {
+  var ms = POLL_MS_VISIBLE
+  try { if (typeof document !== 'undefined' && document.hidden === true) ms = POLL_MS_HIDDEN } catch (err) {}
+  clearTimeout(pollTimer)
+  pollTimer = setTimeout(function () { pollTick(); pollSchedule() }, ms)
+}
+try {
+  document.addEventListener('visibilitychange', function () {
+    // 切回前台立刻补一拍（不必等隐藏期那 5 秒），随后按可见节奏继续
+    try { if (document.hidden !== true) pollTick() } catch (err) {}
+    pollSchedule()
+  })
+} catch (err) {}
+pollSchedule()
 }
 // 主界面检测通过（或稍后由 MutationObserver 检测到）后执行挂件初始化；非主界面不启动
 try { dshwTryStart(true) } catch (err) {}
