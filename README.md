@@ -166,6 +166,25 @@ v0.6.9 重做双形态共存：开关在「小鲸鱼 / 桌宠」两种形态下�
 共存时桌宠的甩抛以**松手点**为落地基准（可停在小鲸鱼上方等任意高度，不会被重力一路拉回屏幕底边），
 弹弓（双击第二下按住拖）仍按「甩出去」落到屏幕底边。
 
+本轮修复（版本号保持 `0.6.9`，仅补充代码与文档）：
+
+- **共存下调桌宠大小，分身不跟着变**：分身尺寸的基准在共存态读错了变量（读的是挂件形态的 `petFitH`，
+  共存时它恒为 0），现按当前形态取 `petStandFitH` / `petFitH`，并在主宠尺寸重算后统一重排分身（以脚底为基准，
+  不会越缩越往下坠）。
+- **桌宠素材缺失改为明确指引**：`/dsh-whale/pet-animations.json` 在素材缺失时不再返回 `ok:true` + 空数组，
+  而是 `ok:false` + `error:"pet-assets-missing"` + `reason`（`dir-missing` / `empty` / `unreadable`）+ `dir` + `hint`；
+  前端 toast 与控制台直接给出「装最新版 / 素材该放哪个目录」的可执行步骤。
+  同时修掉「素材缺失过一次后再点桌宠会进入空白桌宠」的缓存短路问题。
+- **共存态换小鲸鱼角色不再误删桌宠**：之前换角色会 `petDisable()`，桌宠消失而共存开关仍亮着，
+  「桌宠形态」分段又只切页不重启，导致只能关掉共存再开才能恢复。
+- **等待提问/授权的桌宠动画不再只播一次**：`key` 的 `var` 提升让判定恒读 `undefined`，现已提前定义。
+- **桌宠/分身拖拽丢 `pointerup` 不再挂死**：窗口外松手时用 `buttons` 位兜底收尾；
+  桌宠命中区改用当前帧的**不透明包围盒**（16:9 帧的透明留白不再吞页面点击），且分身命中优先于桌宠。
+- **快速开关共存不再产生错状态**：`petEnable` 的异步回调加了代次校验，开关关掉后在途启用会作废。
+- **`pet-video` 支持后缀 Range**（`Range: bytes=-N`）：播放器 seek 到尾部不再拿到错误数据块。
+- 控制台「开启分身」开关的拇指会跟着开/关移动（之前是 `<span>`，脚本只找 `div`）；
+  大小滑杆两端刻度改为真实范围（小鲸鱼页 1~20 / 桌宠页 4~20）。
+
 「提示与音效调度」的四个 Tab：
 
 - **按压**：音效组下拉、新建音效组、试听、点按角色快捷关闭提示气泡。
@@ -310,7 +329,8 @@ curl http://127.0.0.1:3080/dsh-whale/pet-animations.json
 
 - `/dsh-whale/balance.json` → `{ok, totalBalance, currency, todayUsage}`
 - `/dsh-whale/widget.js` → 前端挂件本体
-- `/dsh-whale/pet-animations.json` → 桌宠动画清单
+- `/dsh-whale/pet-animations.json` → 桌宠动画清单：素材在位时 `{ok:true, animations:[...]}`；
+  素材缺失时 `{ok:false, error:"pet-assets-missing", reason, dir, hint}`（见「常见问题」）
 - 浏览器 `Ctrl+F5` 后右下角出现挂件
 
 > 全部 **35 个** `/dsh-whale/*` 路由都接入了 DSH 浏览器信任栅栏。不带会话凭据的裸 `curl`
@@ -320,6 +340,10 @@ curl http://127.0.0.1:3080/dsh-whale/pet-animations.json
 
 - **挂件不出现**：确认安装规格是 `dsh-whale-widget-plus`；`dsh --profile web --dump-config`
   能看到它；重启 `dsh web` 后刷新。桌面端确认装在 `desktop` profile，并完全退出客户端再打开。
+- **桌宠提示「素材未安装」**：说明安装包里没有 `assets/pet-video/`（v0.6.8 及更早的 GitHub 提交确实没带这 106 段），
+  先重装最新版 `github:louke6572/dsh-whale-widget-plus`（**不要锁旧 commit**）；
+  仍缺就把 106 段 `.webm` 放进插件目录的 `assets/pet-video/` 再刷新。
+  想看宿主判定原因：`curl http://127.0.0.1:3080/dsh-whale/pet-animations.json` 会回 `reason` 与 `dir`。
 - **余额报「未配置 DEEPSEEK_API_KEY」**：配置 API key，或在「设置 → 账号与余额」登录 DeepSeek 账号。
 - **保存设置报 403**：写操作只能在运行 DSH 的本机、用 `127.0.0.1` 打开时进行；远端管理用 `DSHW_ADMIN_HOSTS`。
 - **提示「该地址不是内置端点，已拒绝发送凭据」**：自定义网关需在本机面板对该模型勾选「允许把凭据发送到自定义地址」。

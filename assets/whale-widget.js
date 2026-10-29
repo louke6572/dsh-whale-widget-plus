@@ -2930,7 +2930,7 @@ function conSetSw(sw, on) {
   if (!sw) return
   sw.classList.toggle('bg-[#1e3a8a]', !!on)
   sw.classList.toggle('bg-slate-300', !on)
-  var th = sw.querySelector('div')
+  var th = sw.querySelector('div, span.rounded-full')
   if (th) {
     th.classList.toggle('translate-x-3', !!on)
     // 预编译的 Tailwind 里没有 .translate-x-0：旧写法关态拇指原地不动，开关看起来永远是「开」。
@@ -2938,8 +2938,17 @@ function conSetSw(sw, on) {
     th.style.transform = on ? '' : 'translateX(0)'
   }
 }
-function conSegStyle(btn, on) {
-  if (!btn) return
+// 大小滑杆两端刻度：console.html 里写死的是 8/32，实际范围被脚本改成 1~20（小鲸鱼页）/ 4~20（桌宠页）。
+// 不同步的话用户会按 8~32 理解大小，所以每次改 min/max 都顺手把两端文字一起改掉。
+function conScaleEnds(doc, min, max) {
+  try {
+    var mn = doc && doc.getElementById('scale-min-label')
+    var mx = doc && doc.getElementById('scale-max-label')
+    if (mn) mn.textContent = String(min)
+    if (mx) mx.textContent = String(max)
+  } catch (err) {}
+}
+function conSegStyle(btn, on) {  if (!btn) return
   btn.classList.toggle('bg-white', on)
   btn.classList.toggle('text-slate-900', on)
   btn.classList.toggle('shadow-tactile-button', on)
@@ -3089,7 +3098,11 @@ function conBind() {
     try { dshwvPositionMenuSoon() } catch (err) {}
   })
   conOn(segPet, 'click', function () {
-    if (petCoexist) { setConFormTarget('pet'); try { dshwvPositionMenuSoon() } catch (err) {} ; return }
+    if (petCoexist) {
+      // 共存开着但桌宠没起来（换角色/启用作废等异常路径）⇒ 这里兜底拉起，否则点「桌宠形态」永远没反应
+      if (!petOn) { try { petEnable(true) } catch (err) {} }
+      setConFormTarget('pet'); try { dshwvPositionMenuSoon() } catch (err) {} ; return
+    }
     if (!petOn) { try { petEnable(true) } catch (err) {} }
     conFormTarget = 'pet'
     dshwvConSync()
@@ -3105,6 +3118,7 @@ function conBind() {
     sizeSlider.min = '1'
     sizeSlider.max = '20'
     sizeSlider.step = '1'
+    conScaleEnds(doc, 1, 20)
     conOn(sizeSlider, 'input', function () {
       var lv = Math.max(1, Math.min(20, Math.round(Number(sizeSlider.value) || 1)))
       if (petCoexist && conFormTarget === 'pet') {
@@ -3672,10 +3686,12 @@ function dshwvConSync() {
     var sizeVal = doc.getElementById('scale-value')
     if (petCoexist && conFormTarget === 'pet') {
       if (sizeSlider) { sizeSlider.min = '4'; sizeSlider.max = '20'; sizeSlider.value = String(petSizeLevel) }
+      conScaleEnds(doc, 4, 20)
       if (sizeVal) sizeVal.textContent = String(petSizeLevel)
     } else {
       var lv = Math.max(1, Math.min(20, Math.round(Number(scaleNumber.value) || 1)))
       if (sizeSlider) { sizeSlider.min = '1'; sizeSlider.max = '20'; sizeSlider.value = String(lv) }
+      conScaleEnds(doc, 1, 20)
       if (sizeVal) sizeVal.textContent = String(lv)
     }
     // 快捷开关
@@ -22790,8 +22806,14 @@ function makeNameCell(className, text) {
   return outer
 }
 function applyRole(id, name, url) {
-  // 切到任何普通角色 ⇒ 退出桌宠形态（桌宠自己由 petEnable/petDisable 管理）
-  if (petOn && id !== PET_ROLE_ID) { try { petDisable() } catch (err) {} }
+  // 切到任何普通角色 ⇒ 退出桌宠形态（桌宠自己由 petEnable/petDisable 管理）。
+  // 例外：双形态共存时桌宠是独立实例，换小鲸鱼的角色不能把它一起卸掉 —— 否则共存开关还亮着、
+  // 「桌宠形态」分段又只切页不重启桌宠，桌宠就再也唤不回来了。
+  if (petOn && id !== PET_ROLE_ID && !petCoexist) { try { petDisable() } catch (err) {} }
+  if (petOn && id !== PET_ROLE_ID && petCoexist) {
+    // 共存：记下新鲸鱼角色（退出共存的回退快照要跟着更新），桌宠继续留在屏幕上
+    try { dualWhaleRole = { id: id, name: name, url: url } } catch (err) {}
+  }
   bubbleAvoidHead = null // 角色变了 ⇒ 头顶缓存作废，按新角色重量
   currentRole = { id: id, name: name, url: url }
   img.src = url
@@ -23440,6 +23462,9 @@ function petSyncCategorySelects() {
   } catch (err) {}
 }
 var petOn = false // 是否处于桌宠形态
+// 桌宠启用代次：petEnable 内部要等一次 fetch（petLoadAnims），期间用户可能又把共存开关关掉。
+// 回调只在代次未变时继续，否则会写出「开关已关但桌宠仍被启用」的错状态。
+var petEnableTok = 0
 // 双形态共存（v0.6.9）：两种形态同时显示 —— 小鲸鱼留在主挂件，桌宠成为独立实例（自己拖动/缩放/被点击）。
 // 共存开启时，顶部「形态」分段只切换菜单页，不再切换实际显示的形象。
 var petCoexist = false
@@ -23482,6 +23507,10 @@ try {
   }
 } catch (err) {}
 var petAnims = null // 宿主清单：name -> true（null = 还没拉过）
+// 素材未安装时新宿主会在 pet-animations.json 里回 ok:false + hint + dir。
+// 旧版宿主没有这两个字段 ⇒ 兜底用通用文案，保证「不留白屏、不说废话」。
+var petAnimsMissingHint = ''
+var petAnimsMissingDir = ''
 var petLoading = false
 var petShown = 0 // 0/1：当前显示的是 A 还是 B 层
 var petCur = ''
@@ -24065,10 +24094,15 @@ function petCloneSize(c) {
   var sc = (typeof c.scale === 'number' && c.scale > 0) ? c.scale : 0.78
   // 跟随主宠：直接复用主宠的动画框高度 ⇒ 可见角色与主宠同尺寸
   if (c.scaleMode === 'follow') sc = 1
-  // 基准必须是主宠**动画框**高度（petFitH = 主宠可见高度 / 角色占比），
+  // 基准必须是主宠**动画框**高度（可见高度 / 角色占比），
   // 不能直接用 root 高度 × 0.5945 —— 那是"可见角色高度"，套到分身的视频框上
   // 会因为视频框里还有透明留白而显得明显比主宠小（用户反馈"大小不同步"的真因）。
-  var baseH = petFitH
+  // 两种形态下"主宠动画框"不是同一个量：
+  //   独占桌宠 → 主宠在挂件里，petFitH 由 petAutoFit 维护；
+  //   双形态共存 → 主宠是独立实例，petAutoFit 走 petStandFit 分支提前 return，
+  //               petFitH 恒为 0；真实基准在 petStandFitH。
+  // 之前这里只读 petFitH，共存下调桌宠大小（petStandScaleSet）分身纹丝不动 —— 用户报的 bug。
+  var baseH = petStandActive() ? petStandFitH : petFitH
   if (!(baseH > 40)) baseH = (rr.height || 400) * 0.5945 / 0.62
   var h = Math.max(50, baseH * sc)
   var w = h * (16 / 9)
@@ -24537,6 +24571,9 @@ function petCloneDragStart(c, e) {
 function petCloneDragMove(e) {
   var d = petCloneDrag
   if (!d) return
+  // 在窗口外/屏幕边缘松手时 pointerup 不会派发 ⇒ 拖拽状态永久挂住（鼠标一动分身就跟着走，
+  // 且 petStandPlace 之类的重排会被永久挡住）。用 buttons 位兜底收尾，与主挂件拖拽的处理对齐。
+  if (!e.buttons) { try { petCloneDragUp(e) } catch (err) {} ; return }
   var c = d.c
   var dx = e.clientX - d.sx
   var dy = e.clientY - d.sy
@@ -24734,12 +24771,16 @@ function petCloneSync() {
   petCloneSetCount(petCloneCount)
 }
 function petCloneRefit() {
+  var vp = viewport()
   for (var i = 0; i < petClones.length; i++) {
     var c = petClones[i]
     var ox = c.w
+    // 以脚底为基准缩放：与主宠 petStandScaleSet（petStandY += oldH - newH）和
+    // 分身自身改尺寸（petCloneSetScale）保持同一套观感 —— 变大往上长，不往下坠。
+    var oldBottom = c.y + c.h
     petCloneSize(c)
-    if (c.x + c.w > viewport().w || ox !== c.w) c.x = clamp(c.x, 0, Math.max(0, viewport().w - c.w))
-    c.y = clamp(c.y, 0, Math.max(0, viewport().h - c.h))
+    if (c.x + c.w > vp.w || ox !== c.w) c.x = clamp(c.x, 0, Math.max(0, vp.w - c.w))
+    c.y = clamp(oldBottom - c.h, 0, Math.max(0, vp.h - c.h))
     petCloneApply(c)
     // 主宠缩放后分身一起变大，可能互相压住：只做位置分离，不注入弹跳速度
     petCloneResolveOverlap(c)
@@ -24896,6 +24937,11 @@ function petStandFit(v, m) {
       petStandFitW = petStandFitH * (v.videoWidth / v.videoHeight)
       petWrap.style.width = petStandFitW.toFixed(1) + 'px'
       petWrap.style.height = petStandFitH.toFixed(1) + 'px'
+      // 先按新尺寸把主宠摆好，再让分身跟着换基准重排（此时 petWrap 的碰撞盒是最新的，
+      // 分身与主宠的分离才算得准）。否则分身会停在旧尺寸上 —— 用户报的「调大小时分身不跟着变」。
+      petStandPlace()
+      try { petCloneRefit() } catch (err) {}
+      return
     }
     petStandPlace()
   } catch (err) {}
@@ -24943,7 +24989,20 @@ function petStandHitAt(x, y) {
   try {
     var r = petWrap.getBoundingClientRect()
     if (!(r.width > 0)) return false
-    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom
+    if (x < r.left || x > r.right || y < r.top || y > r.bottom) return false
+    // 16:9 帧里大面积为透明：直接按整帧矩形判定会让透明区域吞掉页面点击
+    // （2 倍大小时约 850×480px 全是点击死区）。用「当前帧的不透明包围盒」收敛。
+    // 逐帧量一次（只发生在 pointerdown），开销可忽略。
+    var v = petVidCur()
+    var m = (v && v.videoWidth) ? petMeasure(v) : null
+    if (m) {
+      var x0 = r.left + m.leftGapRatio * r.width
+      var x1 = r.right - m.rightGapRatio * r.width
+      var y0 = r.top + m.topRatio * r.height
+      var y1 = r.bottom - m.gapRatio * r.height
+      if (x < x0 || x > x1 || y < y0 || y > y1) return false
+    }
+    return true
   } catch (err) { return false }
 }
 // 进入/退出独立实例：把 petWrap 在「挂件内」与「body 顶层 fixed」之间搬移
@@ -25013,9 +25072,20 @@ function petStandScaleSet(sc) {
     petStandFitW = 0
     petRefitNow()
     if (oldH > 0 && petStandFitH > 0) {
-      petStandY += oldH - petStandFitH
-      petStandPlace()
-      petStandSavePos()
+      // 以脚底为基准缩放：按高度差把顶边上移/下移，再夹回视口。
+      // 这里**不能**调 petStandPlace()：它按存盘的相对位置重算 top，会把刚做的偏移覆盖掉
+      // （旧实现就是这样，实际效果是"顶边不动、往下长"，缩放越大越容易顶出屏幕底部）。
+      // 拖拽/甩抛进行中不抢位置，交给对应的 step 自己收尾。
+      if (!petStandDrag && !petStandThrowActive) {
+        var vp2 = viewport()
+        petStandY += oldH - petStandFitH
+        petStandX = clamp(petStandX, 0, Math.max(0, vp2.w - (petStandFitW || 10)))
+        petStandY = clampWidgetTop(petStandY, Math.max(0, vp2.h - (petStandFitH || 10)))
+        petStandApply()
+        petStandSavePos()
+        // 主宠位置定稿后，再按最终碰撞盒校准一次分身（petStandFit 里的那次还早于底边位移）
+        try { petCloneRefit() } catch (err) {}
+      }
     }
   } catch (err) {}
 }
@@ -25138,6 +25208,9 @@ function petStandDragStart(e) {
 function petStandDragMove(e) {
   var d = petStandDrag
   if (!d) return
+  // 同 petCloneDragMove：窗口外松手拿不到 pointerup，用 buttons 位兜底收尾，
+  // 否则 petStandDrag 永久非空 ⇒ petStandPlace 永远 return，改大小/缩窗口都不再重排。
+  if (!e.buttons) { try { petStandDragUp(e) } catch (err) {} ; return }
   petTrailPush(petStandTrail, e)
   var dx = e.clientX - d.sx
   var dy = e.clientY - d.sy
@@ -25671,7 +25744,9 @@ function petOpenActions() {
   }, 0)
 }
 function petLoadAnims(cb) {
-  if (petAnims) { if (cb) cb(true); return }
+  // 只有「真的拿到了待机素材」才算加载成功。旧实现只要 petAnims 是对象就 cb(true)，
+  // 于是素材缺失后第二次点「桌宠」会直接放行 ⇒ petOn=true 却没有任何动画（空白桌宠）。
+  if (petAnims && Object.keys(petAnims).length) { if (cb) cb(true); return }
   if (petLoading) return
   petLoading = true
   fetch('/dsh-whale/pet-animations.json', { cache: 'no-store' })
@@ -25682,9 +25757,15 @@ function petLoadAnims(cb) {
       for (var i = 0; i < arr.length; i++) map[arr[i]] = true
       petAnims = map
       petLoading = false
+      petAnimsMissingHint = (d && d.ok === false && d.error === 'pet-assets-missing') ? String(d.hint || '') : ''
+      petAnimsMissingDir = (d && typeof d.dir === 'string') ? d.dir : ''
       try { petFillIdleSelect() } catch (err) {}
       try { petFillCategorySelects() } catch (err) {}
-      if (!map[PET_IDLE]) { try { console.warn('[dsh-whale] 桌宠素材缺失：assets/pet-video/ 里没有「' + PET_IDLE + '」') } catch (err) {} }
+      if (!map[PET_IDLE]) {
+        var msg = '[dsh-whale] 桌宠素材缺失：assets/pet-video/ 里没有「' + PET_IDLE + '」'
+        if (petAnimsMissingHint) msg += '\n' + petAnimsMissingHint
+        try { console.warn(msg) } catch (err) {}
+      }
       if (cb) cb(!!map[PET_IDLE])
     })
     .catch(function () { petLoading = false; if (cb) cb(false) })
@@ -25730,6 +25811,8 @@ function petSetCoexist(on) {
   try { localStorage.setItem('dshw-coexist', petCoexist ? '1' : '0') } catch (err) {}
   // 从小鲸鱼形态开启共存：直接补一只桌宠（独立实例，鲸鱼不受影响）
   if (!was && petCoexist && !petOn) { try { petEnable(true) } catch (err) {} }
+  // 关掉共存时若还有一次启用在路上（petOn 仍未 true），把它作废：否则回调会把小鲸鱼藏掉、只剩桌宠
+  if (was && !petCoexist && !petOn) petEnableTok++
   try { petApplyCoexist() } catch (err) {}
   try { dshwvConSync() } catch (err) {}
 }
@@ -25746,6 +25829,8 @@ function petApplyCoexist() {
     petRootH = 0
     try { petStandSetOn(true) } catch (err) {}
     try { petRefitNow() } catch (err) {}
+    // 共存首帧量完后主宠基准会切到 petStandFitH：分身必须跟着换基准重排
+    try { petCloneRefit() } catch (err) {}
     try { petUpdateHit() } catch (err) {}
   } else {
     try { petStandSetOn(false) } catch (err) {}
@@ -25760,6 +25845,8 @@ function petApplyCoexist() {
       conFormTarget = 'pet'
       try { img.style.visibility = 'hidden' } catch (err) {}
       try { petRefitNow() } catch (err) {}
+      // 退出共存 ⇒ 主宠基准从 petStandFitH 切回 petFitH，分身同样要跟着换基准
+      try { petCloneRefit() } catch (err) {}
       try { petUpdateHit() } catch (err) {}
     }
   }
@@ -25768,13 +25855,23 @@ function petApplyCoexist() {
 function petEnable(byUser) {
   if (petOn) return
   if (!petWrap) return
+  var enableTok = ++petEnableTok
   // 记下进入桌宠前的小鲸鱼角色：共存关闭后要能原样回到这个形象
   try {
     if (currentRole && currentRole.id && currentRole.id !== PET_ROLE_ID) dualWhaleRole = { id: currentRole.id, name: currentRole.name, url: currentRole.url }
   } catch (err) {}
   petLoadAnims(function (ok) {
     if (petOn) return
-    if (!ok) { try { dshwvToast('桌宠素材缺失，已回退默认角色') } catch (err) {} return }
+    // 期间用户关掉了共存 / 切了角色 ⇒ 这次启用已经作废（否则会把小鲸鱼藏掉、只剩桌宠）
+    if (enableTok !== petEnableTok) return
+    if (!ok) {
+      // issue #6：不要只弹「已回退默认角色」——要告诉用户缺什么、放哪里、怎么修。
+      var tip = petAnimsMissingHint || ('桌宠素材缺失：assets/pet-video/ 不存在或为空。' +
+        '请重装最新版（github:louke6572/dsh-whale-widget-plus），或把 106 段 .webm 放进 ' +
+        (petAnimsMissingDir || '插件目录/assets/pet-video/') + ' 后刷新页面。')
+      try { dshwvToast(tip) } catch (err) {}
+      return
+    }
     petOn = true
     petFacingR = false
     petNoMirror = false
@@ -25848,6 +25945,7 @@ function petEnable(byUser) {
 function petDisable() {
   if (!petOn) return
   petOn = false
+  petEnableTok++ // 作废还在等在途素材请求的启用回调
   clearTimeout(petTimer)
   petTimer = 0
   petTempUntil = 0
@@ -27763,15 +27861,15 @@ function onDocPointerDown(e) {
     return
   }
   if (e.button !== 0 && e.pointerType === 'mouse') return
-  // 双形态共存：桌宠是独立实例 —— 点它只拖它自己，主挂件（小鲸鱼）完全不动
-  if (petStandHitAt(e.clientX, e.clientY)) { petStandDragStart(e); return }
-  // 分身命中**优先于主宠**：分身可能叠在主宠区域上方/旁边，用户点的是那一只，
-  // 必须先让分身接管（否则会落到主宠 → 气泡跑到主宠上方，正是"点 A 却在 B 上出气泡"）。
-  // petCloneHitAt 用的是不透明命中盒，透明留白不会抢主宠的点击。
+  // 分身命中**优先于主宠**：分身可能恰好在桌宠（独立实例）的整帧矩形里，用户点的是那一只，
+  // 必须先让分身接管（否则会落到桌宠 → 拖错对象/气泡跑到桌宠上方）。
+  // petCloneHitAt 用不透明命中盒，透明留白不会抢点击。
   if (petOn) {
     var pcHit = petCloneHitAt(e.clientX, e.clientY)
     if (pcHit) { petCloneDragStart(pcHit, e); return }
   }
+  // 双形态共存：桌宠是独立实例 —— 点它只拖它自己，主挂件（小鲸鱼）完全不动
+  if (petStandHitAt(e.clientX, e.clientY)) { petStandDragStart(e); return }
   if (!isWhaleHit(e)) return
   // 共存时主挂件代表小鲸鱼 ⇒ 拖动走普通挂件路径，不套桌宠弹簧/甩抛物理
   var petRootPrimary = petOn && !petStandActive()
@@ -28466,6 +28564,9 @@ function pollWaitState() {
         }
         var kind = p.kind === 'approval' ? 'approval' : 'question'
         var ev = waitEventCfg(kind)
+        // key 必须在下面 petWaitKey 判定之前定义：var 提升会让 key 在判定处是 undefined，
+        // 于是第一次 petWork('waiting') 后 petWaitKey 变成 undefined，之后永远判"同一挂起"，等待动画只播一次。
+        var key = kind + ':' + String(p.id || '')
         // v777：这条挂起已经被用户点掉了 ⇒ 不再自动弹回（但仍然照常响铃判定与去重；回答/批准后
         // 上面的 !p 分支会把标记清掉，所以"下一次新的提问/授权"照常冒泡）。
         waitPendingId = String(p.id || '')
@@ -28482,7 +28583,6 @@ function pollWaitState() {
         // 门控照旧：该事件的「冒泡提示」关掉就不冒泡（与声音各自独立判）。
         // v777：显示那一步已上移到"被点掉的挂起"判定里（见上面的 waitDismissedId 分支），这里不再重复调用。
         // 声音：同一个未回答的挂起只响一次（刷新页面也不重复响）
-        var key = kind + ':' + String(p.id || '')
         var remembered = ''
         try { remembered = localStorage.getItem(WAIT_SOUND_KEY) || '' } catch (err) {}
         if (key === waitSeenId || key === remembered) return
