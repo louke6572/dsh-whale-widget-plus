@@ -3836,6 +3836,9 @@ function dshwvConSync() {
       if (ex.volc) { try { ex.volc.textContent = volcSummaryText() } catch (err) {} }
       // 角色/表情/台词是「小鲸鱼形态」专属；共存时在小鲸鱼页显示
       if (ex.card) ex.card.style.display = petWhaleUiOn() ? '' : 'none'
+      // 眨眼已并入「通用开关」卡，同一格里放的是仅桌宠的「屏幕漫游」：
+      // 桌宠页收起眨眼、鲸鱼页收起漫游，保证这一行永远只露出当前形态能用的那个开关
+      if (ex.cellBlink) ex.cellBlink.style.display = petWhaleUiOn() ? '' : 'none'
     }
     dshwvConPillSync()
   } catch (err) {}
@@ -28179,6 +28182,64 @@ function onWhaleWheel(e) {
   } catch (err) {}
 }
 try { root.addEventListener('wheel', onWhaleWheel, { passive: false }) } catch (err) {}
+// —— 滚轮缩放角色 ——
+// 鼠标停在角色身上时：向上滚放大、向下滚缩小，步进与「大小」滑块档位一致
+// （小鲸鱼 / 独占桌宠 = 1~20 档，共存里的独立桌宠 = 4~20 档），落盘沿用各自的保存链路。
+// 必须挂在 document 捕获阶段：桌宠层是 pointer-events:none，挂在 root 上收不到它的滚轮事件；
+// 顺带也保证「在角色身上滚轮」不会再被 onWhaleWheel 让给底层的页面滚动容器。
+var wheelZoomAcc = 0
+var wheelZoomAt = 0
+function wheelZoomSteps(e) {
+  var now = nowMs()
+  // 一次滚动停顿超过 400ms 就重新起算，避免上次剩下的零头和本次拼在一起
+  if (now - wheelZoomAt > 400) wheelZoomAcc = 0
+  wheelZoomAt = now
+  var raw = (Number(e.deltaY) || 0) * (e.deltaMode === 1 ? 34 : (e.deltaMode === 2 ? 100 : 1))
+  if (!raw) return 0
+  wheelZoomAcc += raw
+  var n = 0
+  // 每 ~100px 记一档：鼠标滚轮一格（Chrome ≈100px / Firefox 3 行 ≈3×34）正好走一档，
+  // 触控板的小增量累积够距离后同样只走一档（不会一滑就缩到底）
+  while (wheelZoomAcc >= 100) { n--; wheelZoomAcc -= 100 }
+  while (wheelZoomAcc <= -100) { n++; wheelZoomAcc += 100 }
+  return n
+}
+function onWheelZoom(e) {
+  try {
+    if (!e || e.ctrlKey || e.metaKey) return // Ctrl+滚轮留给浏览器页面缩放
+    if ((drag && drag.active) || petStandDrag || petStandThrowActive) return // 拖动/飞行中不缩放，避免和位置计算打架
+    // 菜单 / 用量面板里的滚轮留给它们自己（里面的列表要能滚）
+    if (menuBox && menuBox.contains && menuBox.contains(e.target)) return
+    var x = e.clientX, y = e.clientY
+    var target = ''
+    // 共存时独立桌宠在上层，优先判它
+    if (petStandActive() && petStandHitAt(x, y)) target = 'stand'
+    if (!target) {
+      var rr = root.getBoundingClientRect()
+      if (rr.width > 0 && x >= rr.left && x <= rr.right && y >= rr.top && y <= rr.bottom && isWhaleHit(e)) target = 'main'
+    }
+    if (!target) return
+    var n = wheelZoomSteps(e)
+    if (n) {
+      if (target === 'stand') {
+        // 独立桌宠：档位 = petStandScale*10（4~20），petStandScaleSet 以脚底为基准缩放并落盘
+        var lv = Math.max(4, Math.min(20, Math.round((Number(petStandScale) || 1) * 10) + n))
+        petSizeLevel = lv
+        try { petStandScaleSet(lv / 10) } catch (err) {}
+        try { if (conReady) dshwvConSync() } catch (err) {}
+      } else {
+        // 小鲸鱼 / 独占桌宠：等价于拖「大小」滑块（setScale 内部已处理角点锚定、落盘与分身重排）
+        var mlv = Math.max(1, Math.min(20, Math.round(Number(scaleNumber.value) || 10) + n))
+        var s = MIN_SCALE + (mlv - 1) * (MAX_SCALE - MIN_SCALE) / 19
+        try { setScale(s) } catch (err) {}
+      }
+    }
+    // 指针在角色身上时滚轮=缩放：不再让页面/底层滚动容器跟着滚
+    e.preventDefault()
+    e.stopPropagation()
+  } catch (err) {}
+}
+try { document.addEventListener('wheel', onWheelZoom, { capture: true, passive: false }) } catch (err) {}
 function onDocPointerMoveCursor(e) {
   if (drag && drag.active) {
     // v751（PR #119）：按钮已经松开却还在"拖动中" = 这一次 pointerup 丢了（例如松手时指针在窗口外）：
