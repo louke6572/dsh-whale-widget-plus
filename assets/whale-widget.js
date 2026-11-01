@@ -397,6 +397,7 @@ var VOLC_URL = '/api/volc-usage'
 var volcData = null
 var volcMenuRefs = null
 var volcTimer = 0
+var volcConText = null // 控制台 iframe 里的火山额度文本（与菜单行共用同一个取数函数）
 
 // ===== v815：自定义泡泡框 —— 常量必须在**泡泡构建之前**就绪 =====
 // ⚠️ 血的教训（v815 首版把这些常量写在 13000 行附近，而泡泡在 12600 行就调渲染器了）：
@@ -1359,6 +1360,115 @@ var css = [
   '.dshwv-resempty{color:#9fb0d9;font-size:12px;padding:2px 6px}'
 ].join('\n')
 
+// ===== issue #7-1：深色配色（由 DSH 主题决定，见下方 cssDark / dshwvThemeApply）=====
+// 规则本身不带媒体查询：独立的深色 <style> 用 media 开关来控制，关掉时一条规则都不生效。
+// 只改颜色，不动任何尺寸/定位；color-scheme 只落到本插件自己的弹层，避免污染宿主页面。
+var cssDark = [
+  '.dshwv-menu:not(.dshwv-menu-console){background:rgba(15,23,42,.94);border-color:rgba(148,163,184,.38);box-shadow:0 6px 18px rgba(0,0,0,.55);color-scheme:dark}',
+  '.dshwv-menu:not(.dshwv-menu-console)::-webkit-scrollbar-thumb{background:rgba(148,163,184,.32)}',
+  '.dshwv-menu-row{color:#cbd5e1}',
+  '.dshwv-menu-sep{background:rgba(148,163,184,.26)}',
+  '.dshwv-ver{color:#cbd5e1}',
+  '.dshwv-number{color:#e2e8f0;background:#0f172a;border-color:rgba(148,163,184,.4)}',
+  '.dshwv-number:disabled{background:rgba(148,163,184,.1)}',
+  '.dshwv-sound{color:#cbd5e1;background:rgba(148,163,184,.12);border-color:rgba(148,163,184,.35)}',
+  '.dshwv-sound:hover{background:rgba(148,163,184,.22)}',
+  '.dshwv-check,.dshwv-range{accent-color:#93c5fd}',
+  '.dshwv-about{color:#cbd5e1;scrollbar-color:rgba(148,163,184,.3) transparent}',
+  '.dshwv-about::-webkit-scrollbar-thumb{background:rgba(148,163,184,.28)}',
+  '.dshwv-about::-webkit-scrollbar-thumb:hover{background:rgba(148,163,184,.45)}',
+  '.dshwv-about-hr,.dshwv-about-sec{border-color:rgba(148,163,184,.24)}',
+  '.dshwv-about-sec:hover{background:rgba(148,163,184,.1);border-bottom-color:rgba(148,163,184,.45)}',
+  '.dshwv-about-sec:active{background:rgba(148,163,184,.16)}',
+  '.dshwv-about-sec:hover + .dshwv-about-body{background:rgba(148,163,184,.08)}',
+  '.dshwv-about-iconbtn{color:#cbd5e1;border-color:rgba(148,163,184,.3);background:rgba(148,163,184,.1)}',
+  '.dshwv-about-iconbtn:hover{background:rgba(148,163,184,.22)}',
+  '.dshwv-about-actrow:hover,.dshwv-about-copyable:hover{background:rgba(148,163,184,.1)}',
+  '.dshwv-about-actrow:active,.dshwv-about-copyable:active{background:rgba(148,163,184,.16)}',
+  '.dshwv-about-refresh{color:#cbd5e1}',
+  '.dshwv-about-refresh:hover{background:rgba(148,163,184,.16)}',
+  '.dshwv-about-badge{background:rgba(148,163,184,.14)}',
+  '.dshwv-about-badge-ver{background:rgba(96,165,250,.22)}',
+  '.dshwv-about-btn{color:#cbd5e1;border-color:rgba(148,163,184,.32);background:rgba(148,163,184,.1)}',
+  '.dshwv-about-btn:hover{background:rgba(148,163,184,.2)}',
+  '.dshwv-about-btn-main{color:#dbeafe;border-color:rgba(96,165,250,.45);background:rgba(96,165,250,.22)}',
+  '.dshwv-about-flash{background:#1e293b;border-color:rgba(148,163,184,.35);box-shadow:0 6px 16px rgba(0,0,0,.5);color:#e2e8f0}',
+  '.dshwv-menu.dshwv-menu-console.dshwv-sub-open .dshwv-usage-area{background:rgba(15,23,42,.97);border-color:rgba(148,163,184,.28)}',
+  '.dshwv-rolelist,.dshwv-audiolist,.dshwv-slotlist,.dshwv-qedit,.dshwv-usagepanel,.dshwv-tplhelp{background:#1e293b;border-color:rgba(148,163,184,.35);box-shadow:0 8px 22px rgba(0,0,0,.5);color:#cbd5e1;color-scheme:dark}',
+  '.dshwv-roleitem,.dshwv-audioitem{color:#cbd5e1}',
+  '.dshwv-roleitem:hover,.dshwv-audioitem:hover{background:rgba(148,163,184,.12)}',
+  '.dshwv-roleitem.dshwv-roleitem-cur{background:rgba(96,165,250,.24);color:#dbeafe}',
+  '.dshwv-audiopreset{color:#94a3b8}',
+  '.dshwv-audiothumb{background:#334155}',
+  '.dshwv-qedit-row label,.dshwv-qedit-content{color:#e2e8f0}',
+  '.dshwv-qedit-content{background:#0f172a;border-color:rgba(148,163,184,.4)}',
+  // 用量面板
+  '.dshwv-usage-card{background:#1e293b;box-shadow:0 10px 30px rgba(0,0,0,.55)}',
+  '.dshwv-usage-wintitle,.dshwv-usage-windowbody{color:#e2e8f0}',
+  '.dshwv-usage-wintitle{border-bottom-color:rgba(148,163,184,.2)}',
+  '.dshwv-usage-back,.dshwv-usage-collapse{color:#cbd5e1}',
+  '.dshwv-usage-back:hover,.dshwv-usage-collapse:hover{color:#93c5fd}',
+  '.dshwv-usage-collapse{border-bottom-color:rgba(148,163,184,.2)}',
+  '.dshwv-usage-subtitle,.dshwv-usage-oview-num,.dshwv-usage-yuan,.dshwv-usage-ratio-label,.dshwv-usage-ratio-pct,.dshwv-usage-ratio-cost{color:#e2e8f0}',
+  '.dshwv-usage-oview{border-bottom-color:rgba(148,163,184,.18)}',
+  '.dshwv-usage-more{color:#cbd5e1;border-color:rgba(148,163,184,.45)}',
+  '.dshwv-usage-more:hover{background:rgba(148,163,184,.14)}',
+  '.dshwv-usage-close{color:#cbd5e1}',
+  '.dshwv-usage-close:hover{background:rgba(148,163,184,.16)}',
+  '.dshwv-usagemsg,.dshwv-msgtext{color:#e2e8f0;background:#0f172a;border-color:rgba(148,163,184,.4)}',
+  '.dshwv-usage-ratio-track{background:rgba(148,163,184,.22)}',
+  '.dshwv-usage-chartwrap canvas{background:#0f172a;border-color:rgba(148,163,184,.28)}',
+  // 资源管理窗
+  '.dshwv-reshead .dshwv-restitle,.dshwv-rescat,.dshwv-resnm{color:#e2e8f0}',
+  '.dshwv-resclose{color:#94a3b8}',
+  '.dshwv-resclose:hover{background:rgba(148,163,184,.16);color:#e2e8f0}',
+  '.dshwv-rescat::after{background:rgba(148,163,184,.18)}',
+  '.dshwv-resrow:hover{background:rgba(148,163,184,.1)}',
+  '.dshwv-resthum{background:#334155;border-color:rgba(148,163,184,.2)}',
+  '.dshwv-resicon{background:#334155}',
+  '.dshwv-resmeta{color:#94a3b8}',
+  '.dshwv-resimp{color:#dbeafe;border-color:rgba(96,165,250,.45);background:rgba(96,165,250,.18)}',
+  '.dshwv-resimp:hover{background:rgba(96,165,250,.3)}',
+  '.dshwv-resempty{color:#94a3b8}',
+  '.dshwv-reswrap{scrollbar-color:rgba(148,163,184,.2) transparent}',
+  '.dshwv-reswrap::-webkit-scrollbar-thumb{background:rgba(148,163,184,.2)}',
+  '.dshwv-reswrap::-webkit-scrollbar-thumb:hover{background:rgba(148,163,184,.32)}',
+  // 泡泡编辑器
+  '.dshwv-bubcard{background:#1e293b;box-shadow:0 10px 30px rgba(0,0,0,.55);color:#e2e8f0}',
+  '.dshwv-bubtitle,.dshwv-bubsec{color:#e2e8f0}',
+  '.dshwv-bubsec{border-top-color:rgba(148,163,184,.18)}',
+  '.dshwv-bubrow{background:#0f172a;border-color:rgba(148,163,184,.2)}',
+  '.dshwv-bubrow-drag:hover{border-color:rgba(148,163,184,.38)}',
+  '.dshwv-bubchip,.dshwv-bubchip-btn,.dshwv-bubkind{color:#e2e8f0;background:#0f172a;border-color:rgba(148,163,184,.35)}',
+  '.dshwv-bubchip-btn:hover{background:rgba(148,163,184,.14)}',
+  '.dshwv-bubchip-cur{outline-color:rgba(96,165,250,.7)}',
+  '.dshwv-bubadd{color:#cbd5e1;border-color:rgba(148,163,184,.4)}',
+  '.dshwv-bubadd:hover{background:rgba(148,163,184,.12)}',
+  '.dshwv-bubnewbtn{color:#cbd5e1;background:rgba(148,163,184,.14)}',
+  '.dshwv-bubnewbtn:hover{background:rgba(148,163,184,.24)}',
+  '.dshwv-bubhint{color:#94a3b8}',
+  '.dshwv-bubbtn-no{color:#cbd5e1;background:rgba(148,163,184,.16)}',
+  '.dshwv-bubbtn-no:hover{background:rgba(148,163,184,.26)}',
+  '.dshwv-bubbtn-ok{background:#1d4ed8;color:#fff}',
+  '.dshwv-bubbtn-ok:hover{background:#2563eb}',
+  // 确认框 / 吸附窗
+  '.dshwv-confirmtext,.dshwv-snaptitle,.dshwv-snapfliprow{color:#e2e8f0}',
+  '.dshwv-snapwin{background:#1e293b;box-shadow:0 10px 30px rgba(0,0,0,.55);color:#e2e8f0}',
+  '.dshwv-snapnum{color:#e2e8f0;background:#0f172a;border-color:rgba(148,163,184,.4)}',
+  '.dshwv-snapunit{color:#94a3b8}',
+  '.dshwv-snapbtn-no{color:#cbd5e1;background:rgba(148,163,184,.16)}',
+  '.dshwv-snapbtn-no:hover{background:rgba(148,163,184,.26)}',
+  '.dshwv-snapoff{background:rgba(15,23,42,.88);color:#94a3b8}',
+  // 音频导入/裁剪窗
+  '.dshwv-audiowin{background:#1e293b;box-shadow:0 10px 30px rgba(0,0,0,.55)}',
+  '.dshwv-audiotitle,.dshwv-audiorow,.dshwv-audiotime{color:#e2e8f0}',
+  '.dshwv-audionameinput,.dshwv-audioselect,.dshwv-slotbtn{color:#e2e8f0;background:#0f172a;border-color:rgba(148,163,184,.4)}',
+  '.dshwv-audiobtn{color:#cbd5e1;background:rgba(148,163,184,.12);border-color:rgba(148,163,184,.35)}',
+  '.dshwv-audioimport{background:#1d4ed8;color:#fff}',
+  '.dshwv-audiosmallimport{color:#cbd5e1;background:rgba(148,163,184,.12);border-color:rgba(148,163,184,.35)}',
+  '.dshwv-audiocropcanvas{background:#0f172a;border-color:rgba(148,163,184,.25)}'
+]
+
 var styleEl = document.createElement('style')
 // PR #114：不带 data-plugin 的 <style> 会被 DSH 客户端模块系统 claimStyles 认领到
 // 「当前正在物化的那个插件」名下，之后该插件热重载/失效时 removeOwnedStyles 会把它
@@ -1367,6 +1477,14 @@ var styleEl = document.createElement('style')
 styleEl.setAttribute('data-plugin', 'dsh-whale-widget')
 styleEl.textContent = css
 document.head.appendChild(styleEl)
+
+// 深色样式单独一张表：默认 media="not all" 关闭，由 dshwvThemeApply() 按 DSH 主题开关。
+// 独立成表的好处是"关掉"真的等于一条规则都不生效，不会和浅色规则互相打架。
+var darkStyleEl = document.createElement('style')
+darkStyleEl.setAttribute('data-plugin', 'dsh-whale-widget')
+darkStyleEl.media = 'not all'
+darkStyleEl.textContent = cssDark.join('\n')
+document.head.appendChild(darkStyleEl)
 
 // ===== v743：body 挂载登记器（DOM 守护的基础设施，见下面 dshwReattachRoot）=====
 // 挂件会把 30 多个节点挂到 document.body 上（主节点、菜单、各种遮罩/面板、隐藏的 file input…）。
@@ -2271,9 +2389,10 @@ petSep1.className = 'dshwv-menu-sep dshwv-pet-only'
 menuBox.appendChild(petSep1)
 // —— 桌宠设置：与「音效/提示泡泡设置」同款的按钮式入口，点开独立面板 ——
 // 菜单顶层只留「切回小鲸鱼 / 桌宠设置 / 大小 / 音效与提示」，其余设置全部进面板，避免行文重复。
-var petRowAct = []    // 待机 + 9 个分类下拉
+var petRowAct = []    // 待机（动作点播在控制台「动作」级联里）
 var petRowBeh = []    // 屏幕漫游 + 回到初始位置
 var petRowClone = []  // 分身数量 / 动作 / 各自大小
+var petRowAi = []     // 碎碎念 / 对话入口
 var petSettingsMask = null
 var rowPetSettings = menuRow()
 rowPetSettings.appendChild(menuLabel('桌宠设置'))
@@ -2321,6 +2440,7 @@ function openPetSettingsPanel() {
         for (var i = 0; i < list.length; i++) { try { card.appendChild(list[i]) } catch (err) {} }
       }
       petPanelSec('动作与待机'); petPanelRows(petRowAct)
+      petPanelSec('碎碎念与对话'); petPanelRows(petRowAi)
       petPanelSec('漫游与位置'); petPanelRows(petRowBeh)
       petPanelSec('分身'); petPanelRows(petRowClone)
       var foot = document.createElement('div')
@@ -2418,86 +2538,40 @@ petIdleSel.addEventListener('change', function (e) {
 rowPetIdle.appendChild(menuLabel('待机'))
 rowPetIdle.appendChild(petIdleSel)
 petRowAct.push(rowPetIdle)
-// —— 动作：合并为一个分类下拉 + 一个具体动作下拉（不再 9 行并列）——
-var rowPetActCat = menuRow()
-rowPetActCat.appendChild(menuLabel('动作分类'))
-var petActCatSel = document.createElement('select')
-petActCatSel.style.cssText = PET_SEL_CSS
-petActCatSel.title = '先选分类，再选具体动作；选「自动随机」= 回到全局轮播'
-var petActCatAuto = document.createElement('option')
-petActCatAuto.value = 'auto'
-petActCatAuto.textContent = '自动随机（全局轮播）'
-petActCatSel.appendChild(petActCatAuto)
-PET_CAT_NAMES.forEach(function (id) {
-  var op = document.createElement('option')
-  op.value = id
-  op.textContent = id
-  petActCatSel.appendChild(op)
+// —— 碎碎念 / 对话：宿主侧用当前对话的模型生成（人设在控制台里配）——
+var rowPetWhisper = menuRow()
+rowPetWhisper.appendChild(menuLabel('碎碎念'))
+var petWhisperBtn = document.createElement('button')
+petWhisperBtn.type = 'button'
+petWhisperBtn.className = 'dshwv-roleimport'
+petWhisperBtn.style.flex = '1'
+petWhisperBtn.textContent = '说一句'
+petWhisperBtn.title = '用当前对话的模型随口说一句，同时播一段碎碎念动画'
+petWhisperBtn.addEventListener('click', function (e) {
+  try { e.stopPropagation() } catch (err) {}
+  try { petWhisperNow(true) } catch (err) {}
 })
-rowPetActCat.appendChild(petActCatSel)
-var rowPetActItem = menuRow()
-rowPetActItem.appendChild(menuLabel('具体动作'))
-var petActItemSel = document.createElement('select')
-petActItemSel.style.cssText = PET_SEL_CSS
-petActItemSel.title = '该分类下的具体动作；选「自动随机」= 只在这个分类内轮播'
-rowPetActItem.appendChild(petActItemSel)
-function petActFillItems(cat) {
-  try {
-    petActItemSel.textContent = ''
-    var a = document.createElement('option')
-    a.value = 'auto'
-    a.textContent = '自动随机'
-    petActItemSel.appendChild(a)
-    if (cat) {
-      var list = petFilter(petCategoryList(cat) || [])
-      for (var i = 0; i < list.length; i++) {
-        var op = document.createElement('option')
-        op.value = list[i]
-        op.textContent = list[i]
-        petActItemSel.appendChild(op)
-      }
-    }
-    petActItemSel.disabled = !cat
-  } catch (err) {}
-}
-petActCatSel.addEventListener('change', function (e) {
-  e.stopPropagation()
-  try {
-    var cat = petActCatSel.value
-    if (!cat || cat === 'auto') {
-      petPin = null
-      petPinSave()
-      petPinApply()
-      return
-    }
-    petOnSelectCategory(cat, 'auto:' + cat)
-  } catch (err) {}
+rowPetWhisper.appendChild(petWhisperBtn)
+var rowPetChat = menuRow()
+rowPetChat.appendChild(menuLabel('对话'))
+var petChatBtn = document.createElement('button')
+petChatBtn.type = 'button'
+petChatBtn.className = 'dshwv-roleimport'
+petChatBtn.style.flex = '1'
+petChatBtn.textContent = '打开聊天'
+petChatBtn.title = '和桌宠聊两句；模型跟随当前对话，历史保存在本机'
+petChatBtn.addEventListener('click', function (e) {
+  try { e.stopPropagation() } catch (err) {}
+  try { petChatOpen() } catch (err) {}
 })
-petActItemSel.addEventListener('change', function (e) {
-  e.stopPropagation()
-  try {
-    var cat = petActCatSel.value
-    if (!cat || cat === 'auto') return
-    var v = petActItemSel.value
-    petOnSelectCategory(cat, v === 'auto' ? ('auto:' + cat) : v)
-  } catch (err) {}
-})
+rowPetChat.appendChild(petChatBtn)
+petRowAi.push(rowPetWhisper)
+petRowAi.push(rowPetChat)
+// —— 动作：不再铺「分类 + 具体动作」两级下拉（菜单太大，且旧版会把它当“固定动作”）。
+//    点播入口统一放到控制台的「动作」级联里（分类 → 具体动作，选完播一次就回全局随机链）。
 function petActMergeSync() {
-  try {
-    var cat = ''
-    var act = 'auto'
-    if (petPin) {
-      if (petPin.type === 'category') cat = petPin.value
-      else if (petPin.type === 'action') { cat = petCategoryOfAction(petPin.value) || ''; act = petPin.value }
-    }
-    petActCatSel.value = cat || 'auto'
-    petActFillItems(cat)
-    petSetSelValue(petActItemSel, cat ? act : 'auto')
-  } catch (err) {}
+  // 旧版两级下拉的回填钩子：动作不再持久化，保留空实现供 petSyncCategorySelects 调用。
 }
-petRowAct.push(rowPetActCat)
-petRowAct.push(rowPetActItem)
-petActMergeSync()
 // 分身设置（数量 / 动作 / 各自大小）
 // 桌宠行为（屏幕漫游 / 回到初始位置）
 // —— 桌宠物理：屏幕漫游 / 分身数量 / 回到初始位置 ——
@@ -2930,12 +3004,20 @@ function conSetSw(sw, on) {
   if (!sw) return
   sw.classList.toggle('bg-[#1e3a8a]', !!on)
   sw.classList.toggle('bg-slate-300', !on)
+  try { sw.setAttribute('aria-checked', on ? 'true' : 'false') } catch (err) {}
   var th = sw.querySelector('div, span.rounded-full')
   if (th) {
-    th.classList.toggle('translate-x-3', !!on)
-    // 预编译的 Tailwind 里没有 .translate-x-0：旧写法关态拇指原地不动，开关看起来永远是「开」。
-    // 关态改用内联 transform 归零，开态沿用 translate-x-3（等价 0.75rem）。
-    th.style.transform = on ? '' : 'translateX(0)'
+    // 新菜单开关是 20×12 紧凑轨道（拇指 8×8），旧菜单是 28×16（拇指 12×12）：
+    // 位移按轨道与拇指的实际尺寸算，两种尺寸都能正好贴到另一端。
+    var shift = 12
+    try {
+      var tw = sw.clientWidth || 0
+      var thw = th.offsetWidth || 0
+      if (tw && thw) shift = Math.max(0, Math.round(tw - thw - 4))
+    } catch (err2) {}
+    th.classList.remove('translate-x-3')
+    th.style.transition = 'transform .18s cubic-bezier(.4,0,.2,1)'
+    th.style.transform = on ? ('translateX(' + shift + 'px)') : 'translateX(0)'
   }
 }
 // 大小滑杆两端刻度：console.html 里写死的是 8/32，实际范围被脚本改成 1~20（小鲸鱼页）/ 4~20（桌宠页）。
@@ -2949,14 +3031,19 @@ function conScaleEnds(doc, min, max) {
   } catch (err) {}
 }
 function conSegStyle(btn, on) {  if (!btn) return
+  // 新菜单：选中 = 白底 + 品牌深蓝字 + 触感阴影；未选中 = 灰字 + 中等字重
   btn.classList.toggle('bg-white', on)
+  btn.classList.toggle('text-[#1e3a8a]', on)
+  btn.classList.toggle('shadow-tactile-card', on)
+  btn.classList.toggle('font-semibold', on)
+  btn.classList.toggle('font-medium', !on)
+  btn.classList.toggle('text-slate-500', !on)
+  // 兼容旧菜单的分段胶囊
   btn.classList.toggle('text-slate-900', on)
   btn.classList.toggle('shadow-tactile-button', on)
   btn.classList.toggle('border', on)
   btn.classList.toggle('border-slate-200/70', on)
-  btn.classList.toggle('font-semibold', on)
   btn.classList.toggle('text-slate-600', !on)
-  btn.classList.toggle('font-medium', !on)
 }
 function conFillSel(el, items, value) {
   if (!el) return
@@ -2992,10 +3079,26 @@ function conFindBtn(txt) {
   try {
     var bs = conDoc.querySelectorAll('button')
     for (var i = 0; i < bs.length; i++) {
-      if (String(bs[i].textContent || '').replace(/\s+/g, '') === String(txt).replace(/\s+/g, '')) return bs[i]
+      // 按钮里可能带 Material 图标（ligature 也是文字，如「restart_alt一键复位」），
+      // 按“排除图标节点后的可见文案”比对，否则带图标的按钮会永远匹配不上
+      if (conBtnLabel(bs[i]) === String(txt).replace(/\s+/g, '')) return bs[i]
     }
   } catch (err) {}
   return null
+}
+function conBtnLabel(el) {
+  var out = ''
+  try {
+    var kids = el.childNodes
+    for (var k = 0; k < kids.length; k++) {
+      var n = kids[k]
+      if (n.nodeType === 3) { out += n.nodeValue; continue }
+      if (n.nodeType !== 1) continue
+      if (String(n.className || '').indexOf('material-symbols-outlined') >= 0) continue
+      out += n.textContent || ''
+    }
+  } catch (err) {}
+  return out.replace(/\s+/g, '')
 }
 function conFindText(txt) {
   try {
@@ -3056,8 +3159,9 @@ function conBuildFrame() {
 function conFit() {
   try {
     var vp = viewport()
-    var w = Math.min(416, Math.max(280, vp.w - 24))
-    var h = Math.max(300, Math.min(700, vp.h - 24))
+    // 新菜单设计稿固定 336px 宽；高度按 336 面板的 430px 内容区 + 头/尾，封顶 512px
+    var w = Math.min(336, Math.max(280, vp.w - 24))
+    var h = Math.max(300, Math.min(512, vp.h - 24))
     conFrame.style.width = w + 'px'
     conFrame.style.height = h + 'px'
     menuBox.style.width = w + 'px'
@@ -3070,41 +3174,52 @@ function conBind() {
   try { conDoc = conFrame.contentDocument || (conFrame.contentWindow && conFrame.contentWindow.document) } catch (err) { conDoc = null }
   if (!conDoc || !conDoc.body) return
   var doc = conDoc
+  // 控制台 iframe 也要跟随 DSH 主题（它的深色样式表靠 media 开关）
+  try { dshwvThemeApply() } catch (err) {}
   if (conReady) return
   conReady = true
   var i
-  // 版本徽标
-  var verEl = doc.querySelector('header .font-mono')
+  // 版本徽标（已移到页脚中间：恢复默认 / 版本 / 保存配置）
+  var verEl = doc.getElementById('dshwv-con-ver')
   if (verEl) {
-    verEl.id = 'dshwv-con-ver'
     conOn(verEl, 'click', function () { try { toggleAboutSub() } catch (err) {} })
   }
   // 头部固定按钮：设计稿是「固定至桌面」，本插件没有该能力 → 收起来
   // （角色 / 表情版本 / 台词 / 资源 等原菜单行已经移植进「更多功能」卡片，不再需要弹窗入口）
   var pinBtn = doc.getElementById('pin-btn')
   if (pinBtn) pinBtn.style.display = 'none'
+  // 新菜单头部右侧的关闭按钮
+  conOn(doc.getElementById('close-console-btn'), 'click', function (e) {
+    try { e.preventDefault() } catch (err) {}
+    try { closeMenu() } catch (err) {}
+  })
 
-  // 形态分段：共存时只切换控制台编辑的形态（两只都保持显示）；未共存时切换实际显示的形象
-  var segs = doc.querySelectorAll('main > div.p-3 > section > div.p-0\\.5 button')
+  // 形态分段（三种互斥）：小鲸鱼 / 桌宠 / 共存。点单形态会退出共存；点共存则两只同时显示
+  var segs = doc.querySelectorAll('#form-morph-tabs button')
+  if (!segs.length) segs = doc.querySelectorAll('main > div.p-3 > section > div.p-0\\.5 button')
   var segWhale = segs[0] || conFindBtn('小鲸鱼形态')
   var segPet = segs[1] || conFindBtn('桌宠形态')
+  var segCoexist = segs[2] || conFindBtn('共存形态')
   conPillRefs.segWhale = segWhale
   conPillRefs.segPet = segPet
+  conPillRefs.segCoexist = segCoexist
   conOn(segWhale, 'click', function () {
-    if (petCoexist) { setConFormTarget('whale'); try { dshwvPositionMenuSoon() } catch (err) {} ; return }
-    try { applyRole('default', '小鲸鱼', IMG_URL) } catch (err) {}
     conFormTarget = 'whale'
+    if (petCoexist) { try { petSetCoexist(false) } catch (err) {} }
+    else { try { applyRole('default', '小鲸鱼', IMG_URL) } catch (err) {} }
     dshwvConSync()
     try { dshwvPositionMenuSoon() } catch (err) {}
   })
   conOn(segPet, 'click', function () {
-    if (petCoexist) {
-      // 共存开着但桌宠没起来（换角色/启用作废等异常路径）⇒ 这里兜底拉起，否则点「桌宠形态」永远没反应
-      if (!petOn) { try { petEnable(true) } catch (err) {} }
-      setConFormTarget('pet'); try { dshwvPositionMenuSoon() } catch (err) {} ; return
-    }
-    if (!petOn) { try { petEnable(true) } catch (err) {} }
     conFormTarget = 'pet'
+    if (petCoexist) { try { petSetCoexist(false) } catch (err) {} }
+    if (!petOn) { try { petEnable(true) } catch (err) {} }
+    dshwvConSync()
+    try { dshwvPositionMenuSoon() } catch (err) {}
+  })
+  conOn(segCoexist, 'click', function () {
+    if (!petCoexist) { try { petSetCoexist(true) } catch (err) {} }
+    else if (!petOn) { try { petEnable(true) } catch (err) {} }
     dshwvConSync()
     try { dshwvPositionMenuSoon() } catch (err) {}
   })
@@ -3119,6 +3234,11 @@ function conBind() {
     sizeSlider.max = '20'
     sizeSlider.step = '1'
     conScaleEnds(doc, 1, 20)
+    // 拖动期间冻结设置窗位置（见 scaleMenuFreezeHold 注释），松手后重新落位一次
+    conOn(sizeSlider, 'pointerdown', function () { scaleMenuFreezeHold() })
+    conOn(sizeSlider, 'pointerup', function () { scaleMenuFreezeRelease() })
+    conOn(sizeSlider, 'pointercancel', function () { scaleMenuFreezeRelease() })
+    conOn(sizeSlider, 'change', function () { if (scalePosFreeze) scaleMenuFreezeRelease() })
     conOn(sizeSlider, 'input', function () {
       var lv = Math.max(1, Math.min(20, Math.round(Number(sizeSlider.value) || 1)))
       if (petCoexist && conFormTarget === 'pet') {
@@ -3136,7 +3256,7 @@ function conBind() {
   // 三列快捷开关
   var labGap = conFindText('避让滚动条')
   var labRoam = conFindText('屏幕漫游')
-  var labHide = conFindText('隐藏菜单栏')
+  var labHide = conFindText('隐藏菜单')
   function quickSw(lab) {
     if (!lab) return null
     var box = lab.parentElement
@@ -3163,19 +3283,15 @@ function conBind() {
   bindQuick(labGap, function () { setScrollGapOn(!scrollGapOn) })
   bindQuick(labRoam, function () { petSetRoamOn(!petRoamOn) })
   bindQuick(labHide, function () { setMenuBtnHide(!menuBtnHide) })
-  var labCoexist = conFindText('双形态共存')
-  var swCoexist = quickSw(labCoexist)
-  if (labCoexist) bindQuick(labCoexist, function () { petSetCoexist(!petCoexist) })
-  conPillRefs.swCoexist = swCoexist
   conPillRefs.swGap = swGap
   conPillRefs.swRoam = swRoam
   conPillRefs.swHide = swHide
   conPillRefs.labRoam = labRoam
 
   // 交互与视窗吸附
-  var pbSel = conSelNear('峰谷状态')
+  var pbSel = conSelNear('峰谷显示')
   if (pbSel) {
-    conFillSel(pbSel, [['badge', '常驻徽标'], ['bubble', '气泡内'], ['hidden', '隐藏']], dshwPbModeGet())
+    conFillSel(pbSel, [['badge', '常驻显示'], ['bubble', '气泡内'], ['hidden', '隐藏']], dshwPbModeGet())
     conOn(pbSel, 'change', function () { dshwPbModeSet(pbSel.value) })
   }
   var snapSel = conSelNear('吸附与翻转')
@@ -3190,7 +3306,7 @@ function conBind() {
       } catch (err) {}
     })
   }
-  var homeBtn = conFindBtn('一键复位')
+  var homeBtn = conFindBtn('回到右下角')
   conOn(homeBtn, 'click', function () { try { petGoHome() } catch (err) {} })
   conPillRefs.pbSel = pbSel
   conPillRefs.snapSel = snapSel
@@ -3361,102 +3477,262 @@ function conBind() {
   conPillRefs.q = bindWait('question', 'panel-question')
   conPillRefs.a = bindWait('approval', 'panel-auth')
 
-  // 动作与待机（13 个分类的紧凑下拉；选项全部来自真实动画池，不再用设计稿里的假选项）
+  // 动作（级联：分类列 → 动作列，选一次播一次，播完回全局随机）+ 待机动画（指定待机素材）
+  // 与 dsh-pet 右键菜单同语义：没有“固定动作”状态，所以这里也不需要任何持久化/回填。
   var actCard = doc.getElementById('action-standby-card')
-  var actSels = actCard ? actCard.querySelectorAll('select.con-act-sel') : []
-  function conActFill(sel, cat) {
+  var actTrigger = doc.getElementById('con-act-trigger')
+  var actLabel = doc.getElementById('con-act-label')
+  var idleSel = doc.getElementById('con-idle-sel')
+  var actPop = null
+  var actSub = null
+  var actPopCat = ''
+  // 点播动作的临时回显：只显示用户刚点的那一段；播完/换段后回到「全部动作随机」
+  var actPickedName = ''
+  var actPickedAt = 0
+  var actPickTimer = 0
+  function actPickLabel(name) {
+    actPickedName = String(name || '')
+    actPickedAt = Date.now()
+    if (actLabel) actLabel.textContent = actPickedName || '全部动作随机'
+    // 点播只播一次：到点自动把回显收回「全部动作随机」，不必等下一次菜单同步
+    try { if (actPickTimer) clearTimeout(actPickTimer) } catch (err) {}
+    actPickTimer = setTimeout(function () {
+      if (actPickedName !== name) return
+      actPickedName = ''
+      try { dshwvConSync() } catch (err) {}
+    }, 4200)
+  }
+  function conActCats() {
+    var out = ['待机']
+    for (var i = 0; i < PET_CAT_NAMES.length; i++) {
+      if (PET_CAT_NAMES[i] !== '工作状态' && out.indexOf(PET_CAT_NAMES[i]) < 0) out.push(PET_CAT_NAMES[i])
+    }
+    out.push('工作状态')
+    return out
+  }
+  function conActCatList(cat) {
     var list = []
     try { list = petFilter(petCategoryList(cat) || []) } catch (err) { list = [] }
     if (!list.length) { try { list = petCategoryList(cat) || [] } catch (err2) { list = [] } }
-    if (!list.length) return
-    sel.textContent = ''
-    // 只有单段动画的分类（待机/转向/拖拽）不显示「自动随机」，避免两个选项同义
-    if (list.length > 1) {
-      var a = document.createElement('option')
-      a.value = 'auto:' + cat
-      a.textContent = '自动随机'
-      sel.appendChild(a)
+    return list
+  }
+  function conActPopClose() {
+    try { doc.removeEventListener('pointerdown', conActPopDown, true) } catch (err) {}
+    try { if (actPop && actPop.parentNode) actPop.parentNode.removeChild(actPop) } catch (err) {}
+    try { if (actSub && actSub.parentNode) actSub.parentNode.removeChild(actSub) } catch (err) {}
+    actPop = null
+    actSub = null
+  }
+  function conActPopDown(e) {
+    try {
+      if (actPop && actPop.contains(e.target)) return
+      if (actSub && actSub.contains(e.target)) return
+      if (actTrigger && actTrigger.contains(e.target)) return
+    } catch (err) {}
+    conActPopClose()
+  }
+  // 条目：文字 + 可选右侧箭头（分类用 ›，与原版桌宠右键菜单一致）
+  function conActItem(text, on, cur, arrow) {
+    var it = doc.createElement('div')
+    it.className = 'dshwv-skin-item' + (cur ? ' dshwv-skin-cur' : '')
+    it.title = text
+    it.style.display = 'flex'
+    it.style.alignItems = 'center'
+    it.style.justifyContent = 'space-between'
+    var tx = doc.createElement('span')
+    tx.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;min-width:0'
+    tx.textContent = text
+    it.appendChild(tx)
+    if (arrow) {
+      var ar = doc.createElement('span')
+      ar.style.cssText = 'flex:0 0 auto;padding-left:10px;opacity:.55;font-size:13px;line-height:1'
+      ar.textContent = '›'
+      it.appendChild(ar)
     }
-    for (var j = 0; j < list.length; j++) {
-      var op = document.createElement('option')
-      op.value = list[j]
-      op.textContent = list[j]
-      op.title = list[j]
-      sel.appendChild(op)
+    it.addEventListener('mousedown', function (e) { e.preventDefault() })
+    it.addEventListener('click', function (e) {
+      try { e.preventDefault() } catch (err) {}
+      try { e.stopPropagation() } catch (err) {}
+      try { on() } catch (err) {}
+    })
+    return it
+  }
+  function conActSubEnsure() {
+    if (actSub) return actSub
+    var s = doc.createElement('div')
+    s.className = 'dshwv-skin-list'
+    s.style.cssText = 'font-size:12px;min-width:136px;max-width:172px;max-height:280px;display:none'
+    doc.body.appendChild(s)
+    actSub = s
+    return s
+  }
+  function conActPlaceSub() {
+    try {
+      if (!actPop || !actSub || !actSub.offsetWidth) return
+      var p = actPop.getBoundingClientRect()
+      var s = actSub.getBoundingClientRect()
+      var vw = (doc.defaultView && doc.defaultView.innerWidth) || 336
+      var vh = (doc.defaultView && doc.defaultView.innerHeight) || 620
+      var left = p.right + 2
+      if (left + s.width > vw - 4) left = p.left - s.width - 2
+      left = Math.max(4, Math.min(vw - s.width - 4, left))
+      var top = Math.max(4, Math.min(vh - s.height - 4, p.top))
+      actSub.style.left = left + 'px'
+      actSub.style.top = top + 'px'
+    } catch (err) {}
+  }
+  function conActOpenSub(cat) {
+    if (!cat) return
+    actPopCat = cat
+    // 高亮跟着悬停/点击的分类走（分类菜单不整体重绘，避免鼠标经过时闪烁）
+    try {
+      for (var ci = 0; ci < actPop.children.length; ci++) {
+        var cit = actPop.children[ci]
+        var csp = cit.querySelector('span')
+        var cnm = csp ? String(csp.textContent || '').trim() : String(cit.textContent || '').trim()
+        cit.classList.toggle('dshwv-skin-cur', cnm === cat)
+      }
+    } catch (err) {}
+    var s = conActSubEnsure()
+    s.textContent = ''
+    var list = conActCatList(cat)
+    if (!list.length) {
+      var none = doc.createElement('div')
+      none.className = 'dshwv-skin-item'
+      none.style.opacity = '.55'
+      none.textContent = '这个分类暂时没有素材'
+      s.appendChild(none)
+    } else {
+      for (var j = 0; j < list.length; j++) {
+        (function (name) {
+          s.appendChild(conActItem(name, function () {
+            try { petPlayNamed(name) } catch (err) {}
+            actPickLabel(name)
+            conActPopClose()
+            dshwvConSync()
+          }, name === petCur))
+        })(list[j])
+      }
     }
+    s.style.display = 'block'
+    conActPlaceSub()
+  }
+  function conActOpen() {
+    if (!petOn) {
+      try { dshwvToast('先在「角色」里切到「桌宠（动画）」') } catch (err) {}
+      return
+    }
+    conActPopClose()
+    var pop = doc.createElement('div')
+    pop.className = 'dshwv-skin-list'
+    pop.style.cssText = 'font-size:12px;min-width:136px;max-width:172px;max-height:280px;display:block'
+    var curCat = ''
+    try { curCat = petCategoryOfAction(petCur) } catch (err) {}
+    actPopCat = (curCat && conActCatList(curCat).length) ? curCat : (actPopCat || '待机')
+    // 分类列：全部动作随机 + 各分类（右侧 ›，悬停/点击展开动作子菜单）
+    pop.textContent = ''
+    pop.appendChild(conActItem('全部动作随机', function () {
+      try { petOnSelectCategory('', 'auto') } catch (err) {}
+      actPickedName = ''
+      actPickedAt = 0
+      try { if (actPickTimer) clearTimeout(actPickTimer) } catch (err) {}
+      conActPopClose()
+      dshwvConSync()
+    }, false))
+    var cats = conActCats()
+    for (var i = 0; i < cats.length; i++) {
+      (function (cat) {
+        var it = conActItem(cat, function () { conActOpenSub(cat) }, cat === actPopCat, true)
+        it.addEventListener('mouseenter', function () { conActOpenSub(cat) })
+        pop.appendChild(it)
+      })(cats[i])
+    }
+    doc.body.appendChild(pop)
+    actPop = pop
+    try {
+      var r = actTrigger.getBoundingClientRect()
+      var vw = (doc.defaultView && doc.defaultView.innerWidth) || 336
+      var vh = (doc.defaultView && doc.defaultView.innerHeight) || 620
+      var lw = pop.offsetWidth
+      var lh = pop.offsetHeight
+      var below = vh - r.bottom - 6
+      pop.style.top = ((lh <= below || r.top < lh + 8) ? (r.bottom + 2) : (r.top - lh - 2)) + 'px'
+      pop.style.left = Math.max(4, Math.min(r.left, vw - lw - 4)) + 'px'
+    } catch (err) {}
+    setTimeout(function () { try { doc.addEventListener('pointerdown', conActPopDown, true) } catch (err) {} }, 0)
+  }
+  function conActFillIdle() {
+    try {
+      if (!idleSel) return
+      var names = petAnims ? Object.keys(petAnims).sort() : []
+      var sig = names.length + '|' + (names[0] || '') + '|' + (names[names.length - 1] || '')
+      if (idleSel.__dshwvSig !== sig) {
+        idleSel.__dshwvSig = sig
+        idleSel.textContent = ''
+        var a = doc.createElement('option')
+        a.value = ''
+        a.textContent = '全部动作随机'
+        idleSel.appendChild(a)
+        for (var i = 0; i < names.length; i++) {
+          var op = doc.createElement('option')
+          op.value = names[i]
+          op.textContent = names[i]
+          idleSel.appendChild(op)
+        }
+      }
+      var want = (petIdlePick && petHave(petIdlePick)) ? petIdlePick : ''
+      idleSel.value = want
+      try { conSkinSelSync(doc) } catch (err) {}
+    } catch (err) {}
   }
   function conActSync() {
-    for (var k = 0; k < actSels.length; k++) {
-      var s = actSels[k]
-      var cat = s.getAttribute('data-act') || ''
-      var want = ''
-      if (cat === '待机') want = (petIdlePick && petHave(petIdlePick)) ? petIdlePick : PET_IDLE
-      else if (petPin && petPin.type === 'action' && petCategoryOfAction(petPin.value) === cat) want = petPin.value
-      if (!want && petPin && petPin.type === 'category' && petPin.value === cat) want = 'auto:' + cat
-      try {
-        var hit = false
-        for (var o = 0; o < s.options.length; o++) if (s.options[o].value === want) { hit = true; break }
-        s.value = hit ? want : (s.options.length ? s.options[0].value : '')
-      } catch (err) {}
-    }
-  }
-  for (var ai = 0; ai < actSels.length; ai++) {
-    (function (sel) {
-      var cat = sel.getAttribute('data-act') || ''
-      conActFill(sel, cat)
-      conOn(sel, 'change', function () {
-        var v = sel.value
-        try {
-          if (cat === '待机') petSurfaceIdle(v)
-          else petOnSelectCategory(cat, v)
-        } catch (err) {}
-        dshwvConSync()
-      })
-    })(actSels[ai])
-  }
-  conPillRefs.actSels = actSels
-  conPillRefs.actSync = conActSync
-  conPillRefs.actFill = function () {
-    for (var k = 0; k < actSels.length; k++) conActFill(actSels[k], actSels[k].getAttribute('data-act') || '')
-  }
-  conPillRefs.actCard = actCard
-
-  // 分身
-  var cloneCard = doc.getElementById('clones-panel') ? doc.getElementById('clones-panel').parentElement : null
-  var cloneSw = doc.querySelector('[role="switch"]')
-  conOn(cloneSw, 'click', function (e) {
-    try { e.preventDefault() } catch (err) {}
     try {
-      if (petCloneCount > 0) { petCloneLastCount = petCloneCount; petCloneSetCount(0) }
-      else petCloneSetCount(Math.max(1, Math.min(3, petCloneLastCount || 1)))
+      var cur = (petOn && petCur) ? String(petCur) : ''
+      // 默认显示「全部动作随机」；只有刚点播的那一段（且仍在播）才回显动作名，
+      // 不能把轮播中的任意动作名常驻在栏位里 —— 用户会以为当前选中了那个动作。
+      var showPick = !!(actPickedName && cur === actPickedName && Date.now() - actPickedAt < 8000)
+      if (!showPick) actPickedName = ''
+      if (actLabel) actLabel.textContent = showPick ? actPickedName : '全部动作随机'
+      if (actTrigger) {
+        actTrigger.title = showPick
+          ? '正在播放：' + actPickedName + '（播完自动回到全局随机）'
+          : '先选分类，再点具体动作：只播一次，播完自动回到全局随机'
+      }
+      conActFillIdle()
+    } catch (err) {}
+  }
+  conActSync()
+  conOn(actTrigger, 'click', function (e) {
+    try { e.preventDefault() } catch (err) {}
+    try { e.stopPropagation() } catch (err) {}
+    if (actPop) { conActPopClose(); return }
+    conActOpen()
+  })
+  conOn(idleSel, 'change', function () {
+    try { petSurfaceIdle(idleSel.value || '') } catch (err) {}
+    dshwvConSync()
+  })
+  conPillRefs.actSels = []
+  conPillRefs.actSync = conActSync
+  conPillRefs.actFill = function () { try { conActFillIdle() } catch (err) {} }
+  conPillRefs.actCard = actCard
+  conPillRefs.actPopClose = function () { try { conActPopClose() } catch (err) {} }
+
+  // 分身（设计稿：数量 / 动作 / 大小 三列，数量下拉选「关闭」即收起全部分身）
+  var clonePanel = doc.getElementById('clones-panel')
+  var cloneCard = clonePanel
+  var cloneSels = doc.querySelectorAll('#clones-panel select')
+  var countSel = cloneSels[0]
+  var strategySel = cloneSels[1]
+  var sizeSel = cloneSels[2]
+  conOn(countSel, 'change', function () {
+    try {
+      var n = Math.max(0, Math.min(3, Number(countSel.value) || 0))
+      if (n > 0) petCloneLastCount = n
+      petCloneSetCount(n)
     } catch (err) {}
     dshwvConSync()
   })
-  var cloneMinus = null
-  var clonePlus = null
-  var cloneNumEl = null
-  var stepCell = doc.querySelector('#clones-panel .grid .flex.items-center.justify-between')
-  if (stepCell) {
-    var sb = stepCell.querySelectorAll('button')
-    cloneMinus = sb[0]
-    clonePlus = sb[1]
-    cloneNumEl = stepCell.querySelector('span.font-mono')
-  }
-  conOn(cloneMinus, 'click', function () {
-    try { petCloneSetCount(Math.max(0, (petCloneCount || 0) - 1)) } catch (err) {}
-    dshwvConSync()
-  })
-  conOn(clonePlus, 'click', function () {
-    try { petCloneSetCount(Math.min(3, (petCloneCount || 0) + 1)) } catch (err) {}
-    dshwvConSync()
-  })
-  var cloneSels = doc.querySelectorAll('#clones-panel select')
-  var strategySel = cloneSels[0]
-  var sizeSel = cloneSels[1]
-  try {
-    var stratLab = doc.querySelectorAll('#clones-panel span.font-mono')
-    if (stratLab.length >= 2) stratLab[1].textContent = '分身动作'
-  } catch (err) {}
   if (strategySel) {
     conOn(strategySel, 'change', function () {
       try { petCloneSetPin(strategySel.value) } catch (err) {}
@@ -3471,21 +3747,105 @@ function conBind() {
       dshwvConSync()
     })
   }
-  conPillRefs.cloneSw = cloneSw
-  conPillRefs.cloneNumEl = cloneNumEl
+  conPillRefs.cloneCountSel = countSel
   conPillRefs.strategySel = strategySel
   conPillRefs.sizeSel = sizeSel
   conPillRefs.cloneCard = cloneCard
 
-  // 底栏：左键「恢复默认」把控制台设置复位；右键「完成」= 关闭（设置即时生效）
+  // 碎碎念与对话（人设 / 自动碎碎念开关 / 间隔 / 入口按钮）
+  var aiPersona = doc.getElementById('con-ai-persona')
+  var aiSw = doc.getElementById('con-ai-sw')
+  var aiEvery = doc.getElementById('con-ai-every')
+  var aiSay = doc.getElementById('con-ai-say')
+  var aiChat = doc.getElementById('con-ai-chat')
+  var aiClear = doc.getElementById('con-ai-clear')
+  var aiReset = doc.getElementById('con-ai-reset')
+  var aiHint = doc.getElementById('con-ai-hint')
+  var aiTimer = 0
+  function conAiPayload() {
+    return {
+      action: 'settings',
+      persona: String((aiPersona && aiPersona.value) || ''),
+      whisperOn: !!petAiCfg.whisperOn,
+      whisperEveryMin: Number(aiEvery && aiEvery.value) || 30,
+    }
+  }
+  function conAiSave() {
+    try {
+      clearTimeout(aiTimer)
+      aiTimer = setTimeout(function () {
+        aiTimer = 0
+        petAiPost(conAiPayload(), function (d) {
+          if (d && d.ok) petAiApplyCfg(d.settings)
+        })
+      }, 500)
+    } catch (err) {}
+  }
+  function conAiSync() {
+    try {
+      if (!petAiCfgLoaded) { try { petAiLoad() } catch (err) {} }
+      if (aiPersona && doc.activeElement !== aiPersona) {
+        aiPersona.value = String(petAiCfg.persona || PET_AI_DEFAULT_PERSONA)
+      }
+      conSetSw(aiSw, !!petAiCfg.whisperOn)
+      if (aiEvery) aiEvery.value = String(petAiCfg.whisperEveryMin || 30)
+      if (aiHint && !aiHint.__dshwvBusy) aiHint.textContent = '说到点子上就会冒泡；自动碎碎念只在页面可见、并处于桌宠模式时才说。'
+      try { conSkinSelSync(doc) } catch (err) {}
+    } catch (err) {}
+  }
+  if (aiPersona) {
+    conOn(aiPersona, 'change', function () {
+      petAiCfg.persona = String(aiPersona.value || '')
+      conAiSave()
+    })
+  }
+  if (aiSw) {
+    conOn(aiSw, 'click', function (e) {
+      try { e.preventDefault() } catch (err) {}
+      petAiCfg.whisperOn = !petAiCfg.whisperOn
+      conSetSw(aiSw, !!petAiCfg.whisperOn)
+      conAiSave()
+      try { petWhisperSchedule() } catch (err) {}
+    })
+  }
+  if (aiEvery) {
+    conOn(aiEvery, 'change', function () {
+      petAiCfg.whisperEveryMin = Number(aiEvery.value) || 30
+      conAiSave()
+      try { petWhisperSchedule() } catch (err) {}
+    })
+  }
+  conOn(aiSay, 'click', function (e) {
+    try { e.preventDefault() } catch (err) {}
+    try { petWhisperNow(true) } catch (err) {}
+  })
+  conOn(aiChat, 'click', function (e) {
+    try { e.preventDefault() } catch (err) {}
+    try { petChatOpen() } catch (err) {}
+  })
+  conOn(aiClear, 'click', function (e) {
+    try { e.preventDefault() } catch (err) {}
+    petAiPost({ action: 'clear' }, function (d) {
+      if (aiHint) aiHint.textContent = (d && d.ok) ? '记忆已清空' : ('清空失败：' + String((d && (d.message || d.error)) || '未知原因'))
+    })
+  })
+  conOn(aiReset, 'click', function (e) {
+    try { e.preventDefault() } catch (err) {}
+    petAiCfg.persona = PET_AI_DEFAULT_PERSONA
+    if (aiPersona) aiPersona.value = PET_AI_DEFAULT_PERSONA
+    conAiSave()
+  })
+  conPillRefs.aiSync = conAiSync
+  conPillRefs.aiCard = doc.getElementById('pet-ai-card')
+  try { petAiLoad() } catch (err) {}
+
+  // 底栏：左键「恢复默认」把控制台设置复位；右键「保存配置」= 关闭（设置即时生效）
   var footBtns = doc.querySelectorAll('footer button')
   if (footBtns[0]) {
-    footBtns[0].textContent = '恢复默认'
     footBtns[0].title = '音量 / 提示 / 吸附 / 动作 / 分身 恢复出厂默认'
     conOn(footBtns[0], 'click', function () { try { dshwvConResetAll() } catch (err) {} })
   }
   if (footBtns[1]) {
-    footBtns[1].textContent = '完成'
     conOn(footBtns[1], 'click', function () { try { closeMenu() } catch (err) {} })
   }
 
@@ -3494,10 +3854,147 @@ function conBind() {
 }
 
 // 「角色与外观」卡片：全部用控制台原生控件，绑到原有业务函数上
+// —— 控制台下拉自绘（issue #7-3）：原生 <select> 的展开列表由系统渲染，深色下是白底、
+//    也和整套触感面板不一致。做法是保留原生 select（业务代码/回填仍旧只认它），把它设为
+//    visibility:hidden + pointer-events:none，在原位置盖一个同款外观的按钮；点按钮弹一个
+//    自绘列表，选中后写回 select.value 并派发 change，既有绑定完全不用改。
+var conSkinOpen = null
+function conSkinClose() {
+  var o = conSkinOpen
+  conSkinOpen = null
+  try {
+    if (o && o.list && o.list.parentNode) o.list.parentNode.removeChild(o.list)
+    if (o && o.btn) o.btn.classList.remove('dshwv-skin-open')
+  } catch (err) {}
+}
+function conSkinOptionText(sel) {
+  var i = sel.selectedIndex
+  if (i >= 0 && sel.options[i]) return sel.options[i].textContent
+  return sel.getAttribute('data-empty') || '未选择'
+}
+function conSkinSelSync(doc) {
+  try {
+    var sels = doc.querySelectorAll('select')
+    for (var i = 0; i < sels.length; i++) {
+      var sk = sels[i].__dshwvSkin
+      if (!sk) continue
+      var txt = sk.txt
+      if (txt) txt.textContent = conSkinOptionText(sels[i])
+      sk.btn.disabled = !!sels[i].disabled
+    }
+  } catch (err) {}
+}
+function conSkinOpenList(sel, btn) {
+  var doc = sel.ownerDocument
+  conSkinClose()
+  var list = doc.createElement('div')
+  list.className = 'dshwv-skin-list'
+  var r = btn.getBoundingClientRect()
+  var vw = (doc.defaultView && doc.defaultView.innerWidth) || 336
+  var vh = (doc.defaultView && doc.defaultView.innerHeight) || 620
+  list.style.width = Math.max(120, Math.round(r.width)) + 'px'
+  for (var i = 0; i < sel.options.length; i++) {
+    if (sel.options[i].disabled && i !== sel.selectedIndex) continue
+    ;(function (idx) {
+      var it = doc.createElement('div')
+      it.className = 'dshwv-skin-item' + (idx === sel.selectedIndex ? ' dshwv-skin-cur' : '')
+      it.textContent = sel.options[idx].textContent
+      it.addEventListener('mousedown', function (e) { e.preventDefault() })
+      it.addEventListener('click', function (e) {
+        e.preventDefault()
+        e.stopPropagation()
+        if (sel.selectedIndex !== idx) {
+          sel.selectedIndex = idx
+          sel.dispatchEvent(new Event('change', { bubbles: true }))
+        }
+        conSkinSelSync(doc)
+        conSkinClose()
+      })
+      list.appendChild(it)
+    })(i)
+  }
+  doc.body.appendChild(list)
+  var lh = list.offsetHeight
+  var lw = list.offsetWidth
+  var below = vh - r.bottom - 6
+  list.style.top = ((lh <= below || r.top < lh + 8) ? (r.bottom + 2) : (r.top - lh - 2)) + 'px'
+  list.style.left = Math.max(4, Math.min(r.left, vw - lw - 4)) + 'px'
+  conSkinOpen = { list: list, btn: btn }
+  btn.classList.add('dshwv-skin-open')
+}
+function conSkinOne(doc, sel) {
+  if (!sel || sel.__dshwvSkin) return
+  var p = sel.parentNode
+  if (!p) return
+  try {
+    if (getComputedStyle(p).position === 'static') p.style.position = 'relative'
+  } catch (err) {}
+  sel.style.opacity = '0'
+  sel.style.pointerEvents = 'none'
+  // 新菜单的 select 都装在 .custom-dropdown-wrap 里（自带左标签 + 右值 + 箭头）。
+  // 这时覆盖按钮必须是「隐形」的：只接收点击，不能再画一层白底边框盖住左标签。
+  var ghost = !!(p.classList && p.classList.contains('custom-dropdown-wrap'))
+  var btn = doc.createElement('button')
+  btn.type = 'button'
+  btn.className = ghost ? 'dshwv-skin-sel dshwv-skin-ghost' : (sel.className || '') + ' dshwv-skin-sel'
+  btn.setAttribute('aria-haspopup', 'listbox')
+  btn.style.zIndex = '1'
+  var txt = null
+  if (ghost) {
+    txt = p.querySelector('.dropdown-label')
+  }
+  if (!txt) {
+    txt = doc.createElement('span')
+    txt.className = 'dshwv-skin-txt'
+    txt.textContent = conSkinOptionText(sel)
+    btn.appendChild(txt)
+    var ar = doc.createElement('span')
+    ar.className = 'dshwv-skin-arrow'
+    ar.textContent = '▾'
+    btn.appendChild(ar)
+  }
+  btn.addEventListener('click', function (e) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (conSkinOpen && conSkinOpen.btn === btn) { conSkinClose(); return }
+    conSkinOpenList(sel, btn)
+  })
+  p.appendChild(btn)
+  sel.__dshwvSkin = { btn: btn, txt: txt }
+  btn.disabled = !!sel.disabled
+  // 原生 select 仍可能被程序改值（回填/联动），change 一响就同步按钮文案
+  sel.addEventListener('change', function () { conSkinSelSync(doc) })
+}
+function conSkinSelects(doc) {
+  try {
+    var sels = doc.querySelectorAll('select')
+    if (!sels.length) return
+    if (!doc.__dshwvSkinBound) {
+      doc.__dshwvSkinBound = true
+      doc.addEventListener('pointerdown', function (e) {
+        if (!conSkinOpen) return
+        var t = e.target
+        if (t && (t === conSkinOpen.btn || (conSkinOpen.list && conSkinOpen.list.contains(t)))) return
+        conSkinClose()
+      }, true)
+      // 只有"面板/页面滚动"才关下拉；列表自己滚（长动作列表、拖列表滚动条、滚轮翻列表）
+      // 必须放行，否则永远滚不到下面的选项（issue #7-3 回归反馈）。
+      doc.addEventListener('scroll', function (e) {
+        if (!conSkinOpen) return
+        var t = e.target
+        if (conSkinOpen.list && t && conSkinOpen.list.contains && conSkinOpen.list.contains(t)) return
+        conSkinClose()
+      }, true)
+      doc.addEventListener('keydown', function (e) { if (e.key === 'Escape') conSkinClose() }, true)
+    }
+    for (var i = 0; i < sels.length; i++) conSkinOne(doc, sels[i])
+  } catch (err) {}
+}
 function conBindExtras() {
   try {
     if (!conDoc) return
     var doc = conDoc
+    try { conSkinSelects(doc) } catch (err) {}
     var ex = conPillRefs.extra = conPillRefs.extra || {}
     ex.roleSel = doc.getElementById('con-role-sel')
     ex.roleImport = doc.getElementById('con-role-import')
@@ -3520,6 +4017,14 @@ function conBindExtras() {
     ex.res = doc.getElementById('con-res')
     ex.gapPx = doc.getElementById('con-gap-px')
     ex.volc = doc.getElementById('con-volc')
+    // 厂商额度（选装）
+    ex.vqSw = doc.getElementById('con-vq-sw')
+    ex.vqModel = doc.getElementById('con-vq-model')
+    ex.vqHint = doc.getElementById('con-vq-hint')
+    ex.vqAdd = doc.getElementById('con-vq-add')
+    ex.vqEdit = doc.getElementById('con-vq-edit')
+    ex.volcSw = doc.getElementById('con-vq-volc-sw')
+    ex.volcRow = doc.getElementById('con-volc-row')
 
     function swCell(el, fn) {
       if (!el) return
@@ -3532,6 +4037,40 @@ function conBindExtras() {
     }
     swCell(ex.blink, function () { try { exprSetBlink(!exprBlinkOn); saveConfig() } catch (err) {} })
     swCell(ex.bubble, function () { try { setBubbleOn(!(bubbleOn !== false)) } catch (err) {} })
+
+    // 厂商额度（选装）：关掉时只显示 DeepSeek 余额；打开后气泡追加所选厂商模型的额度行
+    function vqOpenAdd() {
+      try {
+        // 确保厂商模板已就绪再开表单（否则模板下拉是空的）
+        if (apiTemplates.length) openApiModelPanel(null)
+        else loadApiModels(function () { try { openApiModelPanel(null) } catch (err) {} })
+      } catch (err) {}
+    }
+    swCell(ex.vqSw, function () {
+      vendorQuotaOn = !vendorQuotaOn
+      saveConfig()
+      // 首次打开时模型列表可能还没拉回来（下拉只有"未配置"），这里补一次
+      if (vendorQuotaOn && !apiModelsLoaded) {
+        try { loadApiModels(function () { try { dshwvConSync() } catch (err) {} }) } catch (err) {}
+      }
+    })
+    conOn(ex.vqModel, 'change', function () {
+      vendorQuotaModel = ex.vqModel.value || ''
+      saveConfig()
+    })
+    conOn(ex.vqAdd, 'click', vqOpenAdd)
+    conOn(ex.vqEdit, 'click', function () {
+      var vqid = vendorQuotaModelId()
+      if (!vqid) { vqOpenAdd(); return }
+      if (apiModelsLoaded) { try { openApiModelMenu(vqid) } catch (err) {} }
+      else loadApiModels(function () { try { openApiModelMenu(vqid) } catch (err) {} }, true)
+    })
+    // 火山 coding plan 额度（附属插件 volc-usage）：默认关，开了才请求
+    swCell(ex.volcSw, function () {
+      volcQuotaOn = !volcQuotaOn
+      saveConfig()
+      volcApplyUI()
+    })
 
     // 角色下拉：按 roleList 动态填充（导入后数量会变，签名变化时重建）
     ex.roleFill = function () {
@@ -3638,8 +4177,10 @@ function conBindExtras() {
     conOn(ex.gapPx, 'change', function () { try { setScrollGapPx(ex.gapPx.value) } catch (err) {} })
     conOn(ex.gapPx, 'input', function () { try { setScrollGapPx(ex.gapPx.value) } catch (err) {} })
 
-    try { volcMenuRefs = { text: ex.volc } } catch (err) {}
-    try { volcRefresh() } catch (err) {}
+    // 火山额度：文本由 volcPaintText 回填（与挂件菜单那行共用同一份数据，不覆盖 menuRefs）
+    try { volcConText = ex.volc } catch (err) {}
+    try { volcApplyUI() } catch (err) {}
+    try { volcPaintText() } catch (err) {}
   } catch (err) {}
 }
 
@@ -3676,11 +4217,12 @@ function dshwvConSync() {
     // 版本
     var ver = doc.getElementById('dshwv-con-ver')
     if (ver && lastVersionLabel) ver.textContent = lastVersionLabel
-    // 形态分段：共存时反映「当前编辑的形态页」，未共存时反映实际形态
-    var tgtPet = petCoexist ? (conFormTarget === 'pet') : !!petOn
-    var segs = doc.querySelectorAll('main > div.p-3 > section > div.p-0\\.5 button')
-    conSegStyle(segs[0], !tgtPet)
-    conSegStyle(segs[1], tgtPet)
+    // 形态分段（三种互斥）：小鲸鱼 / 桌宠 / 共存 只高亮当前模式
+    var segs = doc.querySelectorAll('#form-morph-tabs button')
+    if (!segs.length) segs = doc.querySelectorAll('main > div.p-3 > section > div.p-0\\.5 button')
+    conSegStyle(segs[0], !petCoexist && !petOn)
+    conSegStyle(segs[1], !petCoexist && !!petOn)
+    conSegStyle(segs[2], !!petCoexist)
     // 大小：小鲸鱼页 = 挂件缩放档位；桌宠页 = 独立大小档位（4~20 档）
     var sizeSlider = doc.getElementById('scale-slider')
     var sizeVal = doc.getElementById('scale-value')
@@ -3698,7 +4240,6 @@ function dshwvConSync() {
     conSetSw(conPillRefs.swGap, !!scrollGapOn)
     conSetSw(conPillRefs.swRoam, !!petRoamOn)
     conSetSw(conPillRefs.swHide, !!menuBtnHide)
-    conSetSw(conPillRefs.swCoexist, !!petCoexist)
     // 交互
     if (conPillRefs.pbSel) conPillRefs.pbSel.value = dshwPbModeGet()
     if (conPillRefs.snapSel) conPillRefs.snapSel.value = (snapConfig && snapConfig.mode) || 'ratio'
@@ -3761,17 +4302,24 @@ function dshwvConSync() {
       if (u.volLab) u.volLab.textContent = Number(c.vol) === 0 ? '静音' : Math.round(Number(c.vol) * 100) + '%'
       if (u.bub) u.bub.checked = c.bubbleOn !== false
     })
-    // 动作与待机（13 分类下拉统一回填）
+    // 动作（级联的显示名）+ 待机动画
     if (conPillRefs.actSync) { try { conPillRefs.actSync() } catch (err) {} }
-    // 分身
-    conSetSw(conPillRefs.cloneSw, (petCloneCount || 0) > 0)
-    if (conPillRefs.cloneSw) conPillRefs.cloneSw.setAttribute('aria-checked', (petCloneCount || 0) > 0 ? 'true' : 'false')
-    if (conPillRefs.cloneNumEl) conPillRefs.cloneNumEl.textContent = String(petCloneCount || 0)
+    // 碎碎念与对话
+    if (conPillRefs.aiSync) { try { conPillRefs.aiSync() } catch (err) {} }
+    // 分身数量下拉：0 = 关闭，1/2/3 = 只数
+    if (conPillRefs.cloneCountSel) {
+      var ccv = String(Math.max(0, Math.min(3, petCloneCount || 0)))
+      if (conPillRefs.cloneCountSel.value !== ccv) conPillRefs.cloneCountSel.value = ccv
+      try { conSkinSelSync(conPillRefs.cloneCountSel.ownerDocument) } catch (err) {}
+    }
     if (conPillRefs.strategySel) {
       // 当前值以 petClonePin 为准（而不是隐藏下拉的旧值），否则控制台选完会被回填成旧值
       try { petCloneActSel.value = petClonePin } catch (err) {}
       var sitems = []
-      for (i = 0; i < petCloneActSel.options.length; i++) sitems.push([petCloneActSel.options[i].value, petCloneActSel.options[i].textContent])
+      for (i = 0; i < petCloneActSel.options.length; i++) {
+        // 三列紧凑宽度有限：「自动随机（默认）」去掉后缀，避免右侧值被截断
+        sitems.push([petCloneActSel.options[i].value, String(petCloneActSel.options[i].textContent).replace('（默认）', '')])
+      }
       conFillSel(conPillRefs.strategySel, sitems, petClonePin)
     }
     if (conPillRefs.sizeSel) {
@@ -3792,6 +4340,7 @@ function dshwvConSync() {
     }
     // 仅桌宠可见（共存时跟随「当前编辑的形态页」）
     if (conPillRefs.actCard) conPillRefs.actCard.style.display = petUiOn() ? '' : 'none'
+    if (conPillRefs.aiCard) conPillRefs.aiCard.style.display = petUiOn() ? '' : 'none'
     if (conPillRefs.cloneCard) conPillRefs.cloneCard.style.display = petUiOn() ? '' : 'none'
     if (conPillRefs.labRoam) {
       // 屏幕漫游仅桌宠可用：只隐藏它自己这张卡。
@@ -3804,15 +4353,21 @@ function dshwvConSync() {
       }
       if (roamCard) roamCard.style.display = petUiOn() ? '' : 'none'
     }
-    // 双形态共存开关：两种形态下都常驻显示，不再绑定桌宠形态
-    if (conPillRefs.swCoexist) {
-      var coexistCard = conPillRefs.swCoexist.closest('label')
-      if (coexistCard) coexistCard.style.display = ''
+    // 小鲸鱼页少了「屏幕漫游」这一个开关，让「隐藏菜单」占满剩余半行，避免网格留空洞
+    if (conPillRefs.swHide) {
+      var hideCard = conPillRefs.swHide.closest('label')
+      if (hideCard) hideCard.classList.toggle('col-span-2', !petUiOn())
     }
-    var homeCell = conFindText('角色位置')
+    // 小鲸鱼页隐藏「初始位置」后，让「吸附与翻转」独占整行，避免右侧留半格空洞
+    if (conPillRefs.snapSel) {
+      var snapCard = conPillRefs.snapSel.closest('.custom-dropdown-wrap')
+      if (snapCard) snapCard.classList.toggle('col-span-2', !petUiOn())
+    }
+    var homeCell = conFindText('初始位置')
     if (homeCell) {
+      // 老菜单：文字外层还有一层包裹，卡片是爷爷节点；新菜单文字直接坐在卡片里。
       var hc = homeCell.parentElement
-      if (hc && hc.parentElement) hc = hc.parentElement
+      if (hc && hc.parentElement && !(hc.querySelector && hc.querySelector('button'))) hc = hc.parentElement
       if (hc) hc.style.display = petUiOn() ? '' : 'none'
     }
     // 角色与外观
@@ -3833,13 +4388,48 @@ function dshwvConSync() {
         ex.gapPx.disabled = !scrollGapOn
       }
       if (ex.gapWrap) ex.gapWrap.classList.toggle('hidden', !scrollGapOn)
-      if (ex.volc) { try { ex.volc.textContent = volcSummaryText() } catch (err) {} }
+      if (ex.volc && volcQuotaOn) { try { ex.volc.textContent = volcSummaryText() } catch (err) {} }
+      // 厂商额度（选装）：开关、所选模型、提示；火山额度行只在开启时露出
+      conSetSw(ex.vqSw, !!vendorQuotaOn)
+      conSetSw(ex.volcSw, !!volcQuotaOn)
+      if (ex.volcRow) ex.volcRow.classList.toggle('hidden', !volcQuotaOn)
+      var vqHas = false
+      if (ex.vqModel) {
+        var vqItems = []
+        for (var vi = 0; vi < apiModels.length; vi++) {
+          var vam = apiModels[vi]
+          if (!vam || !vam.id || vam.builtin) continue
+          vqHas = true
+          vqItems.push([vam.id, vam.name || vam.id])
+        }
+        if (!vqHas) vqItems.push(['', '未配置厂商模型'])
+        var vqCur = vendorQuotaModelId()
+        if (!vqCur) vqCur = vqItems[0][0]
+        // 只在「选中项 / 列表内容 / 加载状态」变化时重建，避免每次同步都把用户的选择刷掉
+        var vqSig = vqCur + '|' + vqItems.length + '|' + (apiModelsLoaded ? '1' : '0') + '|' + (apiModelsError || '')
+        if (ex.vqModel.getAttribute('data-sig') !== vqSig) {
+          ex.vqModel.setAttribute('data-sig', vqSig)
+          conFillSel(ex.vqModel, vqItems, vqCur)
+        }
+      }
+      if (ex.vqHint) {
+        ex.vqHint.textContent = !apiModelsLoaded
+          ? (apiModelsError ? ('⚠ ' + apiModelsError) : '模型列表加载中…')
+          : (vqHas ? (vendorQuotaOn ? '已在气泡追加所选模型额度（不改你的泡泡配置）' : '关闭时不显示厂商额度；所选模型仍可在「用量」页查看')
+                   : '还没有厂商模型：点「+ 添加模型」选模板填 key，再回来打开开关')
+      }
+      // 首次打开控制台就顺手把模型列表拉回来（失败时提示里会给出原因，别反复重试）
+      if (!apiModelsLoaded && !apiModelsLoading && !apiModelsError) {
+        try { loadApiModels(function () { try { dshwvConSync() } catch (err) {} }) } catch (err) {}
+      }
       // 角色/表情/台词是「小鲸鱼形态」专属；共存时在小鲸鱼页显示
       if (ex.card) ex.card.style.display = petWhaleUiOn() ? '' : 'none'
       // 眨眼已并入「通用开关」卡，同一格里放的是仅桌宠的「屏幕漫游」：
       // 桌宠页收起眨眼、鲸鱼页收起漫游，保证这一行永远只露出当前形态能用的那个开关
       if (ex.cellBlink) ex.cellBlink.style.display = petWhaleUiOn() ? '' : 'none'
     }
+    // 自绘下拉：把最新值/禁用态同步到按钮上（原生 select 的值可能刚被回填改过）
+    try { conSkinSelSync(doc) } catch (err) {}
     dshwvConPillSync()
   } catch (err) {}
 }
@@ -3853,6 +4443,14 @@ function dshwvConResetAll() {
   try { setScrollGapOn(false) } catch (err) {}
   try { petSetRoamOn(true) } catch (err) {}
   try { setMenuBtnHide(false) } catch (err) {}
+  // 厂商额度回到「选装默认」：不显示、不选模型、不请求火山额度
+  try {
+    vendorQuotaOn = false
+    vendorQuotaModel = ''
+    volcQuotaOn = false
+    volcApplyUI()
+    saveConfig()
+  } catch (err) {}
   try { dshwPbModeSet('badge') } catch (err) {}
   // 表情层回到「自动包」+ 眨眼开（角色本身不动，避免误删用户外观）
   try {
@@ -16312,6 +16910,44 @@ root.appendChild(menuBtn)
 dshwBodyAppend(root)
 dshwBodyAppend(menuBox)
 
+// ===== 主题跟随（issue #7-1）：读 DSH 自己解析出的深/浅色，而不是只看系统偏好 =====
+// dsh-client-ui-layout 把解析结果投影成 body[data-ds-dark-theme]；
+// dsh-client-ui-theme 的 bootstrap 会写 html[data-ds-theme-source]（light/dark/system）。
+// 只要主题插件在管（有 dsThemeSource），就完全以它为准——系统是深色但用户选浅色时不能擅自变深；
+// 只有在没有主题插件的环境（比如本地审计 mock）才退回 prefers-color-scheme。
+function dshwvThemeDarkNow() {
+  try {
+    if (document.body && document.body.hasAttribute('data-ds-dark-theme')) return true
+    var de = document.documentElement
+    if (de && de.dataset && de.dataset.dsThemeSource) return false
+  } catch (err) {}
+  try { return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) } catch (err) { return false }
+}
+function dshwvThemeApply() {
+  var dark = dshwvThemeDarkNow()
+  try { if (darkStyleEl) darkStyleEl.media = dark ? 'all' : 'not all' } catch (err) {}
+  // 控制台 iframe 自带一张 data-purpose="dark-mode" 的样式表，同样用 media 开关
+  try {
+    var ds = conDoc && conDoc.querySelector('style[data-purpose="dark-mode"]')
+    if (ds) ds.media = dark ? 'all' : 'not all'
+  } catch (err) {}
+}
+function dshwvThemeWatch() {
+  try { dshwvThemeApply() } catch (err) {}
+  try {
+    if (window.MutationObserver) {
+      var onMut = function () { try { dshwvThemeApply() } catch (err) {} }
+      if (document.body) new MutationObserver(onMut).observe(document.body, { attributes: true, attributeFilter: ['data-ds-dark-theme'] })
+      new MutationObserver(onMut).observe(document.documentElement, { attributes: true, attributeFilter: ['data-ds-theme-source'] })
+    }
+  } catch (err) {}
+  try {
+    var mq = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)')
+    if (mq && mq.addEventListener) mq.addEventListener('change', function () { try { dshwvThemeApply() } catch (err) {} })
+  } catch (err) {}
+}
+dshwvThemeWatch()
+
 // ===== 峰谷时间常驻徽标（v0.4.3）：把气泡里的「峰/谷 + 倒计时」原样移到气泡外常驻 =====
 // 照搬：直接调用气泡自己的渲染器 bubbleRowsTo()，把与气泡内完全相同配置的两个模块渲染到
 // 外部容器 —— DOM 结构 / 字体 / 字号 / 间距 / 底色块 / 颜色 / 每秒 ticker 注册，全部由
@@ -19917,7 +20553,7 @@ function bubbleShowSeqNext() {
     bubbleRandomLines = lines
     sceneOpen('random', function () { bubbleRenderRandom(lines) }, BUBBLE_MS)
   } else if (item.kind === 'custom') {
-    sceneOpen('custom', function () { bubbleRenderModules(item.modules || []) }, BUBBLE_MS)
+    sceneOpen('custom', function () { bubbleRenderModules(bubbleVendorMods(item.modules || [])) }, BUBBLE_MS)
   } else {
     sceneOpen('normal', bubbleRenderDefault, BUBBLE_MS)
   }
@@ -21922,6 +22558,13 @@ var costBubbleActive = false
 var scrollGapOn = false
 var scrollGapPx = 17
 var menuBtnHide = false // 主菜单开关:隐藏挂件菜单按钮,改为右键小鲸鱼唤出菜单
+// 厂商额度（选装）：默认全关 —— 不配厂商模型、不看火山额度时，挂件只显示 DeepSeek 余额。
+// vendorQuotaOn = 气泡里自动追加「所选厂商模型」的额度行（渲染时注入，不改用户的泡泡配置）；
+// vendorQuotaModel = 选中的厂商模型 id（'' = 自动取第一个非内置模型）；
+// volcQuotaOn = 火山 coding plan 额度（附属插件 volc-usage），关闭时不请求、不显示。
+var vendorQuotaOn = false
+var vendorQuotaModel = ''
+var volcQuotaOn = false
 // issue #116：Codex 本机统计开关。关掉后宿主完全不扫 ~/.codex/sessions（适合会话日志很大的机器）。
 // v748：默认值仍是「开」，但**宿主会先看有没有 Codex 模型** —— 没配就一律按关闭处理，
 // 所以这里保持默认 true 是安全的（不会让没配 Codex 的用户被扫盘），也不会因为一次普通保存
@@ -21986,7 +22629,7 @@ function configPayload() {
   //   宿主白名单、读侧合并、客户端回填都做了，唯独这里没发 ⇒ 宿主 pickB 走"沿用旧值(true)" ⇒ 永远存不住。
   //   与 v863 的 subagent.mute 是同一类"半截活"：新键必须走完 **四件套**
   //   ① 客户端 PUT 载荷 → ② 宿主写侧白名单 → ③ 宿主读侧合并 → ④ 客户端回填。
-  return JSON.stringify({ scale: state.scale, sound: soundOn, pressOn: pressOn !== false, vol: soundVol, soundSet: soundSet, usageMode: usageMode, peakMode: peakMode, bubbleOn: bubbleOn, turnCostOn: turnCostOn, turnCostCloseMs: turnCostCloseMs, scrollGapOn: scrollGapOn, scrollGapPx: scrollGapPx, menuBtnHide: menuBtnHide, codexStatsOn: codexStatsOn, exprPack: exprPack, exprOn: exprOn, blinkOn: exprBlinkOn })
+  return JSON.stringify({ scale: state.scale, sound: soundOn, pressOn: pressOn !== false, vol: soundVol, soundSet: soundSet, usageMode: usageMode, peakMode: peakMode, bubbleOn: bubbleOn, turnCostOn: turnCostOn, turnCostCloseMs: turnCostCloseMs, scrollGapOn: scrollGapOn, scrollGapPx: scrollGapPx, menuBtnHide: menuBtnHide, codexStatsOn: codexStatsOn, exprPack: exprPack, exprOn: exprOn, blinkOn: exprBlinkOn, vendorQuotaOn: vendorQuotaOn, vendorQuotaModel: vendorQuotaModel, volcQuotaOn: volcQuotaOn })
 }
 // 真正的 PUT：读响应 → 失败（网络异常 / HTTP!=200 / {ok:false}）静默重试一次 → 仍失败才提示
 function configPut(payload, retried) {
@@ -22141,6 +22784,31 @@ function setCodexStatsOn(v) {
 function scaleToDisplay(s) {
   return Math.round((s - MIN_SCALE) / ((MAX_SCALE - MIN_SCALE) / 19)) + 1
 }
+// 缩放时冻结设置窗位置（issue #7-2）：拖「大小」滑块/滚轮连按时，挂件角点不动但宽高在变，
+// positionMenu() 每次都按新角色矩形重排 ⇒ 设置窗跟着跳。滑块按下～松开期间一直冻结，
+// 滚轮/数字框这类单步操作则冻结 300ms 再落位一次，避免连滚时逐档抖动。
+var scalePosFreeze = false
+var scalePosTimer = 0
+function scaleMenuFreezeHold() {
+  scalePosFreeze = true
+  try { clearTimeout(scalePosTimer) } catch (err) {}
+  scalePosTimer = 0
+}
+function scaleMenuFreezeRelease() {
+  scalePosFreeze = false
+  try { clearTimeout(scalePosTimer) } catch (err) {}
+  scalePosTimer = 0
+  try { if (menuOpen) positionMenu() } catch (err) {}
+}
+function scaleMenuFreezeBrief() {
+  scalePosFreeze = true
+  try { clearTimeout(scalePosTimer) } catch (err) {}
+  scalePosTimer = setTimeout(function () {
+    scalePosTimer = 0
+    scalePosFreeze = false
+    try { if (menuOpen) positionMenu() } catch (err) {}
+  }, 300)
+}
 function setScale(v) {
   var next = Math.round(Math.min(MAX_SCALE, Math.max(MIN_SCALE, Number(v))) * 10) / 10
   // 缩放测量需要 left/top 立即到位：临时禁用过渡（滚轮/数字框路径没有
@@ -22171,7 +22839,7 @@ function setScale(v) {
   }
   state.top = clampWidgetTop(Math.min(Math.max(fy - r2.height, 0), Math.max(0, vp.h - r2.height)))
   express()
-  try { if (menuOpen) positionMenu() } catch (err) {}
+  try { if (menuOpen && !scalePosFreeze) positionMenu() } catch (err) {}
   // 主宠改「大小」：先把主宠自身按新 root 尺寸重排，再让分身跟随（顺序不能反）
   try { if (petOn) petRefitNow() } catch (err) {}
   // 分身一起重算：固定百分比按新主宠尺寸等比变，「跟随主宠」保持与主宠同尺寸
@@ -22510,6 +23178,21 @@ function toggleMenu(anchorX, anchorY) {
   // v865（issue #237 后半）：打开菜单时补读一次 size 配置（别的端/别的标签改过也能立刻生效）
   try { resyncSizeCfg() } catch (err) {}
   menuOpen = !menuOpen
+  // 菜单打开期间停止一切位移类互动（漫游/甩抛/分身巡游）：
+  // 否则角色在菜单旁边继续走，菜单锚点/贴边会在几十毫秒内反复跳，看起来一直在闪。
+  if (menuOpen) {
+    try { petStopRoam() } catch (err) {}
+    try { petStopThrow() } catch (err) {}
+    try { petStopStandThrow() } catch (err) {}
+    try {
+      for (var mi = 0; mi < petClones.length; mi++) {
+        try { petCloneStopRoam(petClones[mi]) } catch (err) {}
+        try { petCloneStopThrow(petClones[mi]) } catch (err) {}
+      }
+    } catch (err) {}
+    // 复位静置期：菜单刚开时不要立刻又插一段漫游
+    try { petRoamNextAt = Date.now() + 4000 } catch (err) {}
+  }
   // 表情素材层与台词：**每次打开菜单都重建一次选项**，不依赖「初始化时填充」的时序
   // （上一版只把填充放在初始化和清单回调里，桌面端实测三行下拉全空 —— 这个兜底留着）。
   if (menuOpen) {
@@ -22557,6 +23240,10 @@ function closeMenu() {
   try { menuBox.classList.remove('dshwv-sub-open') } catch (err) {}
   menuBox.classList.remove('dshwv-menu-open')
   try { root.classList.remove('dshwv-menu-shown') } catch (err) {}
+  // 关菜单时把控制台里的浮层一起收起：否则未选择就点外面关菜单，重新打开时
+  // 之前的下拉/级联浮层还挂在 iframe 上，看起来像“弹窗没关掉”。
+  try { if (conPillRefs.actPopClose) conPillRefs.actPopClose() } catch (err) {}
+  try { conSkinClose() } catch (err) {}
   try { petActsClose() } catch (err) {}
   closeRolePanel()
   closeAudioGroupPanel()
@@ -22626,7 +23313,7 @@ function dshwvMenuAnchorRect() {
 function positionMenu() {
   try {
     var vp = viewport()
-    var mw = menuBox.offsetWidth || Math.min(416, vp.w - 24)
+    var mw = menuBox.offsetWidth || Math.min(336, vp.w - 24)
     var mh = menuBox.offsetHeight || 420
     var gap = 4
     // 右键分身：菜单出现在点击点上方，但必须夹在视口内（角色靠上时不再被裁掉）
@@ -23320,16 +24007,29 @@ var PET_IDLE_MIN_MS = 25000
 var PET_IDLE_SPAN_MS = 20000
 // 自定义待机动画（空 = 随机）。只存本机，刷新/重启后保持。
 var petIdlePick = ''
-try { petIdlePick = localStorage.getItem('dshw-pet-idle') || '' } catch (err) { petIdlePick = '' }
+// 「待机」按原版桌宠的做法：默认就是全部动作随机轮播，不再支持指定某一段待机。
+// 旧版本可能留下 dshw-pet-idle（指定待机导致同一段循环），这里一次性清掉。
+try { localStorage.removeItem('dshw-pet-idle') } catch (err) {}
+petIdlePick = ''
 function petIdleResolve(avoid) {
   if (petIdlePick && petHave(petIdlePick)) return petIdlePick
   return petPickNew(PET_POOLS.idle, avoid)
 }
 function petSurfaceIdle(name) {
-  if (!name || !petHave(name)) return
+  // 空 / auto 前缀 = 「全部动作随机」：清掉指定待机动画，回到全局随机
+  if (!name || name === 'auto' || name.indexOf('auto:') === 0 || !petHave(name)) {
+    petIdlePick = ''
+    try { localStorage.removeItem('dshw-pet-idle') } catch (err) {}
+    petPin = null
+    try { petPinSave() } catch (err) {}
+    try { petSyncCategorySelects() } catch (err) {}
+    try { petFillIdleSelect() } catch (err) {}
+    try { if (petOn) petRunChain() } catch (err) {}
+    return
+  }
   petIdlePick = name
   try { localStorage.setItem('dshw-pet-idle', name) } catch (err) {}
-  // 选待机 = 取消「固定动作/分类」，回到待机语义
+  // 指定待机只影响「待机时段播哪一段」，不改变全局轮播（不是固定动作）
   petPin = null
   try { petPinSave() } catch (err) {}
   try { petSyncCategorySelects() } catch (err) {}
@@ -23344,21 +24044,14 @@ function petSurfaceIdle(name) {
     }
   } catch (err) {}
 }
-// ===== 动作/台词固定（下拉选择）=====
-// petPin = null（自动轮播）| {type:'action', value:动画名} | {type:'category', value:分类名}
+// ===== 动作点播（与 dsh-pet 同语义：选一次 → 播一次 → 自动回全局随机链）=====
+// 旧版把选中动作持久化成“固定动作”，于是切回「全部动作随机」后仍可能卡在某个分类里。
+// 现在**没有任何固定动作状态**：petPin 恒为 null，只为兼容旧引用保留变量名；
+// 用户选的每一段都交给 petPlayNamed() 临时插播，播完由 petOnEnded → petRunChain 回到全局轮播。
 var petPin = null
-try {
-  var rawPin = localStorage.getItem('dshw-pet-pin')
-  if (rawPin) {
-    var jp = JSON.parse(rawPin)
-    if (jp && (jp.type === 'action' || jp.type === 'category') && typeof jp.value === 'string') petPin = jp
-  }
-} catch (err) { petPin = null }
+try { localStorage.removeItem('dshw-pet-pin') } catch (err) {}
 function petPinSave() {
-  try {
-    if (petPin) localStorage.setItem('dshw-pet-pin', JSON.stringify(petPin))
-    else localStorage.removeItem('dshw-pet-pin')
-  } catch (err) {}
+  try { localStorage.removeItem('dshw-pet-pin') } catch (err) {}
 }
 function petCategoryList(id) {
   if (id === '待机') return PET_POOLS.idle
@@ -23371,12 +24064,7 @@ function petCategoryList(id) {
   return null
 }
 function petPinBootName() {
-  if (petPin && petPin.type === 'action' && petHave(petPin.value)) return petPin.value
-  if (petPin && petPin.type === 'category') {
-    var l = petCategoryList(petPin.value)
-    var n = l ? petPickNew(l, '') : ''
-    if (n) return n
-  }
+  // 启动永远待机（没有固定动作状态）
   return petIdleResolve('')
 }
 function petPinApply() {
@@ -23385,18 +24073,7 @@ function petPinApply() {
     clearTimeout(petTimer)
     petTimer = 0
     petTempUntil = 0
-    if (!petPin) { petRunChain(); return }
-    if (petPin.type === 'action') {
-      if (!petHave(petPin.value)) { petPin = null; petPinSave(); petRunChain(); return }
-      petSwitchTo(petPin.value, true)
-      petTimer = setTimeout(petRunChain, 30000)
-      return
-    }
-    var list = petCategoryList(petPin.value)
-    var name = list ? petPickNew(list, petCur) : ''
-    if (!name) { petPin = null; petPinSave(); petRunChain(); return }
-    petSwitchTo(name, petPin.value === '待机')
-    if (petPin.value === '待机') petTimer = setTimeout(petRunChain, PET_IDLE_MIN_MS + Math.random() * PET_IDLE_SPAN_MS)
+    petRunChain()
   } catch (err) {}
 }
 function petCategoryOfAction(name) {
@@ -23412,25 +24089,31 @@ function petCategoryOfAction(name) {
   return ''
 }
 function petOnSelectCategory(id, v) {
-  if (v === 'auto' || v.indexOf('auto:') === 0) {
-    petPin = { type: 'category', value: id }
-  } else {
-    petPin = { type: 'action', value: v }
+  // 「全部动作随机」= 取消任何临时状态，回到全局轮播。
+  if (!v || v === 'auto' || v.indexOf('auto:') === 0) {
+    petPin = null
+    petPinSave()
+    try { petSyncCategorySelects() } catch (err) {}
+    petPinApply()
+    return
   }
+  // 指定动作 = 点播一次（与 dsh-pet 的 playOnce 同语义）：播完自动回到全局随机链，
+  // 不写任何“固定动作”状态，所以不会出现“卡在某个动作里出不来”。
+  petPin = null
   petPinSave()
+  try { petPlayNamed(v) } catch (err) {}
   try { petSyncCategorySelects() } catch (err) {}
-  petPinApply()
 }
 function petFillCategorySelect(sel, id) {
   try {
     if (!sel) return
     var list = petFilter(petCategoryList(id) || [])
     sel.textContent = ''
-    // 只保留一个「自动随机」：在这个分类下拉里它就是"仅本类轮播"。
-    // 回到全局轮播的入口是「待机 → 随机（默认）」（会清掉固定项）。
+    // 每个分类的下拉里都保留第一项「全部动作随机」：它是**全局**随机（取消指定动作），
+    // 不是"只在本分类里随机"，这样任何一栏都能一键回到所有动画一起轮播。
     var a = document.createElement('option')
     a.value = 'auto:' + id
-    a.textContent = '自动随机'
+    a.textContent = '全部动作随机'
     sel.appendChild(a)
     for (var i = 0; i < list.length; i++) {
       var op = document.createElement('option')
@@ -23454,11 +24137,7 @@ function petSetSelValue(sel, v) {
 function petSyncCategorySelects() {
   try {
     PET_CAT_NAMES.forEach(function (id) {
-      var v = 'auto:' + id
-      if (petPin) {
-        if (petPin.type === 'action' && petCategoryOfAction(petPin.value) === id) v = petPin.value
-      }
-      petSetSelValue(petCatSels[id], v)
+      petSetSelValue(petCatSels[id], 'auto:' + id)
     })
     // 合并后的「动作分类 + 具体动作」也要跟着回填
     try { if (typeof petActMergeSync === 'function') petActMergeSync() } catch (err) {}
@@ -23768,6 +24447,9 @@ function petCommitFreePos() {
 function petGoHome() {
   try {
     try { petStopRoam(); petStopThrow(); petDragFollowStop() } catch (err) {}
+    // 复位后先原地停一会儿：漫游开启时若紧接着播到移动类动画，宠物刚回位就走开，看起来像没复位
+    petRoamNextAt = Date.now() + 4000
+    petHomeGraceUntil = Date.now() + 4000
     var vp = viewport()
     var w = root.offsetWidth || root.getBoundingClientRect().width || 0
     var h = root.offsetHeight || root.getBoundingClientRect().height || 0
@@ -23809,6 +24491,8 @@ var petRoamActive = false
 // 下一次「主动漫游」的到期时刻：漫游开启时定期插播一段移动动画，
 // 否则移动类只占轮播权重 5%，用户几乎看不到位移（反馈「开了像没开」）。
 var petRoamNextAt = 0
+// 「一键复位」后的静置期：这段时间内即便轮到移动类动画也不位移，先把位置稳住
+var petHomeGraceUntil = 0
 var petThrowRaf = 0
 var petThrowToken = 0
 var petThrowActive = false
@@ -23834,6 +24518,8 @@ function petSetRoamOn(on) {
 function petRoamStart(v, name) {
   try {
     if (!petOn || !petRoamOn || document.hidden) return
+    if (menuOpen) return
+    if (Date.now() < petHomeGraceUntil) return
     if (PET_POOLS.moves.indexOf(name) < 0) return
     if ((drag && drag.active) || petThrowActive) return
     var dur = (v && isFinite(v.duration) && v.duration > 0) ? v.duration : 3.2
@@ -23886,6 +24572,7 @@ function petStopThrow() {
 function petStartThrow(vx, vy) {
   try {
     if (!petOn) return
+    if (menuOpen) return
     // 共存时主挂件是小鲸鱼，甩抛物理不再作用于它（独立桌宠用弹簧拖拽）
     if (petStandActive()) return
     // 甩出**不播音效**：用户要求拖动/甩抛保持安静，只有点击才触发按压音效。
@@ -24264,7 +24951,7 @@ function petCloneStopRoam(c) {
 }
 function petCloneRoam(c, v) {
   try {
-    if (!petRoamOn || document.hidden || !petOn) return
+    if (!petRoamOn || document.hidden || !petOn || menuOpen) return
     petCloneStopRoam(c)
     var dir = c.faceR ? 1 : -1
     var vp = viewport()
@@ -24300,7 +24987,7 @@ function petCloneStopThrow(c) {
 }
 function petCloneThrow(c, vx, vy, silent) {
   try {
-    if (!petOn) return
+    if (!petOn || menuOpen) return
     var voiceOn = silent !== true
     // 甩出**不播音效**（同上：拖动/甩抛保持安静），voiceOn 只用于落地语音
     petCloneStopRoam(c)
@@ -24446,12 +25133,16 @@ function petCloneCollide(c) {
       if (info && petCollideCdOk('main', 'c' + c.slot)) {
         var push = petCollideApplyBox(c, info.nx, info.ny, info.depth)
         petCloneApply(c)
-        // 主宠反向推开（保持当前吸附/自由位置状态）
-        var rw = root.offsetWidth || 0
-        var rh = root.offsetHeight || 0
-        state.left = clamp(state.left - info.nx * push, 0, Math.max(0, vp.w - rw))
-        state.top = clampWidgetTop(state.top - info.ny * push, Math.max(0, vp.h - rh))
-        petPosApply()
+        // 主宠反向推开（保持当前吸附/自由位置状态）。
+        // 共存时主宠是独立的桌宠（petWrap），挂件里是小鲸鱼 —— 绝不能把碰撞反作用力
+        // 打到 root 上，否则桌宠和分身一互撞，角落里的小鲸鱼就跟着一起抖。
+        if (!petStandActive()) {
+          var rw = root.offsetWidth || 0
+          var rh = root.offsetHeight || 0
+          state.left = clamp(state.left - info.nx * push, 0, Math.max(0, vp.w - rw))
+          state.top = clampWidgetTop(state.top - info.ny * push, Math.max(0, vp.h - rh))
+          petPosApply()
+        }
         var mvx = (petThrowActive && petThrowState) ? petThrowState.vx : 0
         var mvy = (petThrowActive && petThrowState) ? petThrowState.vy : 0
         var cSpd = Math.sqrt(c.vx * c.vx + c.vy * c.vy)
@@ -25133,6 +25824,7 @@ function petStopStandThrow() {
 function petStandStartThrow(vx, vy, freeFall) {
   try {
     if (!petOn || !petStandActive()) return
+    if (menuOpen) return
     petStopRoam()
     petStopStandThrow()
     var w = petStandFitW || petWrap.offsetWidth || 0
@@ -25455,7 +26147,7 @@ function petRunChain() {
   // 放在「固定动作」分支**之前**：否则只要用户固定了某个动作（如宅舞），这里永远走不到，
   // 漫游看起来就是"开了没效果"。插播结束后 petOnEnded → petRunChain 会自动回到固定动作。
   // 移动类在轮播里只占 5%，靠这个兜底每 25–45s 走一段；拖拽/甩抛期间不打断。
-  if (petRoamOn && !document.hidden && !(drag && drag.active) && !petThrowActive && Date.now() >= petRoamNextAt) {
+  if (petRoamOn && !menuOpen && !document.hidden && !(drag && drag.active) && !petThrowActive && Date.now() >= petRoamNextAt) {
     var mvRoam = petPickNew(PET_POOLS.moves, petCur)
     if (mvRoam) {
       petRoamNextAt = Date.now() + 25000 + Math.random() * 20000
@@ -25463,39 +26155,19 @@ function petRunChain() {
       return
     }
   }
-  // —— 固定动作/分类（下拉选择）优先：固定动作循环播放；固定分类只在该分类内轮播 ——
-  if (petPin) {
-    if (petPin.type === 'action') {
-      if (!petHave(petPin.value)) { petPin = null; petPinSave() } else {
-        var pv = petVidCur()
-        if (petCur !== petPin.value || !pv || pv.readyState < 2 || pv.paused) petSwitchTo(petPin.value, true)
-        petTimer = setTimeout(petRunChain, 30000)
-        return
-      }
-    } else if (petPin.type === 'category') {
-      var plist = petCategoryList(petPin.value)
-      var pname = plist ? petPickNew(plist, petCur) : ''
-      if (pname) {
-        petSwitchTo(pname, petPin.value === '待机')
-        if (petPin.value === '待机') petTimer = setTimeout(petRunChain, PET_IDLE_MIN_MS + Math.random() * PET_IDLE_SPAN_MS)
-        return
-      }
-      petPin = null
-      petPinSave()
-    }
-  }
+  // —— 全局随机：待机 / 转向 / 移动 / 各分类按权重轮播 ——
+  // （没有“指定动作”分支：动作选择只是临时点播一次，播完就回到这里）
   var w = PET_POOLS.weights
   var r = Math.random() * 100
   var acted = false
   if (r < w.idle) {
     var idle = petIdleResolve(petCur)
     if (idle) {
-      // 已经是同一段待机且在播 ⇒ 不重载（避免每 25s 看到一次"重新开始"的跳帧）
-      var cvIdle = petVidCur()
-      var samePlaying = petCur === idle && cvIdle && cvIdle.readyState >= 2 && !cvIdle.paused
-      if (!samePlaying) petSwitchTo(idle, true)
+      // 与 dsh-pet 一致：待机也按 once 播一段，播完立刻进入下一次随机掷骰，
+      // 不再把同一段待机循环 25–45 秒（旧实现看起来像“卡在一个动作上一直重复”）。
+      petSwitchTo(idle, false)
       acted = true
-      petTimer = setTimeout(petRunChain, PET_IDLE_MIN_MS + Math.random() * PET_IDLE_SPAN_MS)
+      petTimer = setTimeout(petRunChain, 12000) // ended 未触发时的兜底
     }
   } else if (r < w.idle + w.turn) {
     var turn = petPickNew(PET_POOLS.turn, petCur)
@@ -25587,8 +26259,287 @@ function petCloseActions() {
 function petPlayNamed(name) {
   if (!petOn || !petHave(name)) return
   petCloseActions()
-  if (name === PET_IDLE) { petTempUntil = Date.now() + 8000; petSwitchTo(name, true) }
-  else { petTempUntil = Date.now() + 6000; petSwitchTo(name, false) }
+  // 点播一次：播完由 ended 回链；万一这段素材不触发 ended/加载失败，用定时器兜底回链，
+  // 绝不把桌宠永久钉在这一段上（dsh-pet 的 playOnce 同语义）。
+  petPin = null
+  clearTimeout(petTimer)
+  petTimer = 0
+  petTempUntil = 0
+  petSwitchTo(name, false)
+  petTimer = setTimeout(petRunChain, 12000)
+}
+// ===== 碎碎念 / 对话（与 dsh-pet 同思路：宿主侧用 ctx.llm + 当前对话的模型生成）=====
+// 数据落 $DSH_HOME/.dshw-pet-ai.json：{ persona, whisperOn, whisperEveryMin, history }
+// 客户端只负责发起请求、显示气泡/聊天窗；人设与历史都在宿主侧，刷新后仍保留。
+var PET_AI_CSS = 'width:100%;box-sizing:border-box;font-size:12px;line-height:1.5;border:1px solid rgba(32,49,112,.22);border-radius:8px;background:#fff;color:#1e293b;padding:6px 8px;resize:none;font-family:inherit'
+// 默认人设：宿主侧用同一段文案（留空时生效），两端保持一致
+var PET_AI_DEFAULT_PERSONA = '你是一只住在电脑桌面上的小鲸鱼桌宠，性格活泼可爱、好奇心强，说话口语化、简短自然。'
+var petAiCfg = { persona: '', whisperOn: true, whisperEveryMin: 30 }
+var petAiCfgLoaded = false
+var petWhisperTimer = 0
+var petAiBusy = false
+function petAiFetch(url, opt) {
+  return fetch(url, opt || { cache: 'no-store' }).then(function (r) {
+    return r.json().catch(function () { return { ok: false, error: 'bad json' } })
+  }).catch(function (e) { return { ok: false, error: String((e && e.message) || e) } })
+}
+function petAiApplyCfg(s) {
+  try {
+    if (!s || typeof s !== 'object') return
+    if (typeof s.persona === 'string') petAiCfg.persona = s.persona
+    petAiCfg.whisperOn = s.whisperOn !== false
+    var every = Number(s.whisperEveryMin)
+    if (isFinite(every) && every >= 1) petAiCfg.whisperEveryMin = Math.min(240, Math.round(every))
+    petAiCfgLoaded = true
+    try { petWhisperSchedule() } catch (err) {}
+    try { dshwvConSync() } catch (err) {}
+  } catch (err) {}
+}
+// 只在第一次真正需要时读配置（不拖慢挂件启动）；并发调用复用同一次请求
+var petAiLoading = false
+function petAiLoad(cb) {
+  if (petAiCfgLoaded) { if (cb) try { cb() } catch (err) {}; return }
+  if (petAiLoading) { if (cb) try { cb() } catch (err) {}; return }
+  petAiLoading = true
+  petAiFetch('/dsh-whale/pet-ai.json', { cache: 'no-store' }).then(function (d) {
+    petAiLoading = false
+    if (d && d.ok) petAiApplyCfg(d.settings)
+    // 宿主没提供该路由：标记已读，避免每次同步都重试 404（控件仍可用默认值）
+    else petAiCfgLoaded = true
+    if (cb) try { cb() } catch (err) {}
+  })
+}
+function petAiPost(payload, cb) {
+  return petAiFetch('/dsh-whale/pet-ai.json', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload || {}),
+  }).then(function (d) { if (cb) try { cb(d) } catch (err) {}; return d })
+}
+// 气泡里说一句话（复用现有的 custom 泡泡渲染；自动关闭）
+function petAiBubble(text) {
+  try {
+    if (typeof sceneOpen !== 'function' || !bubbleBox) return
+    var body = String(text || '').trim()
+    if (!body) return
+    if (body.length > 90) body = body.slice(0, 89) + '…'
+    sceneOpen('custom', function () {
+      bubbleRenderModules(bubbleVendorMods([{ type: 'text', text: body }]))
+    }, 8000)
+  } catch (err) {}
+}
+// 播一段「碎碎念」动画（点播一次，播完回全局随机链）
+function petPlayWhisperAnim() {
+  try {
+    if (!petOn) return
+    var pool = null
+    for (var i = 0; i < PET_POOLS.cats.length; i++) {
+      if (PET_POOLS.cats[i].id === '碎碎念') { pool = PET_POOLS.cats[i].list; break }
+    }
+    var list = petFilter(pool || [])
+    if (!list.length) return
+    petPlayNamed(list[Math.floor(Math.random() * list.length)])
+  } catch (err) {}
+}
+// 自动碎碎念：开启且有间隔时，页面可见 + 桌宠形态下按间隔说一句
+function petWhisperSchedule() {
+  try { clearTimeout(petWhisperTimer) } catch (err) {}
+  petWhisperTimer = 0
+  if (!petAiCfg.whisperOn) return
+  var min = Math.max(1, Number(petAiCfg.whisperEveryMin) || 30)
+  petWhisperTimer = setTimeout(function () {
+    petWhisperTimer = 0
+    try {
+      petWhisperSchedule() // 先排下一轮，失败也不影响节奏
+      if (!petAiCfg.whisperOn) return
+      if (document.hidden) return
+      if (!petOn) return
+      if (typeof bubbleOn !== 'undefined' && !bubbleOn) return
+      if (petChatMask && petChatMask.style.display !== 'none') return
+      if (petAiBusy) return
+      petWhisperNow(false)
+    } catch (err) {}
+  }, min * 60000)
+}
+function petWhisperNow(manual) {
+  try {
+    petAiLoad(function () {
+      if (petAiBusy) return
+      petAiBusy = true
+      petAiPost({ action: 'whisper' }, function (d) {
+        petAiBusy = false
+        if (d && d.ok && d.text) {
+          petAiBubble(d.text)
+          petPlayWhisperAnim()
+          return
+        }
+        if (manual) petAiBubble('碎碎念失败：' + String((d && (d.message || d.reason)) || '模型没有返回内容'))
+      })
+    })
+  } catch (err) { petAiBusy = false }
+}
+// —— 对话窗口（历史从宿主读，回复由当前对话模型生成）——
+var petChatMask = null
+var petChatListEl = null
+var petChatInputEl = null
+var petChatHintEl = null
+var petChatSending = false
+function petChatRender(history) {
+  try {
+    if (!petChatListEl) return
+    petChatListEl.textContent = ''
+    var arr = Array.isArray(history) ? history : []
+    if (!arr.length) {
+      var empty = document.createElement('div')
+      empty.style.cssText = 'color:#94a3b8;font-size:11.5px;text-align:center;padding:18px 0'
+      empty.textContent = '还没聊过，说点什么吧'
+      petChatListEl.appendChild(empty)
+      return
+    }
+    for (var i = 0; i < arr.length; i++) {
+      var m = arr[i]
+      if (!m || typeof m.content !== 'string') continue
+      var row = document.createElement('div')
+      row.style.cssText = 'display:flex;justify-content:' + (m.role === 'user' ? 'flex-end' : 'flex-start')
+      var b = document.createElement('div')
+      b.style.cssText = 'max-width:78%;padding:6px 9px;border-radius:10px;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;' +
+        (m.role === 'user'
+          ? 'background:#1e3a8a;color:#fff;border-bottom-right-radius:3px'
+          : 'background:#f1f5f9;color:#1e293b;border:1px solid rgba(148,163,184,.22);border-bottom-left-radius:3px')
+      b.textContent = m.content
+      row.appendChild(b)
+      petChatListEl.appendChild(row)
+    }
+    petChatListEl.scrollTop = petChatListEl.scrollHeight
+  } catch (err) {}
+}
+function petChatClose() {
+  try { if (petChatMask) petChatMask.style.display = 'none' } catch (err) {}
+}
+function petChatBuild() {
+  if (petChatMask) return
+  var mask = document.createElement('div')
+  mask.className = 'dshwv-bubmask'
+  mask.style.zIndex = '30000'
+  mask.style.display = 'flex'
+  var card = document.createElement('div')
+  card.className = 'dshwv-bubcard'
+  card.style.width = 'min(400px,calc(100vw - 16px))'
+  card.style.maxHeight = '82vh'
+  card.style.display = 'flex'
+  card.style.flexDirection = 'column'
+  card.style.overflow = 'hidden'
+  card.style.padding = '10px 12px'
+  var head = document.createElement('div')
+  head.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding-bottom:8px'
+  var title = document.createElement('div')
+  title.className = 'dshwv-bubtitle'
+  title.style.margin = '0'
+  title.textContent = '和桌宠聊聊'
+  var close = document.createElement('button')
+  close.type = 'button'
+  close.className = 'dshwv-roleimport'
+  close.style.flex = '0 0 auto'
+  close.textContent = '关闭'
+  close.addEventListener('click', function (e) { try { e.stopPropagation() } catch (err) {}; petChatClose() })
+  head.appendChild(title)
+  head.appendChild(close)
+  card.appendChild(head)
+  var list = document.createElement('div')
+  list.style.cssText = 'flex:1;min-height:140px;max-height:46vh;overflow:auto;display:flex;flex-direction:column;gap:6px;padding:2px 2px 8px'
+  card.appendChild(list)
+  var hint = document.createElement('div')
+  hint.style.cssText = 'font-size:10.5px;color:#94a3b8;padding:0 2px 6px'
+  hint.textContent = '模型跟随当前对话；历史保存在本机'
+  card.appendChild(hint)
+  var inputRow = document.createElement('div')
+  inputRow.style.cssText = 'display:flex;gap:6px;align-items:flex-end'
+  var input = document.createElement('textarea')
+  input.rows = 2
+  input.style.cssText = PET_AI_CSS
+  input.placeholder = '说点什么…（Ctrl+Enter 发送）'
+  var send = document.createElement('button')
+  send.type = 'button'
+  send.className = 'dshwv-roleimport'
+  send.style.cssText = 'flex:0 0 56px;height:34px'
+  send.textContent = '发送'
+  inputRow.appendChild(input)
+  inputRow.appendChild(send)
+  card.appendChild(inputRow)
+  var foot = document.createElement('div')
+  foot.style.cssText = 'display:flex;justify-content:flex-end;padding-top:6px'
+  var clear = document.createElement('button')
+  clear.type = 'button'
+  clear.className = 'dshwv-roleimport'
+  clear.textContent = '清空记忆'
+  clear.addEventListener('click', function (e) {
+    try { e.stopPropagation() } catch (err) {}
+    petAiPost({ action: 'clear' }, function (d) {
+      if (d && d.ok) {
+        petChatRender(d.history || [])
+        if (petChatHintEl) petChatHintEl.textContent = '记忆已清空'
+      }
+    })
+  })
+  foot.appendChild(clear)
+  card.appendChild(foot)
+  mask.appendChild(card)
+  mask.addEventListener('click', function (e) { if (e.target === mask) petChatClose() })
+  card.addEventListener('click', function (e) { try { e.stopPropagation() } catch (err) {} })
+  try { if (typeof window.dshwRegisterMask === 'function') window.dshwRegisterMask(mask) } catch (err) {}
+  dshwBodyAppend(mask)
+  petChatMask = mask
+  petChatListEl = list
+  petChatInputEl = input
+  petChatHintEl = hint
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { try { e.preventDefault() } catch (err) {}; petChatSend() }
+  })
+  send.addEventListener('click', function (e) {
+    try { e.stopPropagation() } catch (err) {}
+    try { if (e.preventDefault) e.preventDefault() } catch (err) {}
+    petChatSend()
+  })
+  petChatSendBtn = send
+}
+var petChatSendBtn = null
+function petChatSend() {
+  try {
+    if (petChatSending || !petChatInputEl) return
+    var text = String(petChatInputEl.value || '').trim()
+    if (!text) return
+    petChatSending = true
+    petChatInputEl.value = ''
+    if (petChatHintEl) petChatHintEl.textContent = '正在想…'
+    petAiPost({ action: 'chat', text: text }, function (d) {
+      petChatSending = false
+      if (d && d.ok) {
+        if (Array.isArray(d.history)) petChatRender(d.history)
+        if (petChatHintEl) petChatHintEl.textContent = '模型跟随当前对话；历史保存在本机'
+        if (d.text) petPlayWhisperAnim()
+        return
+      }
+      if (petChatHintEl) petChatHintEl.textContent = '失败：' + String((d && (d.message || d.reason)) || '模型没有返回内容')
+    })
+  } catch (err) { petChatSending = false }
+}
+function petChatOpen() {
+  try {
+    try { closeMenu() } catch (err) {}
+    petChatBuild()
+    petChatMask.style.display = 'flex'
+    petAiLoad(function () {
+      petAiFetch('/dsh-whale/pet-ai.json', { cache: 'no-store' }).then(function (d) {
+        try {
+          if (d && d.ok) {
+            petAiApplyCfg(d.settings)
+            petChatRender(d.history || [])
+          }
+        } catch (err) {}
+      })
+      try { petChatInputEl.focus() } catch (err) {}
+    })
+  } catch (err) {}
 }
 // 桌宠动作面板：**嵌在主菜单内部**（同一个 .dshwv-menu 浮层），分类与 dsh-pet 右键级联菜单同源。
 // 之前另开一个 .dshwv-petmenu 浮层 ⇒ 用户看到"两套菜单"；现在右键角色直接打开主菜单，
@@ -25698,7 +26649,7 @@ function petFillIdleSelect() {
     petIdleSel.textContent = ''
     var o = document.createElement('option')
     o.value = ''
-    o.textContent = '随机（默认）'
+    o.textContent = '全部动作随机'
     petIdleSel.appendChild(o)
     for (var i = 0; i < names.length; i++) {
       var op = document.createElement('option')
@@ -25894,6 +26845,8 @@ function petEnable(byUser) {
     petTempUntil = 0
     petCur = ''
     petFirstFrame = false
+    // 碎碎念：进入桌宠后读取配置并开始按间隔自动说（配置读失败就静默跳过）
+    try { petAiLoad() } catch (err) {}
     bubbleAvoidHead = null // 换成桌宠 ⇒ 头顶缓存作废
     currentRole = { id: PET_ROLE_ID, name: '桌宠', url: '' }
     setRoleBtnText('桌宠')
@@ -25962,6 +26915,8 @@ function petDisable() {
   if (!petOn) return
   petOn = false
   petEnableTok++ // 作废还在等在途素材请求的启用回调
+  clearTimeout(petWhisperTimer)
+  petWhisperTimer = 0
   clearTimeout(petTimer)
   petTimer = 0
   petTempUntil = 0
@@ -26025,13 +26980,7 @@ function petHealTick() {
     var v = petVidCur()
     var ok = !!(v && v.readyState >= 2 && v.currentSrc && !v.paused && v.style.opacity === '1')
     if (ok) return
-    var idle = ''
-    if (petPin && petPin.type === 'action' && petHave(petPin.value)) idle = petPin.value
-    else if (petPin && petPin.type === 'category') {
-      var hl = petCategoryList(petPin.value)
-      idle = hl ? petPickNew(hl, '') : ''
-    }
-    if (!idle) idle = petIdleResolve('')
+    var idle = petIdleResolve('')
     if (!idle) return
     petFirstFrame = true
     petTempUntil = 0
@@ -26138,6 +27087,54 @@ function lineBuildMenuRow(append) {
   lineLoadPool(function () { lineFillSelect() })
 }
 
+// ===== 厂商额度（选装）：气泡里注入所选厂商模型的额度行 =====
+// 只是「渲染时追加一行」，不写进泡泡配置 —— 用户自己的泡泡模块一个都不会被改；
+// 关掉开关这一行就消失，泡泡编辑器里的配置保持原样。
+function vendorQuotaModelId() {
+  try {
+    var i
+    if (vendorQuotaModel) {
+      for (i = 0; i < apiModels.length; i++) {
+        var m = apiModels[i]
+        if (m && !m.builtin && m.id === vendorQuotaModel) return vendorQuotaModel
+      }
+    }
+    // 没选/选的模型被删了 → 退回第一个非内置模型
+    for (i = 0; i < apiModels.length; i++) {
+      if (apiModels[i] && !apiModels[i].builtin && apiModels[i].id) return apiModels[i].id
+    }
+  } catch (err) {}
+  return ''
+}
+function vendorQuotaModuleFor(id) {
+  try {
+    if (!id) return null
+    // 有订阅额度接口的厂商 → 「额度」模块；只有手动额度的 → 手动额度模块；否则退回余额
+    if (apiPlanSupport(id)) return { type: 'plan', modelId: id, size: 8, tpl: '{plan} · {plan_reset}', planWin: 'all', vendorAuto: true }
+    var am = apiModelById(id)
+    if (am && am.quota && am.quota.on) return { type: 'quota', modelId: id, size: 8, tpl: '已用 {quota} · 剩 {quota_left}', vendorAuto: true }
+    return { type: 'balance', modelId: id, size: 8, tpl: '{balance}', vendorAuto: true }
+  } catch (err) { return null }
+}
+function bubbleVendorMods(mods) {
+  var list = Array.isArray(mods) ? mods.slice() : []
+  try {
+    if (!vendorQuotaOn) return list
+    var id = vendorQuotaModelId()
+    if (!id) return list
+    // 泡泡里已经有该模型的模块 → 不重复追加（用户自己加的优先）
+    for (var i = 0; i < list.length; i++) {
+      var m = list[i]
+      if (m && bubbleIsModelMod(m) && m.modelId === id && (m.type === 'balance' || m.type === 'quota' || m.type === 'plan')) return list
+    }
+    // 行数上限与编辑器一致：已经 6 行就不再加，免得把泡泡撑出边框
+    if (bubbleRowsOf(list).length >= BUBBLE_PV_ROW_MAX) return list
+    var md = vendorQuotaModuleFor(id)
+    if (md) list.push(md)
+  } catch (err) {}
+  return list
+}
+
 // ===== 火山 coding plan 额度（可选：需另装 plugins/volc-usage）=====
 // 数据源是那个附属插件的 /api/volc-usage（纯 HTTP 契约，不经宿主）。没装就安静地显示提示。
 // 响应形状：{ok, accounts:[{idx,name,ok,plan:{Status,QuotaUsage:[{Level,Percent}]},balance:{CashBalance}}], activeIdx}
@@ -26173,18 +27170,42 @@ function volcSummaryText() {
   if (acc.balance) parts.push('余额¥' + String(acc.balance.CashBalance || '0'))
   return (acc.name || '') + (parts.length ? '：' + parts.join(' · ') : '')
 }
+function volcPaintText() {
+  var t = volcSummaryText()
+  try { if (volcMenuRefs && volcMenuRefs.text) volcMenuRefs.text.textContent = t } catch (err) {}
+  try { if (volcConText) volcConText.textContent = t } catch (err) {}
+}
 function volcRefresh() {
+  // 选装：没开开关就不请求（默认关闭，免得每次启动都去打附属插件）
+  if (!volcQuotaOn) {
+    if (volcMenuRefs && volcMenuRefs.text) volcMenuRefs.text.textContent = ''
+    if (volcConText) volcConText.textContent = '未开启'
+    return
+  }
   try {
     fetch(VOLC_URL, { cache: 'no-store' })
       .then(function (r) { return r.ok ? r.json() : null })
       .then(function (d) {
         volcData = (d && d.ok) ? d : { ok: false }
-        if (volcMenuRefs && volcMenuRefs.text) volcMenuRefs.text.textContent = volcSummaryText()
+        volcPaintText()
       })
       .catch(function () {
         volcData = { ok: false }
-        if (volcMenuRefs && volcMenuRefs.text) volcMenuRefs.text.textContent = volcSummaryText()
+        volcPaintText()
       })
+  } catch (err) {}
+}
+// 开关联动：菜单行显隐 + 轮询的启停（关掉时不再每 120 秒请求一次）
+function volcApplyUI() {
+  try {
+    if (volcMenuRefs && volcMenuRefs.row) volcMenuRefs.row.style.display = volcQuotaOn ? '' : 'none'
+    if (volcQuotaOn) {
+      volcRefresh()
+      if (!volcTimer) volcTimer = setInterval(volcRefresh, 120000)
+    } else if (volcTimer) {
+      clearInterval(volcTimer)
+      volcTimer = 0
+    }
   } catch (err) {}
 }
 function volcBuildMenuRow(append) {
@@ -26194,12 +27215,12 @@ function volcBuildMenuRow(append) {
   text.style.fontSize = '12px'
   text.style.flex = '1 1 auto'
   text.style.minWidth = '0'
-  text.textContent = '读取中…'
   row.appendChild(text)
   append(row)
-  volcMenuRefs = { text: text }
-  volcRefresh()
-  if (!volcTimer) volcTimer = setInterval(volcRefresh, 120000)
+  volcMenuRefs = { text: text, row: row }
+  // 默认关闭：整行先藏起来，由控制台「厂商额度」卡里的开关打开
+  row.style.display = volcQuotaOn ? '' : 'none'
+  volcApplyUI()
 }
 function toggleRolePanel() {
   if (rolePanel.classList.contains('dshwv-rolelist-open')) { closeRolePanel(); return }
@@ -28231,6 +29252,7 @@ function onWheelZoom(e) {
         // 小鲸鱼 / 独占桌宠：等价于拖「大小」滑块（setScale 内部已处理角点锚定、落盘与分身重排）
         var mlv = Math.max(1, Math.min(20, Math.round(Number(scaleNumber.value) || 10) + n))
         var s = MIN_SCALE + (mlv - 1) * (MAX_SCALE - MIN_SCALE) / 19
+        try { scaleMenuFreezeBrief() } catch (err) {}
         try { setScale(s) } catch (err) {}
       }
     }
@@ -28539,6 +29561,11 @@ function sizeCfgApply(d) {
       menuBtnHide = d.menuBtnHide
       if (menuHideToggle) menuHideToggle.checked = menuBtnHide
     }
+    // 厂商额度（选装）：三个新键，老配置里没有 → 保持默认「全关」
+    if (d && typeof d.vendorQuotaOn === 'boolean') vendorQuotaOn = d.vendorQuotaOn
+    if (d && typeof d.vendorQuotaModel === 'string') vendorQuotaModel = d.vendorQuotaModel
+    if (d && typeof d.volcQuotaOn === 'boolean') volcQuotaOn = d.volcQuotaOn
+    try { volcApplyUI() } catch (err) {}
     // issue #116：Codex 本机统计开关（老配置里没有这个键 → 保持默认「开」）
     if (d && typeof d.codexStatsOn === 'boolean') {
       codexStatsOn = d.codexStatsOn
