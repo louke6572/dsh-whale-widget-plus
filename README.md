@@ -421,7 +421,7 @@ curl http://127.0.0.1:3080/dsh-whale/pet-animations.json
   素材缺失时 `{ok:false, error:"pet-assets-missing", reason, dir, hint}`（见「常见问题」）
 - 浏览器 `Ctrl+F5` 后右下角出现挂件
 
-> 全部 **35 个** `/dsh-whale/*` 路由共用三层信任栅栏（见「访问控制」）。不带会话凭据的裸 `curl`
+> 全部 **36 个** `/dsh-whale/*` 路由共用三层信任栅栏（见「访问控制」）。不带会话凭据的裸 `curl`
 > 返回 `401`（伪造 Host 为 `403`）是预期行为，不代表接口坏了；写请求还必须是本机来源。
 
 ## 常见问题
