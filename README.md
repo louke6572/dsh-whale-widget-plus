@@ -50,7 +50,7 @@ github:louke6572/dsh-whale-widget-plus
 把这一句复制给任意能执行命令的 Agent（DSH 内置 `plugin_manager`、Claude Code、Codex 等）即可：
 
 ```text
-帮我安装 DSH 插件 github:louke6572/dsh-whale-widget-plus，装完告诉我要怎么重启才会生效。
+帮我安装 DSH 插件 github:louke6572/dsh-whale-widget-plus
 ```
 
 > 规格必须写成 GitHub 形式：npm 上没有 `dsh-whale-widget-plus`，裸包名装不上。
