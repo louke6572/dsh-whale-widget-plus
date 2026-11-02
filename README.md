@@ -47,26 +47,13 @@ github:louke6572/dsh-whale-widget-plus
 
 ### Agent 一键安装（推荐）
 
-不想手动敲命令，就把下面整段原样复制给任意能执行命令的 Agent（DSH 内置 `plugin_manager`、
-Claude Code、Codex 等），它会自己判断环境、装好并核对版本：
+把这一句复制给任意能执行命令的 Agent（DSH 内置 `plugin_manager`、Claude Code、Codex 等）即可：
 
 ```text
-帮我安装 DSH 插件 dsh-whale-widget-plus，来源规格固定为 github:louke6572/dsh-whale-widget-plus
-（npm 上没有这个包，绝对不要用裸包名 dsh-whale-widget-plus）。按以下步骤执行：
-
-1. 先跑 `dsh plugin --profile web list`。
-   - 已装且来源是 github:louke6572/... → 直接升级；
-   - 已装但来源是本地 link:/file: → 先 `dsh plugin --profile web remove dsh-whale-widget-plus` 再装，
-     不要混用两种来源。
-2. 执行 `dsh plugin --profile web add github:louke6572/dsh-whale-widget-plus`。
-   首次安装要从 GitHub 拉取仓库和 106 段桌宠动画，耗时约 1 分钟，不要中途打断。
-3. 再跑一次 `dsh plugin --profile web list`，确认版本号不低于 0.7.2。
-4. 如果报 profile "desktop" is managed exclusively by the Electron application：
-   说明目标是桌面端，改用桌面客户端内置的 plugin_manager 安装同一规格，不要硬试 CLI。
-5. 结束后告诉我：装到哪个 profile、实际版本、是否需要重启
-   （`dsh web` 需重启并 Ctrl+F5；桌面端需完全退出含托盘再打开）。
-全程不要执行 npm publish，也不要替换安装规格。
+帮我安装 DSH 插件 github:louke6572/dsh-whale-widget-plus，装完告诉我要怎么重启才会生效。
 ```
+
+> 规格必须写成 GitHub 形式：npm 上没有 `dsh-whale-widget-plus`，裸包名装不上。
 
 ### DSH Web（`dsh web`）
 
