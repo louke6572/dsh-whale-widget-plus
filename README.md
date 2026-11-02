@@ -41,7 +41,9 @@ github:louke6572/dsh-whale-widget-plus
 ```
 
 也接受完整仓库 URL：`https://github.com/louke6572/dsh-whale-widget-plus`。
-npm 发布之后（发布走本仓库的 GitHub Actions「Publish to npm」，手动触发），即可直接输入裸包名 `dsh-whale-widget-plus` 安装。
+
+> npm 上没有 `dsh-whale-widget-plus` 这个包（`npm view` 会 404），所以**裸包名永远装不上**，
+> 不要去试。上面的 GitHub 规格就是本项目的官方安装方式，Web 与桌面端通用。
 
 ### DSH Web（`dsh web`）
 
@@ -449,9 +451,11 @@ curl http://127.0.0.1:3080/dsh-whale/pet-animations.json
 
 ## 常见问题
 
-- **挂件不出现**：确认安装规格是 `dsh-whale-widget-plus`；`dsh --profile web --dump-config`
+- **挂件不出现**：确认安装规格是 `github:louke6572/dsh-whale-widget-plus`（不是裸包名，
+  裸包名在 npm 上不存在）；`dsh --profile web --dump-config`
   能看到它；重启 `dsh web` 后刷新。桌面端确认装在 `desktop` profile，并完全退出客户端再打开。
-- **npm 装不上**：本包尚未发布 npm（404），请用 `github:louke6572/dsh-whale-widget-plus` 或本地 `link:` 安装。
+- **npm 装不上**：本包未发布 npm（404），这不是故障。请用 `github:louke6572/dsh-whale-widget-plus`
+  或本地 `link:` 安装。
 - **桌宠提示「素材未安装」**：说明安装包里没有 `assets/pet-video/`（v0.6.8 及更早的 GitHub 提交确实没带这 106 段），
   先重装最新版 `github:louke6572/dsh-whale-widget-plus`（**不要锁旧 commit**）；
   仍缺就把 106 段 `.webm` 放进插件目录的 `assets/pet-video/` 再刷新。
