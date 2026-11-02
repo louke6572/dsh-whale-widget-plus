@@ -1,6 +1,6 @@
 # DSH 小鲸鱼挂件 Plus
 
-> DeepSeek Balance Whale Widget Plus · `v0.7.1`
+> DeepSeek Balance Whale Widget Plus · `v0.7.2`
 
 DSH（DeepSeek Harness）右下角的常驻小鲸鱼挂件：余额、今日已用、每轮消耗、峰谷常驻徽标，
 外加可自由编辑的泡泡、多套表情素材、提示音效，以及内置的 **106 段透明动画桌宠**。
@@ -27,12 +27,23 @@ DSH（DeepSeek Harness）右下角的常驻小鲸鱼挂件：余额、今日已�
 
 ## 安装
 
-> 安装规格里的包名是 **`dsh-whale-widget-plus`**。安装前先确认没有同名的旧版或官方版并存。
+> **直接安装规格：`github:louke6572/dsh-whale-widget-plus`**（原样整条复制，不能只写包名）。
+> 安装前先确认没有同名的旧版或官方版并存。
+
+### 直接安装（Web 与桌面端通用）
+
+本包尚未发布到 npm（`npm view dsh-whale-widget-plus` 会 404），所以在安装入口里**只输入裸包名
+`dsh-whale-widget-plus` 是装不上的**。请把下面这条 GitHub 规格原样粘进安装入口 ——
+Web 端 CLI 的 `add` 参数、桌面端插件管理页的安装输入框、或让内置 `plugin_manager` 安装时给的 spec，三者通用：
+
+```text
+github:louke6572/dsh-whale-widget-plus
+```
+
+也接受完整仓库 URL：`https://github.com/louke6572/dsh-whale-widget-plus`。
+npm 发布之后（发布走本仓库的 GitHub Actions「Publish to npm」，手动触发），即可直接输入裸包名 `dsh-whale-widget-plus` 安装。
 
 ### DSH Web（`dsh web`）
-
-> ⚠️ 本包**尚未发布到 npm**（`npm view dsh-whale-widget-plus` 会 404），
-> 所以 `dsh plugin add dsh-whale-widget-plus` 装不上，请用下面两种来源之一：
 
 ```powershell
 # 直接从 GitHub（推荐）
@@ -57,7 +68,7 @@ error: profile "desktop" is managed exclusively by the Electron application
 
 正确做法是在桌面客户端会话里让宿主内置的 `plugin_manager` 安装：
 
-> 请使用当前桌面端内置的 `plugin_manager` 安装 `dsh-whale-widget-plus`。
+> 请使用当前桌面端内置的 `plugin_manager` 安装 `github:louke6572/dsh-whale-widget-plus`。
 > 先核对当前 profile、已安装来源与版本；按工具支持的方式完成后告诉我结果，并说明是否需要重启。
 
 - **首次安装**：工具返回 `applied` 不保证当前窗口已经渲染；没出现就完全退出客户端（含托盘）再打开。
@@ -198,6 +209,18 @@ v0.6.9 重做双形态共存：开关在「小鲸鱼 / 桌宠」两种形态下�
 桌宠位置与大小单独保存在 `dshw-pet-pos` / `dshw-pet-scale`，窗口缩放只做屏幕内夹取。
 共存时桌宠的甩抛以**松手点**为落地基准（可停在小鲸鱼上方等任意高度，不会被重力一路拉回屏幕底边），
 弹弓（双击第二下按住拖）仍按「甩出去」落到屏幕底边。
+
+v0.7.2 更新：
+
+- **修复共存形态下开关菜单小鲸鱼横移**：关菜单末尾原本会补一次贴边检测（snapCheck），
+  贴边结果只改内存位置、不写回 localStorage 锚点；下次打开菜单时的配置补读又把旧锚点套回来，
+  表现为「开菜单小鲸鱼往边上滑一段、关菜单又跳回去」。现在贴边结果同步落盘，
+  菜单打开期间的配置补读不再重排挂件位置，关菜单也不再触发贴边。
+- **修复共存形态下点击眨眼 / 按压闭眼丢失**：表情层入口原先只看「桌宠是否启用」，
+  共存时桌宠启用但小鲸鱼仍然可见，表情层被整体关掉了；现在仅在「桌宠独占」形态下让位，
+  共存时小鲸鱼的素材包眨眼、按压闭眼、点击表情照常生效，进入共存时立即贴回当前帧。
+- **发布链路**：CI「检查版本是否已发布」改为从 package.json 读包名（原先写死上游包名
+  `dsh-whale-widget`，版本号撞车时会误判已发布并跳过发版）。
 
 v0.7.1 更新：
 

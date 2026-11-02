@@ -23250,7 +23250,9 @@ function closeMenu() {
   closeUsagePanel()
   closeAboutPanel()
   root.style.transition = ''
-  snapCheck()
+  // 关菜单不改挂件位置：以前这里会补一次 snapCheck()，若挂件落在吸附区内就会被贴边，
+  // 但贴边结果没有同步写回 localStorage 锚点 ⇒ 下次打开菜单时 resyncSizeCfg 又把旧锚点
+  // 套回来，表现为「开菜单往边上跳一段、关菜单又跳回去」。位置只在拖拽/缩放/吸附设置时更新。
 }
 function snapCheck() {
   if (!snapConfig || snapConfig.mode === 'off') return
@@ -23295,6 +23297,9 @@ function snapCheck() {
     state.left = left
     state.top = top
     settle()
+    // 贴边结果必须同步写回锚点：否则 state 与 localStorage['dshw-pos'] 分叉，
+    // 下一次 applyAnchorPos()（例如打开菜单时的配置补读）会把旧锚点套回来 ⇒ 挂件跳位。
+    try { saveAnchorPos() } catch (err) {}
   } else {
     express()
   }
@@ -23550,7 +23555,8 @@ function exprFileOk(pack, name) {
 function exprRoleUrlNow() { return (currentRole && currentRole.url) ? currentRole.url : IMG_URL }
 // 唯一的换图入口：src + 命中图重建（照 applyRole 的三步，但不碰角色状态）
 function exprApplySkin(url) {
-  if (!url || petOn) return
+  // 共存时主挂件仍显示小鲸鱼（petOn=true 但 img 可见）⇒ 表情层必须照常生效
+  if (!url || (petOn && !petCoexist)) return
   var same = (img.src === url || img.currentSrc === url)
   img.src = url
   hitReady = false
@@ -23566,7 +23572,8 @@ function exprApplySkin(url) {
 }
 // 唯一的「现在该显示哪张图」决策点
 function exprRender() {
-  if (petOn) return // 桌宠形态：外观交给动画层，表情层不参与
+  // 桌宠独占形态：外观交给动画层；共存形态下小鲸鱼仍然可见，表情层照常工作
+  if (petOn && !petCoexist) return
   var pack = exprActivePack()
   if (!exprOn || !pack) { exprApplySkin(exprRoleUrlNow()); return }
   var now = Date.now()
@@ -23589,7 +23596,7 @@ function exprRender() {
 // 在新表情层里按其架构补回：pointerdown → exprPressStart，pointerup → exprPressEnd。
 // 文件取当前素材包 blink.closed（该槽缺失的包自动无此效果）；60s 安全上限防 pointerup 丢失贴死。
 function exprPressStart() {
-  if (petOn) return // 桌宠形态：点击回应由动画链负责
+  if (petOn && !petCoexist) return // 桌宠独占形态：点击回应由动画链负责（共存时小鲸鱼仍要按压闭眼）
   var pack = exprActivePack()
   if (!exprOn || !pack || !exprFileOk(pack, pack.blink.closed)) return
   exprPressFile = pack.blink.closed
@@ -26799,6 +26806,10 @@ function petApplyCoexist() {
     // 共存首帧量完后主宠基准会切到 petStandFitH：分身必须跟着换基准重排
     try { petCloneRefit() } catch (err) {}
     try { petUpdateHit() } catch (err) {}
+    // petStandSetOn 会把 img 拉回角色主图（命中轮廓要一致）；共存下小鲸鱼可见，
+    // 立刻让表情层把当前该显示的帧（素材包主图/眨眼/按压）重新贴回去，否则切换共存后
+    // 小鲸鱼会先变回角色图、直到下一次眨眼才跳成素材包图。
+    try { exprRender() } catch (err) {}
   } else {
     try { petStandSetOn(false) } catch (err) {}
     petFitH = 0
@@ -29583,16 +29594,21 @@ function sizeCfgApply(d) {
     // 仅认 v:2 净距离格式；旧格式（含避让距离）废弃，挂件保持默认右下角吸附。
     // issue #102：这里原与 applyAnchorPos() 各写了一份恢复逻辑（两份都只做下限夹紧），
     // 现在统一走 applyAnchorPos()，避免"只修一处、另一处仍复现"。
-    try {
-      if (applyAnchorPos()) {
-        settle()
-        // 恢复时 offsetWidth 可能还是 0（字体/图片尚未就绪），尺寸就绪后再夹一次（issue #102）
-        setTimeout(function () { try { settle() } catch (err) {} }, 500)
-      }
-    } catch (err) {}
-    // 配置里的「避让滚动条 / 宽度」可能刚刚才生效：无论有没有锚点，都按新值再落一次位。
-    // 否则首进 scrollGapOn=true 时只会同步开关 UI、挂件位置却不变，用户得手动开关一次才动。
-    try { settle() } catch (err) {}
+    // 菜单打开时的配置补读（resyncSizeCfg）不得重排挂件位置：applyAnchorPos() 用的是
+    // localStorage 里的旧锚点，若它和当前 state 已经分叉（例如吸附后没有落盘），
+    // 就会把挂件挪走，关菜单时又跳回去 —— 表现为「一开菜单小鲸鱼就往边上滑一段」。
+    if (!menuOpen) {
+      try {
+        if (applyAnchorPos()) {
+          settle()
+          // 恢复时 offsetWidth 可能还是 0（字体/图片尚未就绪），尺寸就绪后再夹一次（issue #102）
+          setTimeout(function () { try { settle() } catch (err) {} }, 500)
+        }
+      } catch (err) {}
+      // 配置里的「避让滚动条 / 宽度」可能刚刚才生效：无论有没有锚点，都按新值再落一次位。
+      // 否则首进 scrollGapOn=true 时只会同步开关 UI、挂件位置却不变，用户得手动开关一次才动。
+      try { settle() } catch (err) {}
+    }
     refresh(false)
     // v734（issue #97）：首次 GET 应用完成 —— 从这一刻起才允许 saveConfig() 落盘
     configLoaded = true
