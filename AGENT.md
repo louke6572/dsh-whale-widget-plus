@@ -1,190 +1,110 @@
-# AGENT.md — 交给 AI Agent 的安装与配置手册
+# AGENT.md — 给 AI Agent 的傻瓜安装手册
 
-> 阅读对象是 AI Agent（Claude Code / Codex / DSH 内置 agent 等）。
-> 目标：把 dsh-Dfy 装到用户机器上并跑起来，**用户只需要做一件事：扫码登录 QQ**。
-> SnowLuma 也由你下载安装（官方 Releases），用户不需要自己找安装包。
-> 人类用户看不懂命令没关系，把下面「复制给 Agent」那段发给任意能执行命令的 Agent 即可。
+> 目标：装好 dsh-Dfy，**用户只需要做两件事：重启 DSH、扫码登录 QQ**。
+> 其他（下载、依赖、写 profile、装 SnowLuma、启动桥接）全部由 Agent 完成。
 
 ## 复制给 Agent
 
 ```text
-帮我安装 dsh-Dfy（QQ × B站 × 桌宠一体化插件）：
-1. 仓库 https://github.com/louke6572/dsh-Dfy
-2. 严格按仓库根目录的 AGENT.md 执行，不要跳步
-3. 装完后告诉我：安装目录、版本、profile、SnowLuma 状态、QQ 是否已登录，以及我还需要做什么
-只有扫码登录 QQ 需要我亲手操作（以及重启 DSH 时点一下退出/重开），其余由你完成，包括下载安装 SnowLuma。
+帮我安装 https://github.com/louke6572/dsh-Dfy ，按仓库里的 AGENT.md 执行，不要跳步；
+装完告诉我结果，需要我做的事直接说。
 ```
 
-## 硬约束（先读）
+## 必须遵守
 
-1. **不要用 `dsh plugin --profile <p> add github:louke6572/dsh-dfy`**。
-   本插件运行时需要仓库根下的 `config.json`、`state/`、`pet/`、`src/bridge.js`，
-   用插件管理器装进 `node_modules` 后这些路径不再成立。必须按下面的「克隆仓库 + setup 脚本」方式安装。
-2. **SnowLuma 由你安装**（第三方 QQ 运行时），但**只能从官方 Releases 下载**：
-   `github.com/SnowLuma/SnowLuma/releases/latest`。禁止第三方镜像、破解包、网盘转存。
-   安装、解压、写配置、启动都由你完成；用户只负责在 SnowLuma 窗口扫码登录 QQ。
-3. **不要提交或外发** `config.json`、`~/.dsh/surfcore/`、`state/`、QQ/B站凭据。
-4. 不要修改用户已有的 `~/.dsh/surfcore/` 数据（记忆、账号、记账）。
-5. **不要自己重启 / 关闭 DSH**。如果你正运行在 DSH 里，重启会直接中断当前任务；
-   只提醒用户手动"完全退出（含托盘）再打开"，等用户确认后再继续。
-6. 只在 Windows 上执行（沙箱 ACL 与桥接绑定 Windows）。
+1. **不要用** `dsh plugin add github:louke6572/dsh-dfy`：运行需要仓库根的 `config.json`、`state/`、`src/bridge.js`。
+2. **不要自己重启/关闭 DSH**：你可能就跑在 DSH 里，重启会中断当前任务；只让用户手动退出再打开。
+3. **不要替用户扫码**：二维码必须用户本人在 SnowLuma 窗口扫。
+4. SnowLuma 只从**官方 Releases** 下载（`github.com/SnowLuma/SnowLuma/releases/latest`），不要第三方镜像。
+5. 不要提交/外发 `config.json`、`~/.dsh/surfcore/`、`state/`、QQ/B站凭据。
 
-## 前置检查
-
-| 检查 | 命令 | 期望 |
-|---|---|---|
-| Node | `node -v` | ≥ 22.13 |
-| DSH | `dsh --version` | ≥ 0.2.1-rc.2 |
-| Git | `git --version` | 任意版本 |
-| 系统 | `$env:OS` | Windows_NT |
-
-缺 Node 或 DSH 时先停下来告诉用户，不要自己乱装。
-
-## 执行步骤
-
-### 1. 克隆到固定目录
-
-默认 `%USERPROFILE%\dsh-Dfy`（即 `C:\Users\<用户名>\dsh-Dfy`）。
+## 一、首选：一条命令装完
 
 ```powershell
-# 已存在则更新，不要重复克隆
-if (Test-Path "$env:USERPROFILE\dsh-Dfy\.git") {
-  git -C "$env:USERPROFILE\dsh-Dfy" pull --ff-only
-} else {
-  git clone --depth 1 https://github.com/louke6572/dsh-Dfy.git "$env:USERPROFILE\dsh-Dfy"
-}
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/louke6572/dsh-Dfy/main/scripts/bootstrap.ps1 | iex"
 ```
 
-**验收**：目录里能看到 `package.json`、`lib/`、`backend/`、`widget/`、`src/`。
+脚本会依次完成：
 
-### 2. 安装依赖
+1. 检查 Node ≥ 22.13 与 DSH 是否就绪
+2. 下载/更新仓库到 `%USERPROFILE%\dsh-Dfy`
+3. `npm install`（失败自动换国内镜像）
+4. `node scripts/setup-dsh.mjs`（自动识别 profile，写 bundle / 预设 / MCP / 生成 config.json）
+5. `node scripts/install-snowluma.mjs --no-launch`（检测或下载官方 Releases）
+
+**验收**：退出码 0，最后打印「完成，只剩两步需要你」。
+
+只要挂件不接 QQ：命令前加 `$env:DSHDFY_SKIP_SNOWLUMA='1'`。
+自定义目录：命令前加 `$env:DSHDFY_DIR='D:\dsh-Dfy'`。
+
+## 二、失败时分步执行
+
+在 `%USERPROFILE%\dsh-Dfy` 下逐条跑，哪一步失败就停下修哪一步：
 
 ```powershell
-cd "$env:USERPROFILE\dsh-Dfy"
-npm install
+# 1) 代码
+if (Test-Path "$env:USERPROFILE\dsh-Dfy\.git") { git -C "$env:USERPROFILE\dsh-Dfy" pull --ff-only }
+else { git clone --depth 1 https://github.com/louke6572/dsh-Dfy.git "$env:USERPROFILE\dsh-Dfy" }
+
+# 2) 依赖
+cd "$env:USERPROFILE\dsh-Dfy"; npm install
+
+# 3) 写进 DSH（自动识别 profile）
+node scripts/setup-dsh.mjs
+
+# 4) SnowLuma（接 QQ 才需要）
+node scripts/install-snowluma.mjs --no-launch
+
+# 5) 配置骨架（第 3 步一般已生成，缺了才跑）
+if (-not (Test-Path config.json)) { Copy-Item config.example.json config.json }
 ```
 
-失败时（没有 npm / 网络问题）改用 DSH 自带的 pnpm：
+## 三、让用户做的两件事
 
-```powershell
-node "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\pnpm\bin\pnpm.cjs" install
-```
-
-**验收**：`node_modules` 存在，且 `node -e "require.resolve('js-yaml')"` 不报错。
-
-### 3. 写入 DSH profile
-
-```powershell
-cd "$env:USERPROFILE\dsh-Dfy"
-node scripts/setup-dsh.mjs            # 自动识别在用的 profile
-node scripts/setup-dsh.mjs desktop    # 桌面端；`dsh web` 用 web
-```
-
-脚本是幂等的，可重复执行。它负责：
-
-1. `~/.dsh/plugins/dsh-dfy` → 本仓库（junction）
-2. `<profile>/node_modules/dsh-dfy` → 上一层链接
-3. profile `package.json` 只保留 `dsh-dfy` 一个 bundle，清理旧的 `surfcore` 链接
-4. 生成两条 Agent 预设与 3 个 MCP server 配置
-5. 仓库根没有 `config.json` 时从 `config.example.json` 复制一份
-
-**验收**（缺一不可）：
-
-- 退出码 0，输出里有 `bundle dsh-dfy link 已创建`
-- `~/.dsh/profiles/<profile>/package.json` 的 `dsh.profile.bundles` 里只有 **一个** `dsh-dfy`
-- `~/.dsh/profiles/<profile>/node_modules/dsh-dfy` 存在且指向本仓库
-- `config.json` 已存在（占位配置）
-
-> 桌面端 profile 由 Electron 独占时，脚本会输出「由桌面端独占：已跳过 CLI 安装」——这是正常结果。
-
-### 4. 安装 SnowLuma（你来做，不要交给用户）
-
-```powershell
-cd "$env:USERPROFILE\dsh-Dfy"
-node scripts/install-snowluma.mjs
-```
-
-脚本会自动完成：
-
-1. 先按 `config.json`、`~/SnowLuma2`、`~/Documents/SnowLuma*`、桌面、Downloads、Program Files 的顺序检测是否已安装；
-2. 没装则从官方 Releases 拉最新 Windows zip，解压到 `%USERPROFILE%\SnowLuma2`（路径不含中文/空格）；
-3. 校验启动文件（`app\launcher.bat` / `launcher.bat` / `SnowLuma.exe`）；
-4. 把 `snowluma.launcherPath` 与 `allowLaunch: true` 写进 `config.json`；
-5. 启动 SnowLuma。
-
-**验收**：输出 `已检测到 SnowLuma：<root>` 或 `安装完成：<root>`，退出码 0。
-
-**注意**：
-- 不想装在默认目录就用 `--dir D:\SnowLuma2`；候选目录之外的位置需要在设置页「安装与维护 → 手动选择」。
-- 只装不启动可用 `--no-launch`（稍后「一键开始」也会拉起）。
-- 下载失败（公司网络/代理）时不要换第三方镜像，告诉用户手动从官方 Releases 下载解压到 `%USERPROFILE%\SnowLuma2`，然后重跑本脚本。
-- 装好后**不要**替用户点登录：扫码必须用户本人完成。
-
-### 5. 让用户重启 DSH
+装完后对用户说（不要自己动手）：
 
 ```text
-请完全退出 DSH（含托盘图标）再重新打开，然后告诉我「已重启」。
+1) 请完全退出 DSH（托盘图标也要退出）再打开，好了告诉我。
+2) 打开 设置 → dsh-Dfy → 一键开始；第一次用 QQ 时在 SnowLuma 窗口扫码登录。
 ```
 
-Electron 桌面端必须完全退出，仅关窗口不够。
-
-### 6. 重启后验证插件已加载
+用户重启后，你继续验证：
 
 ```powershell
-# 端口取 dsh web 启动时打印的地址；桌面端默认 3080
 curl -s -o NUL -w "%{http_code}" http://127.0.0.1:3080/dsh-whale/widget.js
 ```
 
-- `200`：挂件接口正常
-- `401`：也是正常（路由要求会话凭据），说明插件已挂载
-- `000`/连接失败：DSH 没起来，或插件未加载 → 检查下一步
+- `200` / `401`：插件已加载（401 是路由要求会话凭据，正常）
+- 连不上：DSH 没起来或插件没挂上，按下面的排错表查
 
-再确认设置页里出现 **dsh-Dfy**，且没有 `icon exceeds 256 KiB` 之类红字。
-
-### 7. 启动 QQ（一键开始）
-
-插件启动时会自动执行「一键开始」：识别并在后台拉起 SnowLuma → 等 OneBot → 写入账号/token → 启动桥接 → 启动 B站。
-
-- 若 SnowLuma **已登录过**：等约 20 秒即可，无需操作。
-- 若 **未登录**：打开 SnowLuma 控制台，让用户扫码：
+## 四、汇报模板
 
 ```text
-请在已打开的 SnowLuma 窗口里扫码登录 QQ，登录完成后告诉我。
-```
-
-扫码完成后 20 秒再检查桥接状态；用户数据在 `~/.dsh/surfcore/`。
-
-### 8. 汇报给用户（照抄模板）
-
-```text
-dsh-Dfy 已安装完成。
+dsh-Dfy 已安装。
 - 安装目录：<目录>
 - 版本：0.7.3
 - DSH profile：<profile>
-- SnowLuma：<已找到/未安装>
-- QQ：<已登录（昵称/QQ号）/未登录>
-- B站：<已登录/未登录（可选）>
-- 余额：<可用/需要配置 DEEPSEEK_API_KEY 或登录 DSH 账号>
-还需要你做：<例如扫码 / 配置 API key / 无>
+- SnowLuma：<已就绪 / 未安装>
+- QQ：<已登录（昵称/QQ号） / 等待扫码>
+还需要你做：<例如扫码 / 配 DEEPSEEK_API_KEY / 无>
 ```
 
-## 排错对照表
+## 五、排错表
 
-| 现象 | 原因 | 处理 |
-|---|---|---|
-| `Cannot find module '@deepseek-ai/schemastery'` | 跳过了 `npm install` | 回第 2 步 |
-| 设置页报 `icon exceeds 256 KiB` | 装的是旧包 | 更新到本仓库最新代码 |
-| `dsh-dfy` 没出现在 profile | setup 没跑或跑错 profile | 重跑第 3 步，核对 profile 名 |
-| `无法验证 xxx` / `cannot resolve profile bundle` | profile 需要 install | 用户重启桌面端；或 `dsh plugin --profile <p> install` |
-| 挂件接口 401 | 正常，缺会话凭据 | 不用处理 |
-| QQ 信封不出现 | 桥接没起 / SnowLuma 未登录 | 看设置页「诊断」，扫码后重试 |
-| 一键开始提示找不到 SnowLuma | 安装位置非常规 | 设置页「安装与维护 → 手动选择」指定目录 |
+| 现象 | 处理 |
+|---|---|
+| `Cannot find module ...` | 回第 2 步 `npm install` |
+| `cannot resolve profile bundle` | 重启桌面端；或 `dsh plugin --profile <p> install` |
+| profile 被 Electron 独占 | 正常：`setup-dsh` 会提示跳过，重启桌面端即可 |
+| 找不到 SnowLuma | 重跑 `node scripts/install-snowluma.mjs`；仍失败用手动目录 `--dir D:\SnowLuma2` |
+| SnowLuma 下载失败 | 检查代理；仍不行让用户手动从官方 Releases 解压到 `%USERPROFILE%\SnowLuma2`，再重跑脚本 |
+| 设置页 `icon exceeds 256 KiB` | 装的是旧包，更新到最新 main |
+| QQ 信封不出现 | 桥接未运行或未扫码：设置页「诊断 → 重新检测」 |
+| 余额显示 `--` / 未配置 | 配 `DEEPSEEK_API_KEY`，或在 DSH「账号与余额」登录 |
 
-## 完成标准（全部满足才算装好）
+## 六、完成标准
 
-- [ ] 仓库在 `%USERPROFILE%\dsh-Dfy`，`npm install` 成功
 - [ ] `node scripts/setup-dsh.mjs` 退出码 0
-- [ ] profile 的 bundles 只有 `dsh-dfy`，链接指向本仓库
-- [ ] 重启后 `/dsh-whale/widget.js` 返回 200 或 401
-- [ ] 设置页出现 dsh-Dfy 且无图标报错
-- [ ] SnowLuma 已安装；QQ 已扫码登录（或已明确告知用户待扫码）
+- [ ] `~/.dsh/profiles/<profile>/package.json` 的 bundles 只有 `dsh-dfy`
+- [ ] 重启后 `widget.js` 返回 200/401
+- [ ] SnowLuma 已安装；QQ 已扫码登录（或已明确告诉用户去扫）

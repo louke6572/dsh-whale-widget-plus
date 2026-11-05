@@ -40,43 +40,48 @@
 
 ---
 
-## 安装
+## 安装（选一种就行，不要三种都做）
 
-### 方式一：交给 Agent（推荐）
+### 方式一：一行命令（推荐）
 
-把这句话发给任意能执行命令的 Agent：
-
-```text
-帮我安装 https://github.com/louke6572/dsh-Dfy ，严格按仓库里的 AGENT.md 执行；
-装完告诉我结果，需要我做的事直接说。
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/louke6572/dsh-Dfy/main/scripts/bootstrap.ps1 | iex"
 ```
 
-- **Agent 负责**：克隆仓库、装依赖、写 DSH profile、下载安装 SnowLuma、写配置、启动桥接、验证接口。
-- **你负责两件事**：**手动重启 DSH**、**扫码登录 QQ**。
+这一条会自动做完 5 件事：下载到 `%USERPROFILE%\dsh-Dfy` → 装依赖（失败自动换国内镜像）→ 写进 DSH
+→ 安装 SnowLuma → 生成配置文件。
 
-> 重启必须你自己做：Agent 多半就跑在 DSH 里，它自己去重启会把当前任务中断。
-> 扫码也必须你本人做，Agent 不能代替。
+跑完只剩 **两步**，都是你亲手做：
 
-> ⚠️ 不要用 `dsh plugin add github:louke6572/dsh-dfy` 安装：插件运行需要仓库根的
-> `config.json`、`state/`、`src/bridge.js`，装进 `node_modules` 后这些路径不成立，QQ 会起不来。
+1. **完全退出 DSH**（托盘图标也要退出），再打开。
+2. 设置 → dsh-Dfy → **一键开始**；第一次用 QQ 时在 SnowLuma 窗口**扫码登录**。
 
-### 方式二：手动
+> 只要挂件/桌宠、不接 QQ：先执行 `$env:DSHDFY_SKIP_SNOWLUMA='1'`，再跑上面那条命令。
+> 想装到别的盘：先执行 `$env:DSHDFY_DIR='D:\dsh-Dfy'`，再跑上面那条命令。
+
+### 方式二：交给 Agent
+
+```text
+帮我安装 https://github.com/louke6572/dsh-Dfy ，按 AGENT.md 执行，需要我做的事直接说。
+```
+
+Agent 会跑同一套流程并自己处理报错；你仍然只做「重启 + 扫码」。
+重启必须你自己做：Agent 多半跑在 DSH 里，它自己重启会把当前任务中断。
+
+### 方式三：手动（只有排查问题才需要）
 
 ```powershell
 git clone --depth 1 https://github.com/louke6572/dsh-Dfy.git
 cd dsh-Dfy
 npm install
-node scripts/setup-dsh.mjs        # 自动识别 profile；也可指定：desktop / web
-node scripts/install-snowluma.mjs # 接 QQ 才需要：检测或下载官方 Releases
+node scripts/setup-dsh.mjs
+node scripts/install-snowluma.mjs
 ```
 
-然后：
+> ⚠️ 不要用 `dsh plugin add github:louke6572/dsh-dfy` 安装：插件运行需要仓库根的
+> `config.json`、`state/`、`src/bridge.js`，装进 `node_modules` 后这些路径不成立，QQ 会起不来。
 
-1. **完全退出 DSH**（含托盘），再打开。
-2. 设置 → dsh-Dfy → **一键开始**（会拉起 SnowLuma、写入账号/token、启动桥接与 B站）。
-3. 在 SnowLuma 窗口**扫码登录 QQ**，20 秒后回设置页点「重新检测」。
-
-**验证**：
+### 验证安装成功
 
 ```powershell
 curl -s -o NUL -w "%{http_code}" http://127.0.0.1:3080/dsh-whale/widget.js
@@ -85,7 +90,7 @@ curl -s -o NUL -w "%{http_code}" http://127.0.0.1:3080/dsh-whale/widget.js
 返回 `200` 或 `401` 都正常（路由要求会话凭据）。挂件侧共 **37 个 `/dsh-whale/*` 路由**。
 浏览器 `Ctrl+F5` 后右下角出现小鲸鱼即成功。
 
-**更新**：`git pull` → `npm install` → `node scripts/setup-dsh.mjs` → 重启 DSH。
+**更新**：重跑方式一那条命令（会自动 `git pull` + 依赖 + 重写 profile），然后重启 DSH。
 **卸载**：`dsh plugin --profile <profile> remove dsh-dfy`。
 
 ---
