@@ -7,10 +7,14 @@
 //   ② 名字里带 `Mask`、又被挂到 `document.body` 上的浮层，必须出现在候选表里（含运行时登记口
 //      `window.dshwRegisterMask` 的说明）。
 //
-// 用法：node tools/z-layer-audit.mjs [assets/whale-widget.js]
+// 用法：node widget/tools/z-layer-audit.mjs [widget/assets/whale-widget.js]
 import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const FILE = process.argv[2] || 'assets/whale-widget.js'
+// 默认目标按脚本位置解析（tools → widget → 仓库根），不依赖当前工作目录。
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+const FILE = process.argv[2] || path.join(REPO_ROOT, 'widget', 'assets', 'whale-widget.js')
 const src = fs.readFileSync(FILE, 'utf8')
 
 function braceBlock(at) {

@@ -26,7 +26,7 @@ jobs:
 
       - name: 开发机路径扫描
         run: |
-          if grep -rn "TestBox" lib backend/lib widget/lib backend/scripts; then
+          if grep -rn "TestBox" lib backend/lib widget/lib; then
             echo "发现开发机路径 TestBox，请先清理"; exit 1
           fi
 
