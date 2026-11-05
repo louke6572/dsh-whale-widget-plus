@@ -53,20 +53,24 @@
 
 ### 方式一：在 DSH 里装（推荐）
 
-插件市场（搜索 **dsh-Dfy**）或命令行：
+DSH「插件」页 → **发现**（插件市场）搜索 **dsh-Dfy**，点安装；或在命令行装包：
 
 ```powershell
 dsh plugin --profile <profile> add github:louke6572/dsh-Dfy
 ```
 
-装完**完全退出 DSH**（托盘图标也要退出）再打开。首次启动会自动：
+> 命令行装包后**还要在 DSH「插件」页把 dsh-Dfy 启用**：命令行只装包，不会登记到 profile 的
+> `dsh.profile.bundles`；插件页安装会自动登记。若页面提示「构建脚本待批准」，点允许即可
+> （Git 安装要跑一次 `postinstall`，修 `@snowluma/sdk` 的 ESM 打包 bug）。
+
+装好启用后**完全退出 DSH**（托盘图标也要退出）再打开。首次启动会自动：
 
 - 建数据目录 `$DSH_HOME/surfcore/qq/`（`config.json` / `state/` / `roles/` / `pet/`）；
 - 从包内 `config.example.json` 生成初始配置、补齐 `roles/` 模板；
 - 如果检测到旧版 clone 安装在仓库根留下的 `config.json` / `state/` / `roles/` / `pet/`，
   **只复制、不删除**到数据目录（升级不丢配置）。
 
-QQ 功能仍需要 SnowLuma（方式二会自动装；标准安装则在设置页或`scripts/install-snowluma.mjs` 安装）。
+QQ 功能仍需要 SnowLuma（方式二会自动装；标准安装则在设置页或运行包内 `scripts/install-snowluma.mjs` 安装）。
 
 ### 方式二：一行命令（Windows，含 SnowLuma）
 
