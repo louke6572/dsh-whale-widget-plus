@@ -51,12 +51,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/louke6572/dsh-dfy.git"
+    "url": "git+https://github.com/louke6572/dsh-Dfy.git"
   },
   "bugs": {
-    "url": "https://github.com/louke6572/dsh-dfy/issues"
+    "url": "https://github.com/louke6572/dsh-Dfy/issues"
   },
-  "homepage": "https://github.com/louke6572/dsh-dfy#readme",
+  "homepage": "https://github.com/louke6572/dsh-Dfy#readme",
   "files": [
     "lib",
     "backend",

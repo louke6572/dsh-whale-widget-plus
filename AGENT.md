@@ -9,7 +9,7 @@
 
 ```text
 帮我安装 dsh-Dfy（QQ × B站 × 桌宠一体化插件）：
-1. 仓库 https://github.com/louke6572/dsh-dfy
+1. 仓库 https://github.com/louke6572/dsh-Dfy
 2. 严格按仓库根目录的 AGENT.md 执行，不要跳步
 3. 装完后告诉我：安装目录、版本、profile、SnowLuma 状态、QQ 是否已登录，以及我还需要做什么
 只有扫码登录 QQ 需要我亲手操作（以及重启 DSH 时点一下退出/重开），其余由你完成，包括下载安装 SnowLuma。
@@ -51,7 +51,7 @@
 if (Test-Path "$env:USERPROFILE\dsh-Dfy\.git") {
   git -C "$env:USERPROFILE\dsh-Dfy" pull --ff-only
 } else {
-  git clone --depth 1 https://github.com/louke6572/dsh-dfy.git "$env:USERPROFILE\dsh-Dfy"
+  git clone --depth 1 https://github.com/louke6572/dsh-Dfy.git "$env:USERPROFILE\dsh-Dfy"
 }
 ```
 

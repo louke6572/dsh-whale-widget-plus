@@ -6,7 +6,10 @@
 
 ![dsh-Dfy 小鲸鱼挂件](widget/assets/DSH2.png)
 
-**只有一个插件 `dsh-dfy`**，不再单独安装 `surfcore`、`surfcore-next`、`whale-widget`。
+**只有一个插件 dsh-Dfy**，不再单独安装 `surfcore`、`surfcore-next`、`whale-widget`。
+
+> 命名约定：界面、文档、仓库名统一显示 **dsh-Dfy**；
+> 包名与目录名是全小写 `dsh-dfy`（npm / Node 的硬性要求），所以命令里出现 `dsh-dfy`（如卸载）属正常。
 
 ---
 
@@ -44,7 +47,7 @@
 把这句话发给任意能执行命令的 Agent：
 
 ```text
-帮我安装 https://github.com/louke6572/dsh-dfy ，严格按仓库里的 AGENT.md 执行；
+帮我安装 https://github.com/louke6572/dsh-Dfy ，严格按仓库里的 AGENT.md 执行；
 装完告诉我结果，需要我做的事直接说。
 ```
 
@@ -60,8 +63,8 @@
 ### 方式二：手动
 
 ```powershell
-git clone --depth 1 https://github.com/louke6572/dsh-dfy.git
-cd dsh-dfy
+git clone --depth 1 https://github.com/louke6572/dsh-Dfy.git
+cd dsh-Dfy
 npm install
 node scripts/setup-dsh.mjs        # 自动识别 profile；也可指定：desktop / web
 node scripts/install-snowluma.mjs # 接 QQ 才需要：检测或下载官方 Releases
