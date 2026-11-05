@@ -1,0 +1,17 @@
+# ============================================================================
+# surfcore —— QQ × B站 合体插件
+# ============================================================================
+# 一个 bundle，两半：
+#   · surfcore           主插件（host：配置/记忆/对齐/扩展 + client：设置窗口）
+#   · qq-mode                 仅保留 QQ 桥接模式命名空间的 Config（桥接仍通过
+#                             DSH settings 写 qq-mode，不能删；不是第二个用户插件）
+#
+# ⚠️ 主行 id 必须与包名一致（surfcore），否则设置页/插件详情会找不到。
+# ⚠️ qq-mode 的 name 用相对路径：锚定在本 patch 文件旁边，随包移动，不写死 profiles。
+- insert:
+    - id: surfcore
+      name: surfcore
+      config: {}
+    - id: qq-mode
+      name: ./lib/qq-mode.js
+      config: {}

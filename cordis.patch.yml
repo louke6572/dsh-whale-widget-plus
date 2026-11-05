@@ -1,14 +1,19 @@
 # ============================================================================
-# whale-widget —— 挂件核心（已并入 dsh-Dfy，本 patch 不再单独挂载）
+# dsh-Dfy —— 挂载声明
 # ============================================================================
-# ⚠️ 2026-11 合并说明：挂件的宿主入口现在由 plugins/surfcore-next（包名 dsh-dfy）
-#    直接复用，profile 里只保留 dsh-dfy 一个 bundle。这个文件仅作历史参考，
-#    不要再执行 `dsh plugin add dsh-dfy`，否则会出现两份挂件。
+# 一个包，两行：
+#   · dsh-dfy：主插件（id 与包名一致），宿主入口 lib/index.js
+#     （挂件 + SurfCore 后端都在这个入口里组装）
+#   · qq-mode：QQ 桥接的 Config 命名空间。桥接通过 DSH settings 写 qq-mode，
+#     这一行不能删；它不是第二个用户插件。
 #
-# 安装 / 卸载统一走 dsh-Dfy：
-#   dsh plugin --profile web add link:<surfcore-next 绝对路径>
-# ============================================================================
-
+# ⚠️ qq-mode 的 name 必须指向 shims/ 里的转发垫片：
+#    宿主会按 loader 行文件最近的 package.json 读 dsh.client，直接指到
+#    backend/lib/qq-mode.js 会把旧的设置界面一起加载进来。
 - insert:
-    - id: whale-widget
-      name: whale-widget
+    - id: dsh-dfy
+      name: dsh-dfy
+      config: {}
+    - id: qq-mode
+      name: ./shims/qq-mode/lib/qq-mode.js
+      config: {}

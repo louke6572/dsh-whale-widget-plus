@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "dsh-Dfy 后端",
+    "description": "dsh-Dfy 的 SurfCore 后端（已并入 dsh-Dfy，不再单独挂载）：QQ / B站桥接、统一设置窗口、双向脱敏记忆与身份对齐。"
+  }
+}

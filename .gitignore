@@ -1,15 +1,34 @@
-# 测试/临时文件
-lib/__mock_head.js
-lib/__run.js
+# 依赖与构建产物
+node_modules/
+dist/
+release/
 __pycache__/
 *.pyc
+
+# 运行时配置与状态（含凭据，绝不入库）
+config.json
+.npmrc
+.env
+state/
+pet/*.json
+pet/host-token
+pet/chat/
+*.log
 
 # 系统
 Thumbs.db
 .DS_Store
 
-# 文档里的历史素材备份（与 assets/v1~v4 完全重复，77MB）
+# 文档里的历史素材备份（与 assets/v1~v4 完全重复）
 docs/assets-第一版/
 docs/assets-第二版/
 docs/assets-第三版/
 docs/assets-第四版/
+plugins/whale-widget/docs/assets-第一版/
+plugins/whale-widget/docs/assets-第二版/
+plugins/whale-widget/docs/assets-第三版/
+plugins/whale-widget/docs/assets-第四版/
+
+# 测试/临时文件
+lib/__mock_head.js
+lib/__run.js

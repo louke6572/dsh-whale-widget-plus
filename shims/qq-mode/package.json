@@ -1,0 +1,7 @@
+{
+  "name": "surfcore-qq-mode-shim",
+  "private": true,
+  "type": "module",
+  "main": "./lib/qq-mode.js",
+  "exports": { ".": "./lib/qq-mode.js" }
+}

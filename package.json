@@ -2,31 +2,52 @@
   "name": "dsh-dfy",
   "version": "0.7.3",
   "displayName": "dsh-Dfy",
-  "description": "dsh-Dfy 的桌宠/挂件核心：小鲸鱼与桌宠形态、余额/今日已用/峰谷定价、额度/用量模板、自定义泡泡框、表情与台词、透明动画桌宠、火山 coding plan 额度、音效与每轮消耗统计（已并入 dsh-Dfy 插件，不再单独挂载）。",
-  "keywords": [
-    "dsh",
-    "dsh-plugin",
-    "deepseek-harness",
-    "balance",
-    "widget"
-  ],
+  "description": "QQ × B站 × 桌宠一体化插件：统一设置窗口、小鲸鱼余额挂件、106 段透明动画桌宠、QQ 消息卡与双向脱敏记忆。",
   "type": "module",
-  "main": "lib/index.js",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "icon": "./icon.png",
+  "main": "./lib/index.js",
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
+    "./qq-tool-restrict.mjs": "./backend/qq-tool-restrict.mjs",
+    "./icon": "./icon.png",
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
-  "icon": "./icon.png",
-  "files": [
-    "lib",
-    "assets",
-    "plugins",
-    "icon.png",
-    "cordis.patch.yml",
-    "README.md",
-    "PROVENANCE.md"
-  ],
+  "scripts": {
+    "setup": "node scripts/setup-dsh.mjs",
+    "build": "node build.mjs",
+    "presets": "node scripts/build-agent-preset-patches.mjs",
+    "audit": "node widget/tools/ci-audit.mjs --no-pack",
+    "postinstall": "node scripts/patch-snowluma-sdk.mjs"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-host-apiproxy": "0.1.1-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@snowluma/mcp": "^1.14.20",
+    "@snowluma/sdk": "^1.14.20",
+    "edge-tts": "^1.0.1",
+    "js-yaml": "^4.3.2",
+    "ws": "^8.22.1",
+    "zod": "^4.4.3"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": [
+        "./cordis.patch.yml",
+        "./presets/qq-chat.patch.yml",
+        "./presets/qq-chat-v2.patch.yml"
+      ]
+    },
+    "client": {
+      "platform": "web",
+      "inject": []
+    }
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/louke6572/dsh-dfy.git"
@@ -35,14 +56,26 @@
     "url": "https://github.com/louke6572/dsh-dfy/issues"
   },
   "homepage": "https://github.com/louke6572/dsh-dfy#readme",
-  "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    },
-    "client": {
-      "platform": "web"
-    }
-  },
+  "files": [
+    "lib",
+    "backend",
+    "widget",
+    "src",
+    "scripts",
+    "presets",
+    "shims",
+    "locale",
+    "public",
+    "assets",
+    "roles",
+    "examples",
+    "dsh",
+    "icon.png",
+    "config.example.json",
+    "README.md",
+    "PROVENANCE.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
   "license": "MIT"
 }
-
