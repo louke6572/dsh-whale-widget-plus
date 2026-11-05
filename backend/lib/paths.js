@@ -45,7 +45,9 @@ function looksLikeQqbotRoot(dir) {
   }
 }
 
-export const QQBOT_ROOT = ROOT_CANDIDATES.find(looksLikeQqbotRoot) || path.resolve(PLUGIN_ROOT, '..', '..');
+// 单仓库布局下仓库根就是 backend 的上一级；探针失败（例如还没生成 config.json）也先按它兜底，
+// 避免新用户第一次装完把桥接根算到用户目录。
+export const QQBOT_ROOT = ROOT_CANDIDATES.find(looksLikeQqbotRoot) || path.resolve(PLUGIN_ROOT, '..');
 export const QQ_CONFIG = path.join(QQBOT_ROOT, 'config.json');
 export const QQ_CONFIG_EXAMPLE = path.join(QQBOT_ROOT, 'config.example.json');
 export const QQ_STATE_DIR = path.join(QQBOT_ROOT, 'state');

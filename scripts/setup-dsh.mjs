@@ -335,6 +335,22 @@ function patchProfilePackage(links) {
   }
 }
 
+/** 新用户第一次装：仓库根没有 config.json 时，从 config.example.json 复制一份（已在 .gitignore 内）。 */
+function ensureRepoConfig() {
+  const file = path.join(REPO_ROOT, 'config.json');
+  const example = path.join(REPO_ROOT, 'config.example.json');
+  if (fs.existsSync(file)) {
+    log('config.json 已存在，保持不变');
+    return;
+  }
+  if (!fs.existsSync(example)) {
+    log('⚠️ 没有 config.example.json，跳过配置骨架生成');
+    return;
+  }
+  fs.copyFileSync(example, file);
+  log('已生成 config.json（占位配置；SnowLuma 地址与 token 会在「一键开始」时自动写入）');
+}
+
 function ensureLocalModeFile() {
   const stateDir = path.join(REPO_ROOT, 'state');
   const modeFile = path.join(stateDir, 'mode.json');
@@ -380,7 +396,12 @@ function autoInstallProfileBundles() {
   if (r.status === 0) {
     log(`dsh plugin --profile ${PROFILE} install: OK`);
   } else {
-    log(`dsh plugin --profile ${PROFILE} install 返回退出码 ${r.status}（若 DSH 启动报 bundle 解析失败，请手动重跑该命令）`);
+    const out = `${r.stdout ?? ''}\n${r.stderr ?? ''}`;
+    if (/managed exclusively by the Electron application/i.test(out)) {
+      log(`profile "${PROFILE}" 由桌面端（Electron）独占：已跳过 CLI 安装，重启桌面端即可。`);
+    } else {
+      log(`dsh plugin --profile ${PROFILE} install 返回退出码 ${r.status}（若 DSH 启动报 bundle 解析失败，请手动重跑该命令）`);
+    }
   }
 }
 
@@ -392,6 +413,9 @@ const links = {};
 for (const name of BUNDLE_NAMES) links[name] = ensureBundle(name);
 patchProfilePackage(links);
 reportLegacyPresetDir();
+ensureRepoConfig();
 ensureLocalModeFile();
 autoInstallProfileBundles();
-log('Done. Restart DSH (or reload the profile) so the new presets/MCP take effect.');
+log('Done. 下一步：完全退出 DSH（含托盘）再打开 → 设置 → dsh-Dfy → 一键开始。');
+log('   · 一键开始会自动识别并拉起 SnowLuma、写入账号与 token、启动 QQ 桥接和 B站。');
+log('   · 只有两步需要你亲手做：① 安装 SnowLuma（第三方软件，本插件不代装）② 在 SnowLuma 窗口扫码登录 QQ。');
