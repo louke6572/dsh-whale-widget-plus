@@ -1,15 +1,19 @@
-# DSH 小鲸鱼挂件 Plus
+# dsh-Dfy
 
-> DeepSeek Balance Whale Widget Plus · `v0.7.2`
+> 小鲸鱼桌面挂件 · `v0.7.3`
 
-DSH（DeepSeek Harness）右下角的常驻小鲸鱼挂件：余额、今日已用、每轮消耗、峰谷常驻徽标，
-外加可自由编辑的泡泡、多套表情素材、提示音效，以及内置的 **106 段透明动画桌宠**。
-支持 `dsh web` 与官方桌面客户端（Electron）。
+> ⚠️ **2026-11 合并说明**：本挂件是 **dsh-Dfy** 主插件（`plugins/surfcore-next`，包名 `dsh-dfy`）的桌面部分，
+> profile 里只保留 `dsh-dfy` 一个 bundle，**不要再单独安装本包**。
+> 仓库地址：`louke6572/dsh-dfy`；安装 / 卸载 / 更新请统一操作 dsh-Dfy。
+
+dsh-Dfy 是 DSH（DeepSeek Harness）的桌宠与挂件套件：右下角常驻的小鲸鱼负责余额、今日已用、
+每轮消耗与峰谷状态；同一套角色还能变成 **106 段透明动画桌宠**，并带可自由编辑的泡泡、多套表情、
+提示音效与 QQ 消息卡。支持 `dsh web` 与官方桌面客户端（Electron）。
 
 本仓库是官方挂件 `MeteorNOX/DeepSeek-Balance-Whale-Widget` 的增强分支，由
 `louke6572` 维护；桌宠动画来自 `PC2005-cloud/dsh-pet`（MIT）。来源与致谢见文末。
 
-![DSH 小鲸鱼挂件](assets/DSH2.png)
+![dsh-Dfy 小鲸鱼挂件](assets/DSH2.png)
 
 ## 亮点
 
@@ -27,22 +31,22 @@ DSH（DeepSeek Harness）右下角的常驻小鲸鱼挂件：余额、今日已�
 
 ## 安装
 
-> **直接安装规格：`github:louke6572/dsh-whale-widget-plus`**（原样整条复制，不能只写包名）。
+> **直接安装规格：`github:louke6572/dsh-dfy`**（原样整条复制，不能只写包名）。
 > 安装前先确认没有同名的旧版或官方版并存。
 
 ### 直接安装（Web 与桌面端通用）
 
-本包尚未发布到 npm（`npm view dsh-whale-widget-plus` 会 404），所以在安装入口里**只输入裸包名
-`dsh-whale-widget-plus` 是装不上的**。请把下面这条 GitHub 规格原样粘进安装入口 ——
+本包尚未发布到 npm（`npm view dsh-dfy` 会 404），所以在安装入口里**只输入裸包名
+`dsh-dfy` 是装不上的**。请把下面这条 GitHub 规格原样粘进安装入口 ——
 Web 端 CLI 的 `add` 参数、桌面端插件管理页的安装输入框、或让内置 `plugin_manager` 安装时给的 spec，三者通用：
 
 ```text
-github:louke6572/dsh-whale-widget-plus
+github:louke6572/dsh-dfy
 ```
 
-也接受完整仓库 URL：`https://github.com/louke6572/dsh-whale-widget-plus`。
+也接受完整仓库 URL：`https://github.com/louke6572/dsh-dfy`。
 
-> npm 上没有 `dsh-whale-widget-plus` 这个包（`npm view` 会 404），所以**裸包名永远装不上**，
+> npm 上没有 `dsh-dfy` 这个包（`npm view` 会 404），所以**裸包名永远装不上**，
 > 不要去试。上面的 GitHub 规格就是本项目的官方安装方式，Web 与桌面端通用。
 
 ### Agent 一键安装（推荐）
@@ -50,23 +54,23 @@ github:louke6572/dsh-whale-widget-plus
 把这一句复制给任意能执行命令的 Agent（DSH 内置 `plugin_manager`、Claude Code、Codex 等）即可：
 
 ```text
-帮我安装 DSH 插件 github:louke6572/dsh-whale-widget-plus
+帮我安装 DSH 插件 github:louke6572/dsh-dfy
 ```
 
-> 规格必须写成 GitHub 形式：npm 上没有 `dsh-whale-widget-plus`，裸包名装不上。
+> 规格必须写成 GitHub 形式：npm 上没有 `dsh-dfy`，裸包名装不上。
 
 ### DSH Web（`dsh web`）
 
 ```powershell
 # 直接从 GitHub（推荐）
-dsh plugin --profile web add github:louke6572/dsh-whale-widget-plus
+dsh plugin --profile web add github:louke6572/dsh-dfy
 
 # 本地仓库 / 完整资源包（link: 为软链，源目录不能移动）
-dsh plugin --profile web add link:D:\Plugins\dsh-whale-widget-plus
+dsh plugin --profile web add link:D:\Plugins\dsh-dfy
 ```
 
 安装后重启 `dsh web`，在它打印的 URL 上打开页面并 `Ctrl+F5` 刷新。
-若之前装过同名插件，先执行 `dsh plugin --profile web remove dsh-whale-widget-plus` 再装，避免版本冲突。
+若之前装过同名插件，先执行 `dsh plugin --profile web remove dsh-dfy` 再装，避免版本冲突。
 GitHub 来源**不要锁旧 commit**：v0.6.8 及更早的提交里没有 `assets/pet-video/`（106 段动画），
 装上去桌宠会提示素材缺失。
 
@@ -80,7 +84,7 @@ error: profile "desktop" is managed exclusively by the Electron application
 
 正确做法是在桌面客户端会话里让宿主内置的 `plugin_manager` 安装：
 
-> 请使用当前桌面端内置的 `plugin_manager` 安装 `github:louke6572/dsh-whale-widget-plus`。
+> 请使用当前桌面端内置的 `plugin_manager` 安装 `github:louke6572/dsh-dfy`。
 > 先核对当前 profile、已安装来源与版本；按工具支持的方式完成后告诉我结果，并说明是否需要重启。
 
 - **首次安装**：工具返回 `applied` 不保证当前窗口已经渲染；没出现就完全退出客户端（含托盘）再打开。
@@ -89,11 +93,64 @@ error: profile "desktop" is managed exclusively by the Electron application
 ### 升级与卸载
 
 ```powershell
-dsh plugin --profile web remove dsh-whale-widget-plus
+dsh plugin --profile web remove dsh-dfy
 ```
 
 升级时不要混用 GitHub、本地目录两种来源；先在插件管理页或 CLI 里移除旧来源，再按同一来源安装。
 用户数据（记账、泡泡配置、自定义素材）都在 `$DSH_HOME` 下，卸载插件不会删除它们。
+
+## 使用方法
+
+装好并重启 DSH 后，右下角会出现常驻小鲸鱼。下面按「日常最常用」的顺序说明。
+
+### 1. 打开菜单
+
+- 点一下小鲸鱼 → 展开主菜单（余额、记账、峰谷、表情、音效、控制台等入口）。
+- **找不到按钮**（菜单按钮被隐藏）：电脑端在该位置右键，手机端长按约 1.5 秒。
+- 菜单里的「控制台」会打开完整设置页（大小、角色、音效、额度模板、自定义泡泡等）。
+
+### 2. 看余额与用量
+
+- 鲸鱼旁边的数字就是当前余额，60 秒自动刷新；**点一下鲸鱼**可立即刷新。
+- 气泡里可看：今日已用、每轮消耗、近 7 天、模型占比、按日明细。
+- 峰谷状态字常驻在角色左下角（可在菜单「峰谷显示」里改成气泡内或隐藏）。
+
+### 3. 桌面形态切换
+
+- 默认是小鲸鱼；在**控制台 → 角色**里可切换成 106 段透明动画桌宠。
+- 打开「双形态共存」后，小鲸鱼和桌宠会同时显示，各自独立调大小。
+- 拖动、甩抛、双击弹弓等交互在桌宠形态下都可直接操作。
+
+### 4. QQ 消息卡（合并后新增）
+
+桌宠旁边会出现一个**信封角标**，有未读消息时带红色数字。
+
+1. 点信封 → 打开消息卡，默认停在「消息」视图，显示最新一条。
+2. 底部可切「记录」（历史流水）和「写消息」（直接发到 QQ）。
+3. 在「写消息」里输入内容，**Enter 发送**、Shift+Enter 换行；发送后小鲸鱼会摆尾「游」一下。
+4. 卡片底部右侧有 **🔊 / 🔇** 音效开关，一点即静音全部卡片音效（刷新后保持）。
+
+### 5. 心情切换
+
+卡片头像旁有一个心情按钮，点一下循环：
+
+| 当前标签 | 点一下变成 | 表现 |
+|---|---|---|
+| 💤 打盹 | 打盹 | 卡片和待机鲸鱼一起变暗、静止、冒 `Z` |
+| ⚡ 兴奋 | 兴奋 | 笑眼 + 小幅弹跳（入口鲸鱼同步） |
+| 🌊 待机 | 待机 | 恢复呼吸与圆眼 |
+
+### 6. 音效
+
+- **打字音**：在「写消息」输入框敲字，每下都有一声 8-bit「哒」（与设计稿一致，中文输入法组字期间静音）。
+- **回复音**：AI 回复在卡片里逐字打出，伴随更轻的按键音；打开卡片看历史不会重放。
+- **全局音量**：控制台 →「音效与提示 → 全局设置」，可调音量、选音效组、逐事件开关。
+- 卡片底部的 🔊/🔇 只影响卡片；全局开关关掉后卡片也一起静音。
+
+### 7. 账号与数据
+
+- 余额取数：优先 `DEEPSEEK_API_KEY`，没有则用 DSH「设置 → 账号与余额」的登录态。
+- 记账、泡泡、自定义素材都存在 `$DSH_HOME` 下，卸载插件不会删除。
 
 ## 凭据与安全
 
@@ -409,7 +466,7 @@ v0.7.1 更新：
 ## 目录与数据
 
 ```text
-dsh-whale-widget-plus/
+dsh-dfy/
 ├── package.json              # DSH bundle 元数据（dsh.bundle.patch / dsh.client）
 ├── icon.png                  # 插件列表图标
 ├── cordis.patch.yml          # 插件挂载声明
@@ -461,13 +518,13 @@ curl http://127.0.0.1:3080/dsh-whale/pet-animations.json
 
 ## 常见问题
 
-- **挂件不出现**：确认安装规格是 `github:louke6572/dsh-whale-widget-plus`（不是裸包名，
+- **挂件不出现**：确认安装规格是 `github:louke6572/dsh-dfy`（不是裸包名，
   裸包名在 npm 上不存在）；`dsh --profile web --dump-config`
   能看到它；重启 `dsh web` 后刷新。桌面端确认装在 `desktop` profile，并完全退出客户端再打开。
-- **npm 装不上**：本包未发布 npm（404），这不是故障。请用 `github:louke6572/dsh-whale-widget-plus`
+- **npm 装不上**：本包未发布 npm（404），这不是故障。请用 `github:louke6572/dsh-dfy`
   或本地 `link:` 安装。
 - **桌宠提示「素材未安装」**：说明安装包里没有 `assets/pet-video/`（v0.6.8 及更早的 GitHub 提交确实没带这 106 段），
-  先重装最新版 `github:louke6572/dsh-whale-widget-plus`（**不要锁旧 commit**）；
+  先重装最新版 `github:louke6572/dsh-dfy`（**不要锁旧 commit**）；
   仍缺就把 106 段 `.webm` 放进插件目录的 `assets/pet-video/` 再刷新。
   想看宿主判定原因：`curl http://127.0.0.1:<dsh web 端口>/dsh-whale/pet-animations.json` 会回 `reason` 与 `dir`。
 - **余额报「未配置 DEEPSEEK_API_KEY」**：配置 API key，或在「设置 → 账号与余额」登录 DeepSeek 账号。
@@ -480,6 +537,15 @@ curl http://127.0.0.1:3080/dsh-whale/pet-animations.json
 - **隐藏了菜单按钮**：电脑端右键角色，手机端长按约 1.5 秒。
 - **改了前端不生效**：`assets/whale-widget.js`、`assets/console.html` 按 mtime 热读取，硬刷新即可；
   改 `lib/index.js` 必须重启 `dsh web`。
+- **QQ 消息卡打不开 / 信封一直不出现**：消息卡依赖 QQ 桥接。先确认「设置 → dsh-Dfy」里桥接是「运行中」，
+  且 QQ 已登录；桥接没起时信封不会出现，也不会有未读数字。
+- **卡片里没有声音**：按顺序检查三处 —— ① 卡片底部是否被点成了 🔇；② 控制台「音效与提示 → 全局设置」
+  的总开关与音量；③ 系统/浏览器标签页是否静音。三处都开才有声音。
+- **点心情按钮鲸鱼外观不变**：正常应表现为「打盹＝变暗静止 + 冒 Z」「兴奋＝笑眼 + 弹跳」。
+  若完全没变化，硬刷新页面拿最新前端；仍无变化可反馈所用浏览器。
+- **AI 回复没有逐字打出**：逐字只在「新到达的回复」上触发。打开卡片回看历史是一次性显示，属于预期行为。
+- **卡片发送后没收到回复**：确认「写消息」发送成功（底部出现「✓ 已发送」），再看 QQ 那边是否真的收到；
+  发送走的是 `/dsh-whale/qq-sync.json`，桥接断开时会提示「dsh-Dfy/桥接不可达」。
 
 ## 定价表
 
@@ -518,7 +584,7 @@ curl http://127.0.0.1:3080/dsh-whale/pet-animations.json
 
 ### 本分支
 
-- **[louke6572](https://github.com/louke6572)**：本仓库（Plus 分支）的维护者，负责峰谷常驻徽标、
+- **[louke6572](https://github.com/louke6572)**：本仓库（dsh-Dfy 分支）的维护者，负责峰谷常驻徽标、
   桌宠集成与分类动作下拉、镜像/布局修复、资源包与 CI 审计等增强。
 
 ### 社区贡献
