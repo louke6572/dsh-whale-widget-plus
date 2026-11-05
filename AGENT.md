@@ -1,7 +1,8 @@
 # AGENT.md — 交给 AI Agent 的安装与配置手册
 
 > 阅读对象是 AI Agent（Claude Code / Codex / DSH 内置 agent 等）。
-> 目标：把 dsh-Dfy 装到用户机器上并跑起来，**用户只需要做两件事：安装 SnowLuma、扫码登录 QQ**。
+> 目标：把 dsh-Dfy 装到用户机器上并跑起来，**用户只需要做一件事：扫码登录 QQ**。
+> SnowLuma 也由你下载安装（官方 Releases），用户不需要自己找安装包。
 > 人类用户看不懂命令没关系，把下面「复制给 Agent」那段发给任意能执行命令的 Agent 即可。
 
 ## 复制给 Agent
@@ -11,7 +12,7 @@
 1. 仓库 https://github.com/louke6572/dsh-dfy
 2. 严格按仓库根目录的 AGENT.md 执行，不要跳步
 3. 装完后告诉我：安装目录、版本、profile、SnowLuma 状态、QQ 是否已登录，以及我还需要做什么
-只有安装 SnowLuma 和扫码登录 QQ 需要我亲手操作，其余由你完成。
+只有扫码登录 QQ 需要我亲手操作（以及重启 DSH 时点一下退出/重开），其余由你完成，包括下载安装 SnowLuma。
 ```
 
 ## 硬约束（先读）
@@ -19,7 +20,9 @@
 1. **不要用 `dsh plugin --profile <p> add github:louke6572/dsh-dfy`**。
    本插件运行时需要仓库根下的 `config.json`、`state/`、`pet/`、`src/bridge.js`，
    用插件管理器装进 `node_modules` 后这些路径不再成立。必须按下面的「克隆仓库 + setup 脚本」方式安装。
-2. **不要代装 SnowLuma**。它是第三方专有软件，需用户自行下载安装并扫码；你只负责检测、提示链接、拉起。
+2. **SnowLuma 由你安装**（第三方 QQ 运行时），但**只能从官方 Releases 下载**：
+   `github.com/SnowLuma/SnowLuma/releases/latest`。禁止第三方镜像、破解包、网盘转存。
+   安装、解压、写配置、启动都由你完成；用户只负责在 SnowLuma 窗口扫码登录 QQ。
 3. **不要提交或外发** `config.json`、`~/.dsh/surfcore/`、`state/`、QQ/B站凭据。
 4. 不要修改用户已有的 `~/.dsh/surfcore/` 数据（记忆、账号、记账）。
 5. 只在 Windows 上执行（沙箱 ACL 与桥接绑定 Windows）。
@@ -92,23 +95,28 @@ node scripts/setup-dsh.mjs desktop    # 桌面端；`dsh web` 用 web
 
 > 桌面端 profile 由 Electron 独占时，脚本会输出「由桌面端独占：已跳过 CLI 安装」——这是正常结果。
 
-### 4. SnowLuma 检测（唯一需要用户出面的安装）
+### 4. 安装 SnowLuma（你来做，不要交给用户）
 
-按顺序检查以下位置是否存在 SnowLuma 启动器：
-
-- `config.json` 的 `snowluma.launcherPath`
-- `%USERPROFILE%\Documents\SnowLuma*`
-- `%USERPROFILE%\Desktop\SnowLuma*`、`D:\` 与 `C:\Program Files\` 下的 `SnowLuma*`
-
-**找到** → 在配置里写入 `snowluma.launcherPath` 与 `allowLaunch: true`，继续第 5 步。
-
-**没找到** → 停止，告诉用户：
-
-```text
-请先安装 SnowLuma（第三方 QQ 运行时，本插件不代装）：
-https://github.com/SnowLuma/SnowLuma/releases/latest
-装好后回复我，我继续往下走。
+```powershell
+cd "$env:USERPROFILE\dsh-Dfy"
+node scripts/install-snowluma.mjs
 ```
+
+脚本会自动完成：
+
+1. 先按 `config.json`、`~/SnowLuma2`、`~/Documents/SnowLuma*`、桌面、Downloads、Program Files 的顺序检测是否已安装；
+2. 没装则从官方 Releases 拉最新 Windows zip，解压到 `%USERPROFILE%\SnowLuma2`（路径不含中文/空格）；
+3. 校验启动文件（`app\launcher.bat` / `launcher.bat` / `SnowLuma.exe`）；
+4. 把 `snowluma.launcherPath` 与 `allowLaunch: true` 写进 `config.json`；
+5. 启动 SnowLuma。
+
+**验收**：输出 `已检测到 SnowLuma：<root>` 或 `安装完成：<root>`，退出码 0。
+
+**注意**：
+- 不想装在默认目录就用 `--dir D:\SnowLuma2`；候选目录之外的位置需要在设置页「安装与维护 → 手动选择」。
+- 只装不启动可用 `--no-launch`（稍后「一键开始」也会拉起）。
+- 下载失败（公司网络/代理）时不要换第三方镜像，告诉用户手动从官方 Releases 下载解压到 `%USERPROFILE%\SnowLuma2`，然后重跑本脚本。
+- 装好后**不要**替用户点登录：扫码必须用户本人完成。
 
 ### 5. 让用户重启 DSH
 

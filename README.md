@@ -35,7 +35,7 @@ QQ / B站 / 双向脱敏记忆由包内自带的 **SurfCore** 后端提供。
 | Windows 10/11 | 沙箱 ACL、桥接、启动脚本都与 Windows 绑定 |
 | Node.js ≥ 22.13 | `node -v` 自查 |
 | DSH ≥ 0.2.1-rc.2 | 桌面客户端或 `dsh web` 均可 |
-| SnowLuma | **只有接 QQ 才需要**：第三方 QQ 运行时，自己去官方 Releases 下载并扫码；本插件不代装、不打包 |
+| SnowLuma | **只有接 QQ 才需要**：第三方 QQ 运行时。**Agent 会从官方 Releases 自动下载安装**（`scripts/install-snowluma.mjs`），你只负责扫码 |
 | DeepSeek 凭据 | 有 `DEEPSEEK_API_KEY`，或在 DSH「设置 → 账号与余额」登录，二者其一即可显示余额 |
 
 **不接 QQ / B站也能用**：不装 SnowLuma，小鲸鱼与桌宠照常工作，也不会请求任何外部接口。
@@ -56,17 +56,17 @@ QQ / B站 / 双向脱敏记忆由包内自带的 **SurfCore** 后端提供。
 1. 仓库 https://github.com/louke6572/dsh-dfy
 2. 严格按仓库根目录的 AGENT.md 执行，不要跳步
 3. 装完后告诉我：安装目录、版本、profile、SnowLuma 状态、QQ 是否已登录，以及我还需要做什么
-只有安装 SnowLuma 和扫码登录 QQ 需要我亲手操作，其余由你完成。
+只有扫码登录 QQ 需要我亲手操作（以及重启 DSH 时点一下退出/重开），其余由你完成，包括下载安装 SnowLuma。
 ```
 
-Agent 会照着 [AGENT.md](AGENT.md) 依次完成：克隆仓库 → `npm install` → 写 DSH profile → 清理旧链接 → 生成 Agent 预设与 MCP → 检测 SnowLuma → 等你重启 → 验证插件与桥接 → 汇报结果。
+Agent 会照着 [AGENT.md](AGENT.md) 依次完成：克隆仓库 → `npm install` → 写 DSH profile → 清理旧链接 → 生成 Agent 预设与 MCP → **下载并安装 SnowLuma（官方 Releases，解压到 `%USERPROFILE%\SnowLuma2`）** → 写 `config.json` 并启动它 → 等你重启 → 验证插件与桥接 → 汇报结果。
 
 **分工表**
 
 | 谁 | 做什么 |
 |---|---|
-| Agent | 下载代码、装依赖、改 profile、写 MCP/预设、检测 SnowLuma、启动桥接、验证接口、排错 |
-| 你（仅 2~3 步） | ① 安装 SnowLuma（一次性，第三方软件）② 完全退出并重开 DSH ③ 在 SnowLuma 窗口扫码登录 QQ |
+| Agent | 下载代码、装依赖、改 profile、写 MCP/预设、**下载安装 SnowLuma**、写配置并启动、启动桥接、验证接口、排错 |
+| 你（仅 2 步） | ① 完全退出并重开 DSH ② 在 SnowLuma 窗口扫码登录 QQ |
 
 > 余额如果用 DeepSeek「账号登录态」，需要你在 DSH 设置页点一次登录；用 `DEEPSEEK_API_KEY` 则 Agent 可代填。
 > B站扫码是可选项，不接 B站不影响挂件与桌宠。
@@ -119,7 +119,19 @@ node scripts/setup-dsh.mjs desktop    # 也可以显式指定（桌面端 deskto
 
 桌面端 profile 由 Electron 独占时，会输出「由桌面端独占：已跳过 CLI 安装」——正常。
 
-### 第 3 步：重启 DSH 并「一键开始」
+### 第 3 步：安装 SnowLuma（接 QQ 才需要）
+
+```powershell
+node scripts/install-snowluma.mjs
+```
+
+自动完成：检测已有安装 → 没有就从**官方 Releases** 下载最新 Windows 包 → 解压到 `%USERPROFILE%\SnowLuma2`
+→ 校验启动文件 → 把 `launcherPath` / `allowLaunch` 写入 `config.json` → 启动 SnowLuma。
+
+**预期输出**：`已检测到 SnowLuma：<目录>` 或 `安装完成：<目录>`，退出码 0。
+不装在默认目录用 `--dir D:\SnowLuma2`；只装不启动用 `--no-launch`。
+
+### 第 4 步：重启 DSH 并「一键开始」
 
 1. **完全退出 DSH**（托盘图标也要退出），再打开。
 2. 打开 **设置 → dsh-Dfy**。
@@ -127,12 +139,12 @@ node scripts/setup-dsh.mjs desktop    # 也可以显式指定（桌面端 deskto
 
 一键开始会自动：识别 SnowLuma → 后台拉起 → 开启 QQ 自动注入 → 等 OneBot → 写入账号与 token → 启动 QQ 桥接 → 启动 B站。
 
-### 第 4 步：扫码登录 QQ
+### 第 5 步：扫码登录 QQ
 
-- SnowLuma **没登录过**：点「打开 SnowLuma 控制台」，在窗口里扫码登录 QQ；登录后等约 20 秒，回设置页点「重新检测」。
+- SnowLuma **没登录过**：它已经在运行，直接在窗口里扫码登录 QQ；登录后等约 20 秒，回设置页点「重新检测」。
 - SnowLuma **登录过**：跳过这步。
 
-### 第 5 步：验证
+### 第 6 步：验证
 
 ```powershell
 # 端口以 dsh web 启动时打印的 URL 为准，桌面端默认 3080
@@ -176,8 +188,8 @@ dsh plugin --profile <你的 profile> remove dsh-dfy
 
 ### 2. QQ（信封角标与消息卡）
 
-1. 安装 SnowLuma（官方 Releases 下载，路径不要带中文和空格，例如 `D:\SnowLuma2`）。
-2. 设置 → dsh-Dfy → 一键开始（会自动识别安装位置；识别不到就点「安装与维护 → 手动选择」指定目录）。
+1. 装 SnowLuma：`node scripts/install-snowluma.mjs`（自动下载官方 Releases 并启动；路径不带中文/空格）。
+2. 设置 → dsh-Dfy → 一键开始（识别不到安装位置就点「安装与维护 → 手动选择」指定目录）。
 3. 在 SnowLuma 窗口扫码登录 QQ，并确认电脑上的 QQ 客户端已登录（SnowLuma 靠注入 QQ 进程工作）。
 4. 设置页显示桥接「运行中」，桌宠旁出现信封角标。
 
@@ -280,7 +292,13 @@ dsh plugin --profile <你的 profile> remove dsh-dfy
 写操作只允许在运行 DSH 的本机、用 `127.0.0.1` 打开时进行。
 
 **一键开始提示找不到 SnowLuma**
-在「安装与维护 → 手动选择」指定安装目录（路径不要带中文和空格）。
+先跑 `node scripts/install-snowluma.mjs`（会自动下载官方 Releases 到 `%USERPROFILE%\SnowLuma2`）；
+还识别不到就点「安装与维护 → 手动选择」指定目录（路径不要带中文和空格）。
+
+**装 SnowLuma 时下载失败**
+公司网络/代理会拦 GitHub Releases。让 Agent 重试，或手动从
+`github.com/SnowLuma/SnowLuma/releases/latest` 下载 Windows zip 解压到 `%USERPROFILE%\SnowLuma2`，再重跑安装脚本。
+不要用第三方镜像或网盘转存的包。
 
 **桌宠提示素材缺失**
 `widget/assets/pet-video/` 的 106 段 `.webm` 没跟上；确认装的是最新代码，不要锁旧 commit。

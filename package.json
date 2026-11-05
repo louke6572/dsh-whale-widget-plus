@@ -21,6 +21,7 @@
     "setup": "node scripts/setup-dsh.mjs",
     "build": "node build.mjs",
     "presets": "node scripts/build-agent-preset-patches.mjs",
+    "snowluma": "node scripts/install-snowluma.mjs",
     "audit": "node widget/tools/ci-audit.mjs --no-pack",
     "postinstall": "node scripts/patch-snowluma-sdk.mjs"
   },
