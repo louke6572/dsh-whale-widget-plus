@@ -62,6 +62,9 @@ dsh plugin --profile <profile> add github:louke6572/dsh-Dfy
 > 命令行装包后**还要在 DSH「插件」页把 dsh-Dfy 启用**：命令行只装包，不会登记到 profile 的
 > `dsh.profile.bundles`；插件页安装会自动登记。若页面提示「构建脚本待批准」，点允许即可
 > （Git 安装要跑一次 `postinstall`，修 `@snowluma/sdk` 的 ESM 打包 bug）。
+>
+> 命令行若报 `ERR_PNPM_IGNORED_BUILDS`：在 profile 目录运行 `pnpm approve-builds`，或在
+> `<profile>/pnpm-workspace.yaml` 的 `allowBuilds` 里加 `dsh-dfy: true`，然后重跑安装。
 
 装好启用后**完全退出 DSH**（托盘图标也要退出）再打开。首次启动会自动：
 
