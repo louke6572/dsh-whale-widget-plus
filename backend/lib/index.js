@@ -262,7 +262,7 @@ export function apply(ctx) {
       try {
         const updCfg = readUnified().config?.updates ?? {};
         // 1) SurfCore 本体：源码树，走 git
-        list.push({ id: 'surfcore', name: 'dsh-Dfy 源码', dir: QQBOT_ROOT, kind: 'git', branch: 'main', versionRepo: 'Mieksido/surfcore' });
+        list.push({ id: 'surfcore', name: 'dsh-Dfy 源码', dir: QQBOT_ROOT, kind: 'git', branch: 'main', versionRepo: 'louke6572/dsh-Dfy' });
         // 2) 2026-11 精简：语音包/桌宠组件不再登记（各自的后端已下线，留着只会每次都报 missing）。
         // 3) 用户登记的组件：unified config 的 updates.components[]
         const custom = updCfg.components;

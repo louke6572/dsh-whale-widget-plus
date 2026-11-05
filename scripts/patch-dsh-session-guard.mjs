@@ -17,12 +17,34 @@
 // 用法：
 //   node scripts/patch-dsh-session-guard.mjs --check          # 看本机是否已打补丁（默认 asar 路径）
 //   node scripts/patch-dsh-session-guard.mjs --apply          # 打补丁（自动备份 app.asar）
-//   node scripts/patch-dsh-session-guard.mjs --apply --asar "D:\deepseek\resources\app.asar"
+//   node scripts/patch-dsh-session-guard.mjs --apply --asar "<DSH 安装目录>\resources\app.asar"
 //   DSH 更新后补丁会消失，重跑 --check / --apply 即可（幂等）。
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
-export const ASAR_DEFAULT = 'D:\\deepseek\\resources\\app.asar';
+/**
+ * 找本机 DSH 的 app.asar。不写死盘符：先看 DSH_ASAR 环境变量，再扫常见安装位置。
+ * 找不到返回 ''，由调用方提示用户用 --asar 指定。
+ */
+export function findAsarPath() {
+  const home = os.homedir();
+  const localAppData = process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local');
+  const programFiles = process.env.ProgramFiles || 'C:/Program Files';
+  const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:/Program Files (x86)';
+  const candidates = [
+    process.env.DSH_ASAR,
+    path.join(localAppData, 'Programs', 'DeepSeek Harness', 'resources', 'app.asar'),
+    path.join(programFiles, 'DeepSeek Harness', 'resources', 'app.asar'),
+    path.join(programFilesX86, 'DeepSeek Harness', 'resources', 'app.asar'),
+  ].filter(Boolean);
+  for (const file of candidates) {
+    try { if (fs.existsSync(file)) return file; } catch {}
+  }
+  return '';
+}
+
+export const ASAR_DEFAULT = findAsarPath();
 export const TARGET = '/dsh/node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js';
 
 const OLD = 'throw new Error(`corrupt session log "${path}": header id "${meta.id}" and cwd identify "${expectedPath}"`)';

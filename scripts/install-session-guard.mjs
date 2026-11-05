@@ -26,14 +26,19 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const STATE = path.join(REPO, 'state');
 const LOG = path.join(STATE, 'guard-patch.log');
 const META = path.join(STATE, 'guard-patch.json');
-const GUARDED = `${ASAR_DEFAULT}.guarded`;
-const EXE = 'D:\\deepseek\\DeepSeek Harness.exe';
-
 const argv = process.argv.slice(2);
 const argOf = (name, fallback = '') => {
   const i = argv.indexOf(name);
   return i === -1 ? fallback : String(argv[i + 1] ?? fallback);
 };
+// 不写死盘符：自动探测（DSH_ASAR / 常见安装位置）；探测不到时用 --asar 指定。
+const ASAR = argOf('--asar', '') || ASAR_DEFAULT;
+if (!ASAR) {
+  console.error('[session-guard] 找不到 DSH 的 app.asar：请用 --asar "<DSH 安装目录>\\resources\\app.asar" 指定');
+  process.exit(1);
+}
+const GUARDED = `${ASAR}.guarded`;
+const EXE = path.join(path.dirname(path.dirname(ASAR)), 'DeepSeek Harness.exe');
 const timeoutS = Number(argOf('--timeout-s', '86400'));
 
 function log(line) {
@@ -56,7 +61,8 @@ function dshRunning() {
 
 /** 换入后冒烟：Electron 用 asar 内的 fs 读一个文件。integrity fuse 若开启，这里会立刻失败。 */
 function smokeTest() {
-  const r = spawnSync(EXE, ['-e', "process.stdout.write(require('fs').readFileSync('D:/deepseek/resources/app.asar/dsh/package.json','utf8').slice(0,12))"], {
+  const probe = JSON.stringify((ASAR.replace(/\\/g, '/')) + '/dsh/package.json');
+  const r = spawnSync(EXE, ['-e', `process.stdout.write(require('fs').readFileSync(${probe},'utf8').slice(0,12))`], {
     encoding: 'utf8',
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
     timeout: 30000,
@@ -67,16 +73,16 @@ function smokeTest() {
 }
 
 function prepare() {
-  const state = inspect(ASAR_DEFAULT);
+  const state = inspect(ASAR);
   if (state.status === 'patched') { log('app.asar 已经是打过补丁的状态，无需预生成。'); return true; }
   if (state.status !== 'unpatched') { log(`预生成中止：目标状态 ${state.status}`); return false; }
-  const currentHash = sha256(ASAR_DEFAULT);
+  const currentHash = sha256(ASAR);
   const meta = readMeta();
   if (fs.existsSync(GUARDED) && meta?.guarded && meta?.sourceHash === currentHash && sha256(GUARDED) === meta.guarded) {
     log('补丁副本已是最新，复用。');
     return true;
   }
-  const buf = fs.readFileSync(ASAR_DEFAULT);
+  const buf = fs.readFileSync(ASAR);
   patchBuffer(buf);
   const verify = inspectBytes(buf);
   if (verify.status !== 'patched') { log(`预生成校验失败：${verify.status}`); return false; }
@@ -88,33 +94,33 @@ function prepare() {
 
 function installNow(reason = '手动') {
   if (dshRunning()) { log(`拒绝换入：DeepSeek Harness 正在运行（${reason}）。`); return false; }
-  const state = inspect(ASAR_DEFAULT);
+  const state = inspect(ASAR);
   if (state.status === 'patched') { log('已打补丁，无需换入。'); return true; }
   const meta = readMeta();
   if (!meta || !fs.existsSync(GUARDED)) { log('没有可用的补丁副本，先跑 --prepare。'); return false; }
-  if (sha256(ASAR_DEFAULT) !== meta.sourceHash) { log('app.asar 与预生成时不一致（DSH 可能升级过），拒绝换入，请重新 --prepare。'); return false; }
+  if (sha256(ASAR) !== meta.sourceHash) { log('app.asar 与预生成时不一致（DSH 可能升级过），拒绝换入，请重新 --prepare。'); return false; }
   if (inspectBytes(fs.readFileSync(GUARDED)).status !== 'patched') { log('补丁副本损坏，拒绝换入。'); return false; }
 
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const old = `${ASAR_DEFAULT}.old-${stamp}`;
+  const old = `${ASAR}.old-${stamp}`;
   try {
-    fs.renameSync(ASAR_DEFAULT, old);
+    fs.renameSync(ASAR, old);
   } catch (error) {
     log(`换入失败（原文件改名被拒）：${error?.message ?? error}`);
     return false;
   }
   try {
-    fs.renameSync(GUARDED, ASAR_DEFAULT);
+    fs.renameSync(GUARDED, ASAR);
   } catch (error) {
     log(`换入失败（补丁副本改名被拒）：${error?.message ?? error}，正在回滚`);
-    fs.renameSync(old, ASAR_DEFAULT);
+    fs.renameSync(old, ASAR);
     return false;
   }
   if (!smokeTest()) {
     log('冒烟失败，回滚到原 app.asar');
     try {
-      fs.renameSync(ASAR_DEFAULT, GUARDED); // 保住补丁副本，便于排查
-      fs.renameSync(old, ASAR_DEFAULT);
+      fs.renameSync(ASAR, GUARDED); // 保住补丁副本，便于排查
+      fs.renameSync(old, ASAR);
     } catch (error) {
       log(`回滚异常，请手动把 ${old} 改回 app.asar：${error?.message ?? error}`);
     }
@@ -126,7 +132,7 @@ function installNow(reason = '手动') {
 }
 
 function status() {
-  const s = inspect(ASAR_DEFAULT);
+  const s = inspect(ASAR);
   const meta = readMeta();
   console.log(JSON.stringify({ asar: s.status, guarded: fs.existsSync(GUARDED), meta, running: dshRunning() }, null, 2));
 }

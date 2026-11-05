@@ -4503,8 +4503,6 @@ export default {
     const SURFCORE_HOST_FILES = [
       // 单仓库布局：桌宠数据写在 <dsh-dfy>/pet/host.json
       path.join(PACKAGE_ROOT, '..', 'pet', 'host.json'),
-      // 旧布局兼容：源码根在 Documents\surfcore
-      path.join(os.homedir(), 'Documents', 'surfcore', 'pet', 'host.json'),
       path.join(DSH_HOME, 'surfcore', 'pet', 'host.json'),
       path.join(os.homedir(), '.dsh', 'surfcore', 'pet', 'host.json'),
       path.join(os.homedir(), '.dsh-web', 'surfcore', 'pet', 'host.json'),
