@@ -8,6 +8,10 @@
 > QQ message card bridged through SnowLuma, Bilibili dynamics/comments, and local redacted memory.
 > One plugin for the DSH web GUI; data stays on this machine.
 
+> **在 DSH「添加插件」里怎么填**：粘贴 `github:louke6572/dsh-Dfy`（或完整地址
+> `https://github.com/louke6572/dsh-Dfy`）。**不要输入 `dsh-Dfy`** —— 那是显示名，不是包名；
+> 而 npm 上的 `dsh-dfy` 是别人的包（同名不同项目），输入它只会装错。
+
 ![dsh-Dfy 小鲸鱼挂件](widget/assets/DSH2.png)
 
 **只有一个插件 dsh-Dfy**。以前分开安装的 `surfcore`、`surfcore-next`、`whale-widget` 已经合并进这一个包，
