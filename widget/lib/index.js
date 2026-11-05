@@ -4622,8 +4622,11 @@ export default {
     // DSH_HOME 本身就是数据根（~/.dsh 或 ~/.dsh-web），surfcore 写在它的 surfcore/pet/ 下。
     // （旧版多拼了一层 `.dsh`/`.dsh-web`，永远读不到 → 挂件永远"未在线"。）
     // 再补两条从用户家目录出发的兜底，覆盖 DSH_HOME 指向非常规位置的部署。
+    // 2026-11 公共分发改造：pet 数据迁到 QQ 数据根 $DSH_HOME/surfcore/qq/pet（标准 DSH 安装
+    // 时包目录只读，旧位置 <dsh-dfy>/pet 写不进去），新位置放第一条；旧位置继续兜底。
     const SURFCORE_HOST_FILES = [
-      // 单仓库布局：桌宠数据写在 <dsh-dfy>/pet/host.json
+      path.join(DSH_HOME, 'surfcore', 'qq', 'pet', 'host.json'),
+      // 单仓库布局（旧）：桌宠数据写在 <dsh-dfy>/pet/host.json
       path.join(PACKAGE_ROOT, '..', 'pet', 'host.json'),
       path.join(DSH_HOME, 'surfcore', 'pet', 'host.json'),
       path.join(os.homedir(), '.dsh', 'surfcore', 'pet', 'host.json'),

@@ -13,7 +13,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  BACKUP_DIR, BILI_CONFIG, DSH_HOME, HOME, PLUGIN_ROOT, QQBOT_ROOT, QQ_CONFIG,
+  BACKUP_DIR, BILI_CONFIG, DATA_ROOT, DSH_HOME, HOME, PLUGIN_ROOT, QQBOT_ROOT, QQ_CONFIG,
   QQ_CONFIG_EXAMPLE, UNIFIED_FILE, ensureDirs,
 } from './paths.js';
 import { DEFAULT_BILI_FISH_GUARD, normalizeBiliFishGuard } from '../tools/lib/fish-guard.mjs';
@@ -645,7 +645,10 @@ export function configDefaults() {
 export function pathSummary() {
   return {
     pluginRoot: PLUGIN_ROOT,
+    // 代码根（旧语义）：bridge 源码 / scripts / tools 所在；标准安装下就是包目录。
     qqbotRoot: QQBOT_ROOT,
+    // 数据根（可写）：QQ 的 config/state/roles/pet。设置页显示「配置到底存在哪」时应看这个。
+    qqDataRoot: DATA_ROOT,
     qqConfig: QQ_CONFIG,
     biliConfig: BILI_CONFIG,
     unifiedConfig: UNIFIED_FILE,

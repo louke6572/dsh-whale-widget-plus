@@ -24,7 +24,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import {
   ALIGN_FILE, BACKUP_DIR, BILI_AI_DIR, BILI_ALIGNMENT_FILE, BILI_CONFIG, BILI_CRED, BILI_DIR, BILI_MJS,
-  BILI_TOOLS_DIR, DSH_HOME, MEMORY_DIR, PLUGIN_ROOT, PLUGIN_LOG, QQ_ALIGNMENT_BRIEF,
+  BILI_TOOLS_DIR, DATA_ROOT, DSH_HOME, MEMORY_DIR, PLUGIN_ROOT, PLUGIN_LOG, QQ_ALIGNMENT_BRIEF,
   QQ_CONFIG, QQBOT_ROOT, STATE_DIR, UNIFIED_FILE, ensureDirs, findNodeExe, maskPath,
 } from './paths.js';
 import { resolvePersonaFile } from './persona.js';
@@ -253,7 +253,8 @@ export function apply(ctx) {
 
   const billing = createBillingService({
     stateDir: STATE_DIR,
-    qqRoot: QQBOT_ROOT,
+    // 账单读的是 QQ 桥接的 state/token-usage.jsonl 与遥测：数据根（不是代码根）。
+    qqRoot: DATA_ROOT,
     readCurrentCharacter,
     log: (message) => pluginLog(message),
   });
@@ -1648,7 +1649,7 @@ ${body}`;
     if (req.method === 'GET') {
       const checks = [];
       const add = (name, ok, detail = '') => checks.push({ name, ok: Boolean(ok), detail });
-      add('QQ 桥接源码', fs.existsSync(path.join(path.dirname(QQ_CONFIG), 'src', 'bridge.js')), 'src/bridge.js');
+      add('QQ 桥接源码', fs.existsSync(path.join(QQBOT_ROOT, 'src', 'bridge.js')), maskPath(path.join(QQBOT_ROOT, 'src', 'bridge.js')));
       add('B站工具链', fs.existsSync(BILI_MJS), maskPath(BILI_MJS));
       add('B站配置', fs.existsSync(BILI_CONFIG), maskPath(BILI_CONFIG));
       add('B站 cookie', fs.existsSync(BILI_CRED), fs.existsSync(BILI_CRED) ? '已写入（不回显内容）' : '未写入');
@@ -3317,7 +3318,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
       // 只支持「打开所在文件夹」；路径固定，不接受任何用户输入。
       if (body.action !== 'open') { json(res, 400, { ok: false, error: '未知 action' }); return; }
       if (process.platform !== 'win32') { json(res, 200, { ok: false, error: '只有 Windows 支持打开文件夹' }); return; }
-      const dir = path.join(QQBOT_ROOT, 'state');
+      const dir = path.join(DATA_ROOT, 'state');
       try {
         spawn('explorer.exe', [dir], { detached: true, stdio: 'ignore', windowsHide: false }).unref();
         json(res, 200, { ok: true, path: dir });
@@ -3566,7 +3567,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
   });
 
   // 诊断日志：证明插件真的被装配，且知道它读的是哪一份配置。
-  pluginLog(`已激活 v${VERSION}；surfcore=${maskPath(path.dirname(QQ_CONFIG))}；biliTools=${maskPath(BILI_MJS)}；privacy=v${PRIVACY_POLICY_VERSION}`);
+  pluginLog(`已激活 v${VERSION}；qqConfig=${maskPath(QQ_CONFIG)}；qqData=${maskPath(DATA_ROOT)}；biliTools=${maskPath(BILI_MJS)}；privacy=v${PRIVACY_POLICY_VERSION}`);
 }
 
 export default { name, inject, apply };

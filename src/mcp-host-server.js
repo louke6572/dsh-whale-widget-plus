@@ -25,13 +25,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { effectiveQqConfigFile } from './config-locate.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 
 function loadConfig() {
   try {
-    let text = fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8');
+    // QQ 配置在**数据根**（$DSH_HOME/surfcore/qq/config.json）；数据根还没迁移时
+    // effectiveQqConfigFile() 会回退读旧布局（clone 安装的仓库根），保证 MCP 子进程不掉配置。
+    let text = fs.readFileSync(effectiveQqConfigFile(), 'utf8');
     if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
     return JSON.parse(text);
   } catch {

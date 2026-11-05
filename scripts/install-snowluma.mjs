@@ -22,7 +22,19 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
-const CONFIG_FILE = path.join(REPO_ROOT, 'config.json');
+// QQ 配置在**数据根**（$DSH_HOME/surfcore/qq），与 backend/lib/paths.js、src/config-locate.js 同一公式；
+// 旧布局（clone 安装、配置在仓库根）先复制过来，保证这个脚本单独跑也能读到已有配置。
+const DSH_HOME = process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
+const QQ_DATA_ROOT = path.join(DSH_HOME, 'surfcore', 'qq');
+const CONFIG_FILE = path.join(QQ_DATA_ROOT, 'config.json');
+try {
+  const legacyConfig = path.join(REPO_ROOT, 'config.json');
+  if (!fs.existsSync(CONFIG_FILE) && fs.existsSync(legacyConfig)) {
+    fs.mkdirSync(path.dirname(CONFIG_FILE), { recursive: true });
+    fs.copyFileSync(legacyConfig, CONFIG_FILE);
+    console.log(`[install-snowluma] 旧布局配置已复制到数据根：${CONFIG_FILE}（旧文件保持原样）`);
+  }
+} catch { /* 迁移失败不阻断：下面的 readConfig 会走空配置 */ }
 const RELEASES_LATEST = 'https://github.com/SnowLuma/SnowLuma/releases/latest';
 
 const argv = process.argv.slice(2);

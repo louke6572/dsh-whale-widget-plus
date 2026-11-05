@@ -335,9 +335,38 @@ function patchProfilePackage(links) {
   }
 }
 
-/** 新用户第一次装：仓库根没有 config.json 时，从 config.example.json 复制一份（已在 .gitignore 内）。 */
+// ── QQ 数据根（2026-11 公共分发改造）─────────────────────────────────────────
+// config.json / state / roles / pet 都在 $DSH_HOME/surfcore/qq，**不再**写进仓库根：
+// 标准 DSH 安装会把包装进 <profile>/node_modules（只读），旧做法会直接失败。
+// 公式与 backend/lib/paths.js、src/config-locate.js 保持一致。
+const QQ_DATA_ROOT = path.join(DSH_HOME, 'surfcore', 'qq');
+
+/**
+ * 旧布局（clone 安装，数据在仓库根）→ 数据根：只复制缺失文件，幂等、不删旧文件。
+ * 与插件侧的迁移语义一致；这里只处理 setup 脚本自己要用的 config/state 两项，
+ * 其余（roles/pet/…）由插件启动时的 migrateLegacyData() 负责。
+ */
+function migrateLegacyQqDataForSetup() {
+  const legacyConfig = path.join(REPO_ROOT, 'config.json');
+  const dataConfig = path.join(QQ_DATA_ROOT, 'config.json');
+  if (!fs.existsSync(dataConfig) && fs.existsSync(legacyConfig)) {
+    ensureDir(QQ_DATA_ROOT);
+    fs.copyFileSync(legacyConfig, dataConfig);
+    log(`QQ 配置已复制到数据根：${dataConfig}（旧仓库根文件保持原样）`);
+  }
+  const legacyMode = path.join(REPO_ROOT, 'state', 'mode.json');
+  const dataMode = path.join(QQ_DATA_ROOT, 'state', 'mode.json');
+  if (!fs.existsSync(dataMode) && fs.existsSync(legacyMode)) {
+    ensureDir(path.join(QQ_DATA_ROOT, 'state'));
+    fs.copyFileSync(legacyMode, dataMode);
+    log(`QQ 运行状态已复制到数据根：${dataMode}`);
+  }
+}
+
+/** 新用户第一次装：数据根没有 config.json 时，从 config.example.json 复制一份。 */
 function ensureRepoConfig() {
-  const file = path.join(REPO_ROOT, 'config.json');
+  migrateLegacyQqDataForSetup();
+  const file = path.join(QQ_DATA_ROOT, 'config.json');
   const example = path.join(REPO_ROOT, 'config.example.json');
   if (fs.existsSync(file)) {
     log('config.json 已存在，保持不变');
@@ -347,12 +376,13 @@ function ensureRepoConfig() {
     log('⚠️ 没有 config.example.json，跳过配置骨架生成');
     return;
   }
+  ensureDir(QQ_DATA_ROOT);
   fs.copyFileSync(example, file);
-  log('已生成 config.json（占位配置；SnowLuma 地址与 token 会在「一键开始」时自动写入）');
+  log(`已生成 config.json：${file}（占位配置；SnowLuma 地址与 token 会在「一键开始」时自动写入）`);
 }
 
 function ensureLocalModeFile() {
-  const stateDir = path.join(REPO_ROOT, 'state');
+  const stateDir = path.join(QQ_DATA_ROOT, 'state');
   const modeFile = path.join(stateDir, 'mode.json');
   if (fs.existsSync(modeFile)) {
     log(`state/mode.json already exists; leave as-is (current mode may be user-configured)`);

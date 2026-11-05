@@ -12,11 +12,22 @@
 
 ## 必须遵守
 
-1. **不要用** `dsh plugin add github:louke6572/dsh-dfy`：运行需要仓库根的 `config.json`、`state/`、`src/bridge.js`。
+1. **推荐标准安装**：`dsh plugin --profile <profile> add github:louke6572/dsh-Dfy`。运行期数据写在
+   `$DSH_HOME/surfcore/qq/`，不写插件包目录；也可以 clone 后跑 `node scripts/setup-dsh.mjs`（两种方式共用同一个数据目录）。
 2. **不要自己重启/关闭 DSH**：你可能就跑在 DSH 里，重启会中断当前任务；只让用户手动退出再打开。
 3. **不要替用户扫码**：二维码必须用户本人在 SnowLuma 窗口扫。
 4. SnowLuma 只从**官方 Releases** 下载（`github.com/SnowLuma/SnowLuma/releases/latest`），不要第三方镜像。
 5. 不要提交/外发 `config.json`、`~/.dsh/surfcore/`、`state/`、QQ/B站凭据。
+
+## 零、最省事：让 DSH 自己装
+
+```powershell
+dsh plugin --profile <profile> add github:louke6572/dsh-Dfy
+```
+
+装完只要让用户**完全退出 DSH 再打开**。首次启动自动建数据目录、生成初始配置；
+旧 clone 安装留在仓库根的数据会被**复制**（不删除）到 `$DSH_HOME/surfcore/qq/`。
+QQ 仍需要 SnowLuma：用下面的方式装，或在设置页指定已安装目录。
 
 ## 一、首选：一条命令装完
 

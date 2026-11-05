@@ -26,7 +26,7 @@ import { activeMemoryPaths, readCurrentCharacter, readPersonaLayerText } from '.
 import { buildPersonaIdentity, personaNameFromCard } from '../../src/persona-identity.js';
 import { composePersonaLayers } from '../../src/persona-layers.js';
 import { adminFromSources } from '../../src/admin-identity.js';
-import { QQBOT_ROOT } from './paths.js';
+import { PET_DATA_DIR } from './paths.js';
 import { appendMemoryInboxEvent } from '../../src/memory-card.js?rev=20261025-pet-memory2';
 import { wavDurationMs } from '../../src/voice-tts.js';
 import { synthesizeEdgeToFile } from '../../src/voice-edge-tts.js';
@@ -164,7 +164,7 @@ function tokenHash(text) {
 export function createPetChatService({ ctx, stateDir, pluginLog = () => {}, tokenBudget = null } = {}) {
   // 2026-11：聊天历史/未读/语音固定存在源码根，跟 DSH_HOME 解绑 ——
   // 桌面版和网页版各存一份会让卡片记录「断档」。
-  const root = path.join(QQBOT_ROOT, 'pet');
+  const root = PET_DATA_DIR;
   const chatDir = path.join(root, 'chat');
   const voiceDir = path.join(root, 'voice');
   const tokenFile = path.join(root, 'host-token');

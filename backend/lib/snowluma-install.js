@@ -98,7 +98,11 @@ export function snowLumaCandidates({ snowluma = {}, extraPaths = [] } = {}) {
     path.join(home, 'Downloads', 'SnowLuma'),
     path.join(localAppData, 'Programs', 'SnowLuma2'),
     path.join(localAppData, 'Programs', 'SnowLuma'),
-    path.join(path.dirname(QQBOT_ROOT), 'SnowLuma2'),
+    // 旧布局：SnowLuma 放在仓库的**同级目录**。标准 DSH 安装时包在 <profile>/node_modules/ 里，
+    // 同级目录就是 node_modules（不是用户会装 SnowLuma 的地方），别把它当候选。
+    ...(path.basename(path.dirname(QQBOT_ROOT)).toLowerCase() === 'node_modules'
+      ? [path.join(home, 'SnowLuma2')]
+      : [path.join(path.dirname(QQBOT_ROOT), 'SnowLuma2')]),
     path.join(programFiles, 'SnowLuma2'),
     path.join(programFiles, 'SnowLuma'),
     path.join(programFilesX86, 'SnowLuma2'),

@@ -10,6 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import { NodeApiClient, unwrap, createTurnCollector, discoverDshLaunchToken } from './dsh-client.js';
+import { effectiveQqConfigFile } from './config-locate.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -39,7 +40,7 @@ async function main() {
   const baseUrl = process.argv[2] ?? 'http://127.0.0.1:3080';
   let auth;
   try {
-    const cfg = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
+    const cfg = JSON.parse(fs.readFileSync(effectiveQqConfigFile(), 'utf8'));
     auth = {
       token: cfg.dsh?.authToken || discoverDshLaunchToken(),
       header: cfg.dsh?.authHeader,

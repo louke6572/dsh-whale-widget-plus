@@ -20,13 +20,15 @@ import { z } from 'zod';
 import { SENSITIVE_RE } from './sensitive.js';
 import { serializeModelData } from './qq-model-view.js';
 import { EMOTION_LABELS } from './sticker-semantics.js';
+import { effectiveQqConfigFile, QQ_STATE_DIR } from './config-locate.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 
 function loadConfig() {
   try {
-    let text = fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8');
+    // QQ 配置在**数据根**；未迁移时 effectiveQqConfigFile() 回退旧布局（仓库根）。
+    let text = fs.readFileSync(effectiveQqConfigFile(), 'utf8');
     if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
     return JSON.parse(text);
   } catch {
@@ -123,7 +125,8 @@ function readConsoleToken() {
     if (/^[A-Za-z0-9_-]{16,128}$/.test(configured)) return configured;
   } catch {}
   try {
-    const tokenFile = path.join(ROOT, 'state', 'console-token');
+    // console-token 由桥接写进数据根的 state/（与 backend/lib/paths.js 的 QQ_STATE_DIR 一致）。
+    const tokenFile = path.join(QQ_STATE_DIR, 'console-token');
     return fs.readFileSync(tokenFile, 'utf8').trim();
   } catch {
     return '';

@@ -4,6 +4,10 @@
 
 小鲸鱼余额挂件 + 桌宠（106 段透明动画）+ QQ 消息卡，QQ / B站 / 双向脱敏记忆由包内自带的 SurfCore 提供。
 
+> English: an all-in-one **DeepSeek Harness (DSH) plugin** — balance whale widget, transparent desktop pet,
+> QQ message card bridged through SnowLuma, Bilibili dynamics/comments, and local redacted memory.
+> One plugin for the DSH web GUI; data stays on this machine.
+
 ![dsh-Dfy 小鲸鱼挂件](widget/assets/DSH2.png)
 
 **只有一个插件 dsh-Dfy**。以前分开安装的 `surfcore`、`surfcore-next`、`whale-widget` 已经合并进这一个包，
@@ -45,9 +49,26 @@
 
 ## 安装
 
-三种方式选一种，**不要都做**。
+四种方式选一种，**不要都做**。配置与会话状态统一写在数据目录 `$DSH_HOME/surfcore/qq/`，不写插件包目录。
 
-### 方式一：一行命令（推荐）
+### 方式一：在 DSH 里装（推荐）
+
+插件市场（搜索 **dsh-Dfy**）或命令行：
+
+```powershell
+dsh plugin --profile <profile> add github:louke6572/dsh-Dfy
+```
+
+装完**完全退出 DSH**（托盘图标也要退出）再打开。首次启动会自动：
+
+- 建数据目录 `$DSH_HOME/surfcore/qq/`（`config.json` / `state/` / `roles/` / `pet/`）；
+- 从包内 `config.example.json` 生成初始配置、补齐 `roles/` 模板；
+- 如果检测到旧版 clone 安装在仓库根留下的 `config.json` / `state/` / `roles/` / `pet/`，
+  **只复制、不删除**到数据目录（升级不丢配置）。
+
+QQ 功能仍需要 SnowLuma（方式二会自动装；标准安装则在设置页或`scripts/install-snowluma.mjs` 安装）。
+
+### 方式二：一行命令（Windows，含 SnowLuma）
 
 ```powershell
 powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/louke6572/dsh-Dfy/main/scripts/bootstrap.ps1 | iex"
@@ -69,7 +90,7 @@ powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/lou
 | `$env:DSHDFY_DIR='D:\dsh-Dfy'` | 装到别的目录 |
 | `$env:DSHDFY_CHECK='1'` | 只检查环境，不安装 |
 
-### 方式二：交给 Agent
+### 方式三：交给 Agent
 
 ```text
 帮我安装 https://github.com/louke6572/dsh-Dfy ，按仓库里的 AGENT.md 执行，需要我做的事直接说。
@@ -78,7 +99,7 @@ powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/lou
 Agent 会跑同一套流程并自己处理报错；你仍然只做「重启 + 扫码」。重启必须由你做：
 Agent 通常就跑在 DSH 里，它自己重启会中断当前任务。
 
-### 方式三：手动（排查问题用）
+### 方式四：手动 clone（开发 / 排查用）
 
 ```powershell
 git clone --depth 1 https://github.com/louke6572/dsh-Dfy.git
@@ -88,10 +109,8 @@ node scripts/setup-dsh.mjs
 node scripts/install-snowluma.mjs   # 接 QQ 才需要
 ```
 
-> ⚠️ **不要用 `dsh plugin add github:louke6572/dsh-dfy` 安装**。插件运行需要仓库根的
-> `config.json`、`state/`、`src/bridge.js`；装进 `node_modules` 后这些路径不成立，QQ 起不来。
->
-> ⚠️ **不要用 `dsh plugin add` 直接指 GitHub**，同上。
+clone 安装与方式一使用**同一个数据目录**（`$DSH_HOME/surfcore/qq/`），所以两种安装可以互相切换，
+配置不会分叉。
 
 ### 验证安装
 
@@ -106,17 +125,19 @@ curl -s -o NUL -w "%{http_code}" http://127.0.0.1:3080/dsh-whale/widget.js
 
 ### 更新
 
-重跑方式一那条命令（自动 `git pull` + 依赖 + 重写 profile），然后重启 DSH。
+- 市场 / `dsh plugin` 安装：重新执行一次 `dsh plugin --profile <profile> add github:louke6572/dsh-Dfy`；
+- 一行命令安装：重跑方式二那条命令（自动 `git pull` + 依赖 + 重写 profile）。
+
+然后重启 DSH。数据在数据目录，升级不会覆盖。
 
 ### 卸载
 
 ```powershell
-node scripts/uninstall.mjs                 # 演练：只列出会删什么
-node scripts/uninstall.mjs --yes           # 真删（保留 ~/.dsh/surfcore 里的配置 / 记忆）
+dsh plugin --profile <profile> remove dsh-dfy    # 推荐
+node scripts/uninstall.mjs                       # 或脚本：默认只演练
+node scripts/uninstall.mjs --yes                 # 真删（保留 ~/.dsh/surfcore 里的配置 / 记忆）
 node scripts/uninstall.mjs --yes --purge-state   # 连配置、记忆、日志一起删
 ```
-
-也可以 `dsh plugin --profile <profile> remove dsh-dfy`。
 
 ---
 
@@ -163,11 +184,15 @@ DSH「设置 → dsh-Dfy」与挂件内控制台是同一套配置：
 
 | 位置 | 用途 |
 |---|---|
-| `$DSH_HOME/surfcore/config.json` | QQ / B站 / 桥接配置（含凭据，仅本机） |
+| `$DSH_HOME/surfcore/qq/config.json` | QQ / 桥接配置（含凭据，仅本机） |
+| `$DSH_HOME/surfcore/qq/state/` | 桥接会话、记账、日志等运行状态 |
+| `$DSH_HOME/surfcore/qq/roles/` | 角色卡（人格文件） |
+| `$DSH_HOME/surfcore/qq/pet/` | 桌宠 host.json、QQ 消息镜像、语音数据 |
+| `$DSH_HOME/surfcore/config.json` | B站 / 合体层配置（含凭据，仅本机） |
 | `$DSH_HOME/surfcore/memory/` | 记忆卡与注入块（已脱敏） |
 | `$DSH_HOME/.dshw-usage.json` | 记账账本与用量 |
 | `$DSH_HOME/.dshw-bubble.json` | 泡泡序列与模块库 |
-| 仓库根 `config.json` / `state/` / `pet/` | 配置骨架与本地状态（已 gitignore） |
+| 旧 clone 的仓库根 `config.json` / `state/` / `pet/` | 旧布局数据（迁移后只读保留，不再写入） |
 
 > **泡泡配置文件（`$DSH_HOME/.dshw-bubble.json`）是「全量替换」语义**：文件里的 `items` 就是整条泡泡序列，
 > 出厂快照只在读不到文件时兜底。照源码手写一份「最小配置」会把出厂序列整体替换掉（峰谷状态、谷价倒计时、

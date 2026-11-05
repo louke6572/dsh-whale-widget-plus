@@ -21,6 +21,7 @@
 //   --quiet 时只在真正做了事情/失败时输出（start.bat 用这个模式）。
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -28,7 +29,13 @@ import { hardenDir, hardenFile, isHardened, manualDirCommand } from '../src/stat
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
-const STATE_DIR = path.join(ROOT, 'state');
+// 2026-11 公共分发改造：QQ 的 state/ 与 config.json 迁到**数据根** $DSH_HOME/surfcore/qq
+// （标准 DSH 安装时包目录只读/在 node_modules 里，旧位置写不进去）。
+// 旧布局（clone 安装的仓库根）仍然处理，兼容尚未跑过迁移的升级用户。
+const DSH_HOME = process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
+const DATA_ROOT = path.join(DSH_HOME, 'surfcore', 'qq');
+const STATE_DIR_CANDIDATES = [path.join(DATA_ROOT, 'state'), path.join(ROOT, 'state')];
+const STATE_DIR = STATE_DIR_CANDIDATES.find((dir) => { try { return fs.existsSync(dir); } catch { return false; } }) || STATE_DIR_CANDIDATES[0];
 const quiet = process.argv.includes('--quiet');
 // 被自己提权拉起时不带 --quiet（子进程用的是 --elevated --quiet），带上这个标记可以
 // 让提权后的这一次**不再尝试提权**，从结构上杜绝递归。
@@ -38,11 +45,11 @@ function say(msg) { if (!quiet) console.log(msg); }
 function sayAlways(msg) { console.log(msg); }
 
 // state/ 之外的凭据文件：config.json 里是真实的 SnowLuma OneBot accessToken ——
-// 拿到它等于拿到 QQ 账号的收发控制权。它跟 state/ 一样在仓库树里，继承来的 ACE 同样
-// 对 BUILTIN\Users 可读，所以一并收紧。
-const SECRET_FILES = ['config.json']
-  .map((name) => path.join(ROOT, name))
-  .filter((file) => fs.existsSync(file));
+// 拿到它等于拿到 QQ 账号的收发控制权。它与 state/ 同目录继承来的 ACE 同样对
+// BUILTIN\Users 可读，所以一并收紧。数据根与旧布局的仓库根**两处都收**（迁移前后各一次）。
+const SECRET_FILES = [...new Set(['config.json']
+  .flatMap((name) => [path.join(DATA_ROOT, name), path.join(ROOT, name)])
+  .filter((file) => { try { return fs.existsSync(file); } catch { return false; } }))];
 
 /** 用 UAC 提权跑一次自己，然后回读确认。返回 { ok, detail }。 */
 function elevateAndRetry() {
@@ -77,7 +84,8 @@ function elevateAndRetry() {
 function hardenSecretFiles() {
   let stillOpen = 0;
   for (const file of SECRET_FILES) {
-    const label = path.relative(ROOT, file);
+    // 旧布局的文件显示成仓库内相对路径；数据根的文件显示绝对路径（不在仓库树里，相对路径是 `..\..`）。
+    const label = path.resolve(file).startsWith(path.resolve(ROOT) + path.sep) ? path.relative(ROOT, file) : file;
     if (isHardened(file)) { say(`[harden-acl] ${label} 权限已收紧，无需处理`); continue; }
     const result = hardenFile(file);
     if (result.ok) sayAlways(`[harden-acl] ✅ 已收紧 ${label} 权限（只保留当前用户 / SYSTEM / Administrators）。`);

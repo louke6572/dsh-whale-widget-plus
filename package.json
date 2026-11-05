@@ -53,6 +53,19 @@
     "type": "git",
     "url": "git+https://github.com/louke6572/dsh-Dfy.git"
   },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "dsh-bundle",
+    "deepseek-harness",
+    "deepseek",
+    "desktop-pet",
+    "qq-bot",
+    "bilibili",
+    "balance",
+    "whale",
+    "widget"
+  ],
   "bugs": {
     "url": "https://github.com/louke6572/dsh-Dfy/issues"
   },

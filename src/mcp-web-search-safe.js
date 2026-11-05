@@ -17,6 +17,7 @@
 import path from 'node:path';
 import { safeFetch } from './safe-fetch.js';
 import { webSearch } from './web-search.js';
+import { effectiveQqConfigFile } from './config-locate.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
@@ -29,6 +30,9 @@ import { z } from 'zod';
  * 取它的上一级 `src/` 的父目录即可。取不到时退回 cwd（测试环境正好从仓库根运行）。
  */
 function projectRoot() {
+  // QQ 配置在**数据根**（$DSH_HOME/surfcore/qq/config.json）；标准 DSH 安装时包目录只读、
+  // config.json 根本不在包里，所以不能再按 argv 推「包根」。未迁移时 config-locate 会回退旧布局。
+  try { return path.dirname(effectiveQqConfigFile()); } catch {}
   try {
     const entry = String(process.argv[1] ?? '');
     if (entry) {

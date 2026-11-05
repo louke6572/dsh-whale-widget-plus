@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { contentTypeRejection, isLoopbackReq, json, readBody, sameOrigin, safeEqual } from './http-guard.js';
 import { callBridge } from './bridge.js';
-import { QQBOT_ROOT } from './paths.js';
+import { PET_DATA_DIR } from './paths.js';
 
 const API_PREFIX = '/dsh-surfcore/pet-api';
 const HOST_FILE_VERSION = 1;
@@ -36,7 +36,7 @@ const PET_BODY_LIMIT = 256 * 1024;
 export function createPetApiService({ chat, purpose, petService, stateDir, petRoot, currentDshUrl, pluginLog = () => {}, version = '' }) {
   // 2026-11：桌宠数据固定到源码根（与 DSH_HOME 无关）。否则桌面版(~/.dsh)和网页版(~/.dsh-web)
   // 各存一份 host.json/记录，同机切换形态时历史会「断档」。
-  const root = petRoot || path.join(QQBOT_ROOT, 'pet');
+  const root = petRoot || PET_DATA_DIR;
   const hostFile = path.join(root, 'host.json');
   let lastHostWrite = 0;
 
