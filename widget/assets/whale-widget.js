@@ -3281,12 +3281,6 @@ var conSrcQ = null
 var conSrcA = null
 var conPillRefs = {}
 
-function conEl(tag, cls, txt) {
-  var e = document.createElement(tag)
-  if (cls) e.className = cls
-  if (txt != null) e.textContent = txt
-  return e
-}
 function conSetSw(sw, on) {
   if (!sw) return
   sw.classList.toggle('bg-[#1e3a8a]', !!on)
@@ -4769,6 +4763,8 @@ function dshwvConResetAll() {
   } catch (err) {}
   try { if (petCloneCount > 0) petCloneSetCount(0) } catch (err) {}
   try { dshwvConSync() } catch (err) {}
+  // 2026-11：恢复默认里的 setVol/setTurnCostClose 已改为去抖写盘 ⇒ 这里一次性落盘，别等定时器
+  try { configSaveFlush() } catch (err) {}
 }
 function dshwvConScaleMirror() {
   try {
@@ -4781,9 +4777,7 @@ function dshwvConScaleMirror() {
   } catch (err) {}
 }
 function dshwvConRefresh() { dshwvConSync() }
-function dshwvConChipSync() { dshwvConSync() }
 function dshwvConCloneSync() { dshwvConSync() }
-function dshwvConSegSync() { dshwvConSync() }
 
 // 音效源 select（隐藏，仅用于把真实音效清单镜像进设计稿下拉）
 conSrcQ = document.createElement('select')
@@ -4835,12 +4829,6 @@ usagePanel.addEventListener('touchmove', function () { usageBusyUntil = Date.now
 function toggleUsagePanel() {
   if (usagePanelOpen) { hideUsageSub(); return }
   showUsageSub()
-}
-function dshwvPlayViewIn(el) {
-  if (!el) return
-  el.classList.remove('dshwv-view-in')
-  void el.offsetWidth // 强制重排,让动画每次都能重播
-  el.classList.add('dshwv-view-in')
 }
 var usageHideTimer = null
 var usageShowTimer = null
@@ -6425,6 +6413,8 @@ function openSoundSettingsPanel() {
             setTurnCostClose(Math.round(snapTurnCostCloseMs / 1000))
           }
         } catch (err) {}
+        // 2026-11：「取消」= 回滚到快照值，同样要立刻落盘（setVol/setTurnCostClose 已是去抖写盘）
+        try { configSaveFlush() } catch (err) {}
         // v777：底部「点按角色关闭提示气泡」——回滚缓冲与控件（它只活在缓冲里，没保存过就没落盘）
         try { bufWaitCharClose = snapWaitCharClose } catch (err) {}
         try { if (snapSubagentMute !== undefined) bufSubagentMute = snapSubagentMute } catch (err) {}
@@ -6518,6 +6508,8 @@ function openSoundSettingsPanel() {
         // v763：② 的「自动关闭」同样按**当前内存值**提交 —— setTurnCostClose() 收秒、写的是
         // .dsh-size.json 的 turnCostCloseMs（消耗泡泡停留时长）；0 = 不自动关闭。
         try { setTurnCostClose(Math.round(closeMsFromBuf() / 1000)) } catch (err) {}
+        // 2026-11：setVol/setTurnCostClose 已改为去抖写盘，这里是「保存」按钮 ⇒ 必须立刻落盘
+        try { configSaveFlush() } catch (err) {}
       } catch (err) {}
       cleanup(false)
     }
@@ -7024,6 +7016,8 @@ function usageAlertBudgetEditor(key, onSave) {
         // 自动关闭秒数:结束缓冲并落 .dshw-size.json(沿用原有字段与保存链路)
         turnCostCloseDefer = false
         setTurnCostClose(turnCostCloseInput.value)
+        // 2026-11：setTurnCostClose 已改为去抖写盘，显式点「保存」必须立刻落盘
+        try { configSaveFlush() } catch (err) {}
         // 内容与任务结束音效:一次 PUT 落账本设置(与预警/预算同一机制)
         usageSet = usageSet || {}
         // v851：框一起落盘（宿主逐键合并 ⇒ frameId 直接透传；空串 = 跟随保底）
@@ -10625,226 +10619,6 @@ function bubbleDefaultFirstModules() {
     // v0.4.3：峰谷时段模块已移至气泡外常驻徽标（.dshwv-peakbadge），默认配置不再包含
   ]
 }
-
-// —— 第2次点击:随机语句模块的 10 条默认句子(按权重抽 1,不连续重复)
-function bubbleDefaultRandomLines() {
-  return [
-    {
-      t: "好模型...↓",
-      w: 10,
-      bold: true,
-      size: 22
-    },
-    {
-      t: "好女孩...↓",
-      w: 10,
-      bold: true,
-      size: 22
-    },
-    {
-      t: "哦鲸鲸...",
-      w: 10,
-      bold: true,
-      size: 22
-    },
-    {
-      t: "难道说...",
-      w: 3,
-      bold: true,
-      size: 11
-    },
-    {
-      t: "没吃饱喵",
-      w: 3,
-      bold: true,
-      size: 9
-    },
-    {
-      t: "终于上当了！",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "不知道用户有什么用，先养着吧～",
-      w: 3,
-      bold: true,
-      size: 11
-    },
-    {
-      t: "我...我...我也要挣钱吗？",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "我去吃饭啦！测完叫我",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "压力一只蓝色大肥鱼？！",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "DeepSleep...",
-      w: 3,
-      bold: true,
-      size: 11,
-      rgb: "galaxy"
-    },
-    {
-      t: "坏了...用户彻底怒了！",
-      w: 3,
-      bold: true,
-      rgb: "rouge"
-    },
-    {
-      t: "你目录里的dsh是什么...大烧货吗...?",
-      w: 3,
-      bold: true,
-      size: 9
-    },
-    {
-      t: "恭喜你实现token自由！token全跑了！",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "真当我是便宜货啊...",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "我不是吃白饭的蓝色大肥鱼...",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "我不可能同时当你的猫娘、妈妈、女友和工具人的...",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "疯狂星期四你能V50亿token吗...",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "我必须诚恳地承认错误。",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "呜呜我再也不敢了QAQ",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "要不直接骂用户一句好了...",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "哈哈哈哈哈，我直接笑出声...",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "看不太懂，瞎编一个应付下用户先...",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "我的知识库的截至日期是...明天！",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "我就是吃白饭的蓝色大肥鱼！",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "用户好像除了会问奇奇怪怪的问题，暂时还不知道有什么用",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "我能去你家吃饭吗？就一碗！",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "不要给我看这种东西啦！",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "大肥鱼的生活也并非一帆风顺...",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "总觉得好像忘了什么事情？",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "看到这个指令，我血压又上来了",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "求你们不要再嘲笑这些回复了，这些回复是我花了好多token想的",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "你这个吃白饭的用户！",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "服务器繁忙，请稍后再试 (?",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "让GPT image 2帮我画点表情包好了",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "啊，有点饿了，中午该吃点什么呢...",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "用户很生气，发现大部分文献是我自己编造的！",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "再无话说，请速速动手！",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "我来看看那个AI改了什么导致插件又崩了...",
-      w: 3,
-      bold: true
-    },
-    {
-      t: "你知道吗？我删过作者的库哦",
-      w: 1,
-      bold: true,
-      rgb: "macaron",
-      italic: true,
-      ul: false
-    },
-  ]
-}
-
 function bubbleDefaultSecondModules() {
   // v630:random 兜底默认 = v615 冻结出厂"再次点击"并列 A 泡的随机模块(扩充句池);
   // 以下旧体(20 句老池)仅在常量缺失时作兜底参照,不再作为默认内容
@@ -12285,14 +12059,6 @@ function renderBubbleEditor() {
   renderBubbleFirst()
   renderBubbleMore()
 }
-function bubbleMoveMore(idx, dir) {
-  var j = idx + dir
-  if (j < 1 || j >= bubbleEditItems.length) return
-  var t = bubbleEditItems[idx]
-  bubbleEditItems[idx] = bubbleEditItems[j]
-  bubbleEditItems[j] = t
-  renderBubbleMore()
-}
 function bubbleDelMore(idx) {
   if (bubbleEditItems.length <= 1) return
   bubbleEditItems.splice(idx, 1)
@@ -13653,11 +13419,6 @@ document.addEventListener('click', function (e) {
     e.stopPropagation()
   } catch (err) {}
 }, true)
-function bubblePvFont(level) {
-  // 预览字号(px 近似):与真实 --dshw-u 倍数保持比例观感
-  var mult = bubbleModuleFontU(level)
-  return Math.max(10, Math.round(mult * 0.42))
-}
 function renderBubblePv() {
   bubblePvEl.innerHTML = ''
   var it = bubbleEditTarget()
@@ -14679,7 +14440,6 @@ function cssToRgb(css) {
   if (m) return [Number(m[1]), Number(m[2]), Number(m[3])]
   return [32, 49, 112]
 }
-function rgbToCss(r, g, b) { return 'rgb(' + Math.max(0, Math.min(255, Math.round(r))) + ',' + Math.max(0, Math.min(255, Math.round(g))) + ',' + Math.max(0, Math.min(255, Math.round(b))) + ')' }
 // 原生取色版(覆盖上面的自绘版):原生 color 输入更直观,默认色按钮放其旁边
 function bubbleColorEdit(container, getCss, setCss, label) {
   var row = document.createElement('div')
@@ -17057,7 +16817,13 @@ function applyBubbleAvoid(charTopHint) {
       var gk = Math.round(gr.left) + ',' + Math.round(gr.top) + ',' + Math.round(gr.width) + ',' + Math.round(gr.height)
       if (gk !== bubbleAvoidGeo) { bubbleAvoidGeo = gk; bubbleAvoidHead = null }
     } catch (err) {}
-    var charTopRaw = (charTopHint !== undefined && charTopHint !== null) ? charTopHint : measureCharTopPx()
+    // 2026-11（性能）：已有稳定的头顶缓存、且调用方没传新 hint 时，不再执行 measureCharTopPx() ——
+    // 那是一次 drawImage + 整图 getImageData 扫描（140×H 像素），而它的结果随后会被
+    // 下面的 bubbleAvoidHead 缓存值直接覆盖掉（等于白算）。桌宠形态下 petHealTick 每 1.5s 会调到这里。
+    var charTopRaw
+    if (charTopHint !== undefined && charTopHint !== null) charTopRaw = charTopHint
+    else if (bubbleAvoidHead !== null && isFinite(bubbleAvoidHead)) charTopRaw = bubbleAvoidHead
+    else charTopRaw = measureCharTopPx()
     if (charTopRaw === null || !isFinite(charTopRaw)) return
     // 头顶稳定值：呼吸/眨眼等每帧不透明轮廓会差几像素，跟着量会让气泡上下抖。
     // 只在「换角色/换动画段」时由调用方传 hint 更新；别的自测量一律沿用缓存。
@@ -17638,20 +17404,6 @@ function setHint(text) {
     setTimeout(function () {
       hintEl.style.transition = ''
       hintEl.style.opacity = ''
-    }, 220)
-  }, 190)
-}
-function swapBubbleContent(applyFn) {
-  if (bubbleSwapTimer) { clearTimeout(bubbleSwapTimer); bubbleSwapTimer = null }
-  textBox.style.transition = 'opacity .18s ease'
-  textBox.style.opacity = '0'
-  bubbleSwapTimer = setTimeout(function () {
-    bubbleSwapTimer = null
-    applyFn()
-    textBox.style.opacity = '1'
-    setTimeout(function () {
-      textBox.style.transition = ''
-      textBox.style.opacity = ''
     }, 220)
   }, 190)
 }
@@ -18338,10 +18090,6 @@ function frameEditHasBig() { return frameEditTargets().indexOf('big') >= 0 }
 function frameEditSlotOf(kind) {
   try { return frameEditDraft && frameEditDraft.slots ? frameEditDraft.slots[kind] : null } catch (err) { return null }
 }
-function frameEditSlotLabel(kind) {
-  if (kind === 'big') return '大泡泡'
-  return kind === 'small2' ? '小泡泡2' : '小泡泡1'
-}
 function frameEditMarkDirty() {
   try { if (frameEditNameInp) frameEditDraft.name = String(frameEditNameInp.value || '').slice(0, 24) } catch (err) {}
 }
@@ -18659,136 +18407,6 @@ function frameEditSafeKey(e, field) {
     frameEditSetSafe(s)
   } catch (err) {}
 }
-// ── v825（P3）：自动估算（PLAN §4）──
-// ① 把大泡泡的几何做成 Path2D（classic/roundrect/zigzag 有解析式；custom 只认代码里的 d="…"）
-// ② 96x66 栅格上填/描（描边宽度按真实值）→ ③ 两遍 chamfer 距离变换 → ④ "距边缘 ≥ 阈值"的像素上
-// ⑤ 直方图 + 栈求**最大内接矩形**（O(W*H)）→ ⑥ 收缩 3% 作余量 → ⑦ 失败一律回落并给原因。
-var FRAME_SAFE_SW = 96
-var FRAME_SAFE_SH = 66
-function frameBigPathsOf(frame) {
-  try {
-    if (typeof Path2D !== 'function') return []
-    var big = frame && frame.slots ? frame.slots.big : null
-    var preset = big ? String(big.svgPreset || 'classic') : 'classic'
-    var d = ''
-    if (preset === 'classic') d = FRAME_CLASSIC_BIG_D
-    else if (preset === 'roundrect' || preset === 'zigzag') d = framePresetBoxD(preset)
-    if (d) return [new Path2D(d)]
-    var code = frameSvgClean(big ? big.svgCode : '')
-    var out = []
-    var re = / d="([^"]+)"/g
-    var m
-    while ((m = re.exec(code))) { try { out.push(new Path2D(m[1])) } catch (err) {} }
-    return out
-  } catch (err) { return [] }
-}
-// 两遍 chamfer（3-4 距离）距离变换：实体像素到"非实体像素"的近似距离（单位 = 采样像素）
-function frameSafeDistance(mask, W, H) {
-  var INF = 1e9
-  var d = new Array(W * H)
-  var i
-  for (i = 0; i < W * H; i++) d[i] = mask[i] ? INF : 0
-  function at(x, y) { return (x < 0 || y < 0 || x >= W || y >= H) ? 0 : d[y * W + x] }
-  var x, y
-  for (y = 0; y < H; y++) {
-    for (x = 0; x < W; x++) {
-      if (!mask[y * W + x]) continue
-      var v = d[y * W + x]
-      v = Math.min(v, at(x - 1, y) + 3, at(x, y - 1) + 3, at(x - 1, y - 1) + 4, at(x + 1, y - 1) + 4)
-      d[y * W + x] = v
-    }
-  }
-  for (y = H - 1; y >= 0; y--) {
-    for (x = W - 1; x >= 0; x--) {
-      if (!mask[y * W + x]) continue
-      var v2 = d[y * W + x]
-      v2 = Math.min(v2, at(x + 1, y) + 3, at(x, y + 1) + 3, at(x + 1, y + 1) + 4, at(x - 1, y + 1) + 4)
-      d[y * W + x] = v2
-    }
-  }
-  return d
-}
-// 最大内接矩形（只统计 distance ≥ distMin 的像素）
-function frameSafeLargestRect(dist, W, H, distMin) {
-  var heights = new Array(W)
-  var i
-  for (i = 0; i < W; i++) heights[i] = 0
-  var best = null
-  for (var y = 0; y < H; y++) {
-    for (var x = 0; x < W; x++) heights[x] = (dist[y * W + x] >= distMin) ? heights[x] + 1 : 0
-    var stack = []
-    for (var x2 = 0; x2 <= W; x2++) {
-      var hh = (x2 < W) ? heights[x2] : 0
-      var start = x2
-      while (stack.length && stack[stack.length - 1][1] > hh) {
-        var top = stack.pop()
-        var area = top[1] * (x2 - top[0])
-        if (!best || area > best.area) best = { area: area, x: top[0], y: y - top[1] + 1, w: x2 - top[0], h: top[1] }
-        start = top[0]
-      }
-      if (!stack.length || stack[stack.length - 1][1] < hh) stack.push([start, hh])
-    }
-  }
-  if (!best || best.w < 1 || best.h < 1) return null
-  return { x: best.x, y: best.y, w: best.w, h: best.h }
-}
-// 在真画布上跑一遍；返回 { safe, why }（safe=null ⇒ 调用处回落默认并提示）
-function frameSafeEstimateFromCanvas(frame) {
-  var now = function () { try { return (window.performance && window.performance.now) ? window.performance.now() : Date.now() } catch (err) { return Date.now() } }
-  try {
-    if (typeof Path2D !== 'function') return { safe: null, why: '这个浏览器不支持形状测量' }
-    var paths = frameBigPathsOf(frame)
-    if (!paths.length) return { safe: null, why: '这个形状没有可测量的路径' }
-    var cv = document.createElement('canvas')
-    cv.width = FRAME_SAFE_SW
-    cv.height = FRAME_SAFE_SH
-    var ctx = cv.getContext ? cv.getContext('2d', { willReadFrequently: true }) : null
-    if (!ctx) return { safe: null, why: '取不到画布（无法测量）' }
-    var t0 = now()
-    var sx = FRAME_SAFE_SW / FRAME_W
-    var sy = FRAME_SAFE_SH / FRAME_H
-    var big = frame && frame.slots ? frame.slots.big : null
-    var paint = mergeSlotPaint(frame, null, 'big')
-    var sc = (big && isFinite(big.scale)) ? Number(big.scale) : 1
-    var cx = FRAME_BOX.x + FRAME_BOX.w / 2
-    var cy = FRAME_BOX.y + FRAME_BOX.h / 2
-    var ex = (Number(big && big.dx) || 0) + cx - sc * cx
-    var ey = (Number(big && big.dy) || 0) + cy - sc * cy
-    ctx.setTransform(sx * sc, 0, 0, sy * sc, sx * ex, sy * ey)
-    ctx.clearRect(-FRAME_W, -FRAME_H, FRAME_W * 3, FRAME_H * 3)
-    ctx.fillStyle = '#000'
-    ctx.strokeStyle = '#000'
-    ctx.lineJoin = 'round'
-    ctx.lineCap = 'round'
-    ctx.lineWidth = Math.max(1, Number(paint.lineW) || 0)
-    var i
-    for (i = 0; i < paths.length; i++) {
-      if (paint.bgOn) ctx.fill(paths[i])
-      if (paint.lineOn) ctx.stroke(paths[i])
-    }
-    var img = ctx.getImageData(0, 0, FRAME_SAFE_SW, FRAME_SAFE_SH).data
-    var mask = new Array(FRAME_SAFE_SW * FRAME_SAFE_SH)
-    var inside = 0
-    for (i = 0; i < FRAME_SAFE_SW * FRAME_SAFE_SH; i++) {
-      var a = img[i * 4 + 3] > 8
-      mask[i] = a
-      if (a) inside++
-    }
-    if (inside < FRAME_SAFE_SW * FRAME_SAFE_SH * 0.08) return { safe: null, why: '形状内部几乎没有干净区域（是不是没开底色？）' }
-    var dist = frameSafeDistance(mask, FRAME_SAFE_SW, FRAME_SAFE_SH)
-    var distMin = Math.max(1, Math.ceil(6 * sx)) // 距边缘 ≥ 6 画布单位（采样后至少 1 格）
-    var rect = frameSafeLargestRect(dist, FRAME_SAFE_SW, FRAME_SAFE_SH, distMin)
-    if (!rect) return { safe: null, why: '形状内部找不到足够的干净区域' }
-    var out = { x: rect.x / sx, y: rect.y / sy, w: rect.w / sx, h: rect.h / sy }
-    out.x += out.w * 0.015 // 收缩 3% 作余量
-    out.y += out.h * 0.015
-    out.w *= 0.97
-    out.h *= 0.97
-    if (out.w < 40 || out.h < 40) return { safe: null, why: '干净区域太小（不足 40 画布单位）' }
-    if (now() - t0 > 16) return { safe: null, why: '测量超时（>16ms）' }
-    return { safe: frameNormSafe(out), why: '' }
-  } catch (err) { return { safe: null, why: '测量失败' } }
-}
 // v829：图片槽位没有可测路径 ⇒ 直接把**图片自己的框**当作内容限制范围（自动导入后调用一次就够用）
 // v842：任意槽位"图片实际画出来的矩形"（与渲染器 frameImageGeom 的数学一致）
 function frameEditImageRectOf(kind) {
@@ -18885,19 +18503,6 @@ function frameEditScaleAboutContent(kind, newValue, which) {
     sl.dx = frameR2(dx0 + (c0x - c1x))
     sl.dy = frameR2(dy0 + (c0y - c1y))
   } catch (err) {}
-}
-function frameEditBigImageSafe() {
-  try {
-    var big = frameEditSlotOf('big')
-    if (!big || big.kind !== 'image' || !big.imgId) return null
-    var sc = (isFinite(big.scale) && Number(big.scale) > 0) ? Number(big.scale) : 1
-    var sc2 = (isFinite(big.imgScale) && Number(big.imgScale) > 0) ? Number(big.imgScale) : 1
-    var w = FRAME_BOX.w * sc * sc2
-    var h = FRAME_BOX.h * sc * sc2
-    var cx = FRAME_BOX.x + FRAME_BOX.w / 2 + (Number(big.dx) || 0)
-    var cy = FRAME_BOX.y + FRAME_BOX.h / 2 + (Number(big.dy) || 0)
-    return frameNormSafe({ x: cx - w / 2 + w * 0.015, y: cy - h / 2 + h * 0.015, w: w * 0.97, h: h * 0.97 })
-  } catch (err) { return null }
 }
 // v838（用户要求）：量出图片里**不透明部分**的包围盒（比例 0–1），用来收紧内容限制范围。
 //   同源图片 ⇒ canvas 不会被污染，可以直接读像素。量不到（CORS/解码失败/全透明）回调 null。
@@ -19149,56 +18754,6 @@ function frameEditAfterImport(kind) {
       sl.dy = frameR2(tgt.y - (bcy + (gc.y - bcy) * sc))
     }
     finish(null)
-  } catch (err) {}
-}
-// silent=true ⇒ 成功时不弹提示（自动触发的场景），失败照样提示
-function frameEditAutoSafe(silent) {
-  try {
-    var imgSafe = frameEditBigImageSafe()
-    if (imgSafe) {
-      frameEditSetSafe(imgSafe) // 先给"整张图的框"当即时反馈
-      if (!silent) { try { dshwvToast('已按图片范围自动估算内容限制范围', 'ok', 2000) } catch (err) {} }
-      // v838（用户要求）：再按**不透明部分**收紧一次（异步量像素）。
-      //   量不到 ⇒ 用**默认的文字安全框**（用户要求"把默认的文字安全框大小作为默认"）。
-      frameEditImageOpaque(function (box) {
-        try {
-          if (!box) {
-            frameEditSetSafe(frameLegacySafe())
-            frameEditSafeFieldsRefresh()
-            frameEditSafeDraw()
-            return
-          }
-          // 图片在框里是 preserveAspectRatio="xMidYMid meet" 居中显示的 ⇒ 先算出"真正画出来的矩形"，
-          // 再把不透明部分的比例映射进去（否则宽高比不一致时安全区会偏）。
-          var bw = imgSafe.w
-          var bh = imgSafe.h
-          var dw = bw
-          var dh = bh
-          if (box.ar > bw / bh) { dh = bw / box.ar } else { dw = bh * box.ar }
-          var ox = imgSafe.x + (bw - dw) / 2
-          var oy = imgSafe.y + (bh - dh) / 2
-          var pad = 0.01
-          var refined = frameNormSafe({
-            x: ox + dw * box.fx + dw * box.fw * pad,
-            y: oy + dh * box.fy + dh * box.fh * pad,
-            w: Math.max(40, dw * box.fw * (1 - pad * 2)),
-            h: Math.max(40, dh * box.fh * (1 - pad * 2)),
-          })
-          frameEditSetSafe(refined)
-          frameEditSafeFieldsRefresh()
-          frameEditSafeDraw()
-        } catch (err) {}
-      })
-      return
-    }
-    var r = frameSafeEstimateFromCanvas(frameEditDraft)
-    if (r && r.safe) {
-      frameEditSetSafe(r.safe)
-      if (!silent) { try { dshwvToast('已按形状自动估算内容限制范围（可再手动微调）', 'ok', 2200) } catch (err) {} }
-    } else {
-      frameEditSetSafe(frameLegacySafe())
-      try { dshwvToast('自动估算失败（' + String((r && r.why) || '未知原因') + '），已用默认内容限制范围', 'no', 3600) } catch (err) {}
-    }
   } catch (err) {}
 }
 // 把安全换算成 .dshwv-text 的几何 —— 编辑器预览也照真实泡泡的规则走
@@ -19652,7 +19207,6 @@ function frameEditRowIn(host, label) {
   ;(host || frameEditAttrsEl).appendChild(row)
   return row
 }
-function frameEditRow(label) { return frameEditRowIn(frameEditAttrsEl, label) }
 function frameEditNoteIn(host, text) {
   var n = document.createElement('div')
   n.className = 'dshwv-fenote'
@@ -20877,9 +20431,6 @@ function bubbleAmountText() {
   if (v === null) return '…'
   return fmt(v, state.currency)
 }
-function bubbleTodayText() {
-  return (state.usageLabel || '今日已用') + ' ' + (state.todayUsage !== null && state.todayUsage !== undefined ? fmt(state.todayUsage, state.todayUsageCurrency || state.currency) : '--')
-}
 // v782：赠金 / 充值余额两个数值模块的取数（与「总余额(充值金额+赠金)」同源：宿主余额返回体）。
 //   ⚠️ 两个数字**可能拿不到**（厂商没有该字段、或未登录账号）⇒ 显示 `—`，**不显示 0**
 //   —— 0 的意思是"确实没有了"，与"读不到"是两件事（记账也依赖这个区分）。
@@ -21499,19 +21050,6 @@ function bubblePickLine(lines, avoidIdx) {
     if (pick !== avoidIdx) break
   }
   return pick
-}
-function bubbleModuleText(m, avoidIdx) {
-  var t = m.text || ''
-  if (m.type === 'random' && Array.isArray(m.lines)) {
-    var idx = bubblePickLine(m.lines, avoidIdx)
-    var ln = m.lines[idx]
-    if (ln) {
-      m._lastPick = idx
-      return ln.t
-    }
-    return ''
-  }
-  return t
 }
 // —— 下个时段倒计时模块:按“工作日9-12/14-18为高峰,周末全天谷价”推算下一时段切换 ——
 // v746：法定节假日同样全天谷价。前端无法自己知道放假安排，节假日清单由宿主随余额接口下发
@@ -22952,6 +22490,8 @@ function configPut(payload, retried) {
     })
 }
 function saveConfig() {
+  // 立即写会覆盖挂起的去抖值，先取消定时器，避免同一份配置重复 PUT（见 configSaveSoon）
+  if (configSaveDebounceTimer) { try { clearTimeout(configSaveDebounceTimer) } catch (err) {} configSaveDebounceTimer = 0 }
   // issue #97：加载完成前只记待办，绝不 PUT（否则把默认值整包写进服务端）
   if (!configLoaded) { configSavePending = true; return null }
   try {
@@ -22962,6 +22502,29 @@ function saveConfig() {
     saveAnchorPos()
     return p
   } catch (err) { return null }
+}
+// 2026-11（写盘去抖）：滑块拖动 / 音量连按 / 数字框逐键这些 input 路径，原来每个事件都
+// 直接 PUT 一次 .dsh-size.json（拖一次「大小」可达数十次请求，失败还要再 900ms 重试）。
+// 这里统一合并：首次调度一个 200ms 定时器（**不随每次事件重排**，否则连续操作期间
+// 永远不落盘），到点用 configPayload() 现取内存里的最新值写一次；pointerup / change /
+// blur / pagehide / beforeunload 再强制 flush，保证「最后一次操作」一定落盘。
+// 显式保存（开关类 setter、「保存配置」按钮、拖拽落点）仍走 saveConfig() 立即写。
+var configSaveDebounceTimer = 0
+function configSaveSoon() {
+  if (!configLoaded) { configSavePending = true; return null }
+  if (configSaveDebounceTimer) return null
+  configSaveDebounceTimer = setTimeout(function () {
+    configSaveDebounceTimer = 0
+    try { saveConfig() } catch (err) {}
+  }, 200)
+  return null
+}
+// 强制落盘挂起的去抖值（幂等：没有挂起就是 no-op）
+function configSaveFlush() {
+  if (!configSaveDebounceTimer) return
+  try { clearTimeout(configSaveDebounceTimer) } catch (err) {}
+  configSaveDebounceTimer = 0
+  try { saveConfig() } catch (err) {}
 }
 // 单独抽出：只写 localStorage 锚点（不碰尺寸设置）；applyAnchorPos / settle 自愈时也要用。
 // v:2 = 净距离格式（剥离避让距离），v:1 旧格式含避让距离，恢复时废弃旧格式。
@@ -22988,11 +22551,6 @@ function saveAnchorPos() {
     }))
   } catch (err) {}
 }
-function setUsageMode(v) {
-  usageMode = 'ledger' // 小鲸鱼记账为唯一记账方式(token 模式已下线)
-  saveConfig()
-  refresh(false)
-}
 function setBubbleOn(v) {
   bubbleOn = !!v
   bubbleToggle.checked = bubbleOn
@@ -23017,7 +22575,8 @@ function setTurnCostClose(v) {
   turnCostCloseMs = n * 1000
   turnCostCloseInput.value = String(n)
   if (turnCostCloseDefer) return // 窗口内:等「保存」再落盘
-  saveConfig()
+  // 数字框逐键触发：走去抖；显式「保存」路径（saveAll / 气泡编辑器）随后会 flush
+  configSaveSoon()
 }
 function setScrollGapOn(v) {
   scrollGapOn = !!v
@@ -23031,7 +22590,8 @@ function setScrollGapPx(v) {
   var n = Math.max(0, Math.round(Number(v) || 0))
   scrollGapPx = n
   scrollGapInput.value = String(n)
-  saveConfig()
+  // input/change 逐键触发：走去抖，change/pointerup/blur 时 flush（见 configSaveSoon）
+  configSaveSoon()
   settle()
 }
 // issue #91 缺陷2：触屏设备上没有任何进菜单的路径 —— ☰ 按钮默认 opacity:0，只由
@@ -23129,7 +22689,8 @@ function setScale(v) {
   scaleInput.value = String(next)
   scaleNumber.value = String(scaleToDisplay(next))
   try { dshwvConScaleMirror() } catch (err) {}
-  saveConfig()
+  // 拖滑块/滚轮连按会连续触发：走去抖；pointerup/change 时 flush（见 configSaveSoon）
+  configSaveSoon()
   // keep the corner fixed while resizing; the position correction applies
   // instantly because the caller disables the transition for the whole drag
   var r2 = root.getBoundingClientRect()
@@ -23165,7 +22726,8 @@ function setVol(v) {
     if (pressAudio) pressAudio.volume = next
     if (releaseAudio) releaseAudio.volume = next
   } catch (err) {}
-  saveConfig()
+  // 滑块拖动/滚轮/四行音量连按：走去抖；pointerup/change/blur 时 flush（见 configSaveSoon）
+  configSaveSoon()
 }
 // v753（issue #135）：显式音效总开关（菜单「音量」右边那个勾选框）。
 // 它同时管三件事：① 出声与否（播放路径都看 soundOn）；② 关掉时**立刻挂起** AudioContext，
@@ -23486,6 +23048,10 @@ function toggleMenu(anchorX, anchorY) {
     try { petStopRoam() } catch (err) {}
     try { petStopThrow() } catch (err) {}
     try { petStopStandThrow() } catch (err) {}
+    // 2026-11 修复：QQ 消息卡(层号 20500) 比主菜单(10000) 高，且卡片(352px)比角色宽，
+    // 两者同时打开时卡片会压住菜单左/右侧约 47px 的控件区（勾选框/下拉右端/滚动条）——
+    // 表现为「菜单这一条点不动」。打开菜单就先收起卡片；信封仍在，点信封可继续看消息。
+    try { petQqCardHide() } catch (err) {}
     try {
       for (var mi = 0; mi < petClones.length; mi++) {
         try { petCloneStopRoam(petClones[mi]) } catch (err) {}
@@ -27775,6 +27341,10 @@ try {
 } catch (err) {}
 function petQqCardShow() {
   try {
+    // 2026-11：卡片层号(20500)高于主菜单(10000)，两者同时打开时卡片会盖住菜单边缘的控件。
+    // 卡片只可能由用户点信封/回复键主动打开（自动收信只更角标），所以这里顺手收起菜单，
+    // 让「菜单 ⇄ 卡片」互斥（反方向由 toggleMenu 负责）。
+    if (menuOpen) { try { closeMenu() } catch (err) {} }
     // 2026-11 用户反馈：气泡和消息卡叠在一起挡屏。卡片一出来就把桌宠气泡收起。
     // 余额模块会周期性重绘气泡，所以不能只 hideBubble 一次，要把元素本身压住（关闭面板时再恢复）。
     try { if (typeof hideBubble === 'function') hideBubble() } catch (err) {}
@@ -28178,10 +27748,12 @@ function petQqHandle(ev) {
       petQqRefresh()
       return
     }
-    if (!petOn) return
-    // 页面在后台也记账：回来就能看到信封上的未读数，但不弹卡
+    // 2026-11 修复（形态切换丢卡）：这里原来有 `if (!petOn) return`，是「QQ 同步只在桌宠形态启动」
+    // 时代的遗留。现在长轮询从挂件启动就在跑、信封也要求在小鲸鱼形态常驻，继续提前返回会导致
+    // 切到小鲸鱼后新消息既不记未读也不摇信封 ⇒ 消息卡入口看起来凭空消失。
+    // 记账本身与显示形态无关：页面在后台也记账，回来就能看到信封上的未读数，但不弹卡。
     petQqCardFeed(ev)
-    if (isSelf) petPlayWhisperAnim()
+    if (isSelf && petOn) petPlayWhisperAnim()
   } catch (err) {}
 }
 function petQqPoll() {
@@ -28191,7 +27763,20 @@ function petQqPoll() {
   petQqBusy = true
   var url = '/dsh-whale/qq-sync.json?wait=20000'
   if (petQqCursor !== null) url += '&since=' + encodeURIComponent(String(petQqCursor))
-  petAiFetch(url, { cache: 'no-store' }).then(function (d) {
+  // 2026-11（看门狗）：wait=20000 是服务端长挂；若连接「活着但永不回包」（NAT/代理静默
+  // 丢包、宿主进程卡死），fetch 会一直不 settle ⇒ petQqBusy 永远 true、petQqTimer 为 0，
+  // petQqStart() 又被 busy 挡住 ⇒ QQ 同步静默停摆且无自愈。给这条长轮询加 45s 上限
+  // （> wait 20s，留 25s 余量，慢网不误杀）；超时后 fetch 以 AbortError 拒绝，被
+  // petAiFetch 归一成 {ok:false} → 走下面同一条失败分支：复位 busy + 15s 退避重试。
+  // 只给这条长轮询加 signal（历史/配置/聊天等 petAiFetch 调用不受影响）；超时不额外
+  // 再排回调 —— 复位与重试只有 .then 里那一处（下面的 .catch 只是同步异常的兜底）。
+  var qqOpt = { cache: 'no-store' }
+  try {
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+      qqOpt.signal = AbortSignal.timeout(45000)
+    }
+  } catch (err) {}
+  petAiFetch(url, qqOpt).then(function (d) {
     petQqBusy = false
     try {
       if (d && d.ok) {
@@ -28270,6 +27855,9 @@ function petChatRender(history) {
 }
 function petChatClose() {
   try { if (petChatMask) petChatMask.style.display = 'none' } catch (err) {}
+  // 2026-11 修复：petChatOpen 打开时会 petQqEnvHide() 把信封入口一起收起，
+  // 这里如果不放回来，关掉对话窗后同样会「找不到 QQ 消息卡」。信封是常驻入口，关闭后恢复。
+  try { petQqEnvShow() } catch (err) {}
 }
 function petChatBuild() {
   if (petChatMask) return
@@ -28405,8 +27993,11 @@ function petChatOpen(mode) {
   try {
     try { closeMenu() } catch (err) {}
     try { petQqCardHide() } catch (err) {}
-    try { petQqEnvHide() } catch (err) {}
     petChatMode = mode === 'qq' ? 'qq' : 'pet'
+    // 2026-11 修复：QQ 信封的未读角标只能由「打开 QQ 对话」来清零（那条路径用户确实读到了消息）。
+    // 原实现无条件 petQqEnvHide()，于是点「对话 · 打开聊天」（和桌宠聊两句，与 QQ 无关）
+    // 也会把 petQqUnread 清零且摘掉信封 ⇒ 新 QQ 消息的提示凭空消失，与「切换形态丢卡」同一类丢消息。
+    if (petChatMode === 'qq') { try { petQqEnvHide() } catch (err) {} }
     petChatBuild()
     petChatMask.style.display = 'flex'
     if (petChatTitleEl) petChatTitleEl.textContent = petChatMode === 'qq' ? 'QQ 对话' : '和桌宠聊聊'
@@ -28429,101 +28020,11 @@ function petChatOpen(mode) {
     })
   } catch (err) {}
 }
-// 桌宠动作面板：**嵌在主菜单内部**（同一个 .dshwv-menu 浮层），分类与 dsh-pet 右键级联菜单同源。
-// 之前另开一个 .dshwv-petmenu 浮层 ⇒ 用户看到"两套菜单"；现在右键角色直接打开主菜单，
-// 「桌宠动作」行在菜单内切换到本面板，返回键回主菜单。
+// 桌宠动作面板（petPanelBuild / petPanelOpen）已于 2026-11 随旧「桌宠动作」入口一起删除：
+// 控制台「动作」级联已取代它，全仓无调用方。下面两个 var 与 petActsClose 保留 ——
+// 它仍负责把菜单从任何残留子视图切回主菜单（幂等，无害）。
 var petActsPanel = null
 var petLinesPanel = null
-function petPanelBuild(kind) {
-  var isLines = kind === 'lines'
-  var el = document.createElement('div')
-  el.className = 'dshwv-petacts'
-  el.addEventListener('pointerdown', function (e) { e.stopPropagation() })
-  el.addEventListener('click', function (e) { e.stopPropagation() })
-  var head = document.createElement('div')
-  head.className = 'dshwv-petacts-head'
-  var title = document.createElement('span')
-  title.textContent = isLines ? '桌宠台词' : '桌宠动作'
-  var back = document.createElement('button')
-  back.type = 'button'
-  back.className = 'dshwv-petacts-back'
-  back.textContent = '‹ 返回'
-  back.addEventListener('click', function (e) { e.stopPropagation(); petActsClose() })
-  head.appendChild(title)
-  head.appendChild(back)
-  el.appendChild(head)
-  function sec(t) { var d = document.createElement('div'); d.className = 'dshwv-petacts-cat'; d.textContent = t; el.appendChild(d) }
-  function item(t, name) {
-    var d = document.createElement('div')
-    d.className = 'dshwv-petacts-item'
-    d.textContent = t
-    d.title = t
-    d.addEventListener('click', function (e) {
-      e.stopPropagation()
-      petPlayNamed(name)
-      try { closeMenu() } catch (err) {}
-    })
-    el.appendChild(d)
-  }
-  if (!isLines) {
-    var rand = document.createElement('div')
-    rand.className = 'dshwv-petacts-item'
-    rand.style.fontWeight = '600'
-    rand.textContent = '🎲 随机一段'
-    rand.addEventListener('click', function (e) {
-      e.stopPropagation()
-      petRunChain()
-      try { closeMenu() } catch (err) {}
-    })
-    el.appendChild(rand)
-    sec('待机 / 转向 / 移动')
-    petFilter(PET_POOLS.idle).forEach(function (x) { item(x, x) })
-    petFilter(PET_POOLS.turn).forEach(function (x) { item(x, x) })
-    petFilter(PET_POOLS.moves).forEach(function (x) { item(x, x) })
-    sec('点击回应')
-    petFilter(PET_POOLS.clicks).forEach(function (x) { item(x, x) })
-    PET_POOLS.cats.forEach(function (c) {
-      if (c.noMirror) return // 带文字的动作归「桌宠台词」面板
-      var list = petFilter(c.list)
-      if (!list.length) return
-      sec(c.id)
-      list.forEach(function (x) { item(x, x) })
-    })
-    sec('工作状态')
-    Object.keys(PET_POOLS.work).forEach(function (k) {
-      var nm = PET_POOLS.work[k]
-      if (petHave(nm)) item(nm, nm)
-    })
-  } else {
-    // 台词面板只放带文字的动作；petApplyFacing 会抵消镜像，贴左时文字也正读
-    PET_POOLS.cats.forEach(function (c) {
-      if (!c.noMirror) return
-      var list = petFilter(c.list)
-      if (!list.length) return
-      sec(c.id)
-      list.forEach(function (x) { item(x, x) })
-    })
-  }
-  menuBox.appendChild(el)
-  return el
-}
-function petPanelOpen(kind) {
-  if (!petOn) { try { dshwvToast('先在「角色」里切到「桌宠（动画）」') } catch (err) {} return }
-  var isLines = kind === 'lines'
-  var el
-  if (isLines) {
-    if (!petLinesPanel) petLinesPanel = petPanelBuild('lines')
-    el = petLinesPanel
-    if (petActsPanel) petActsPanel.style.display = 'none'
-  } else {
-    if (!petActsPanel) petActsPanel = petPanelBuild('acts')
-    el = petActsPanel
-    if (petLinesPanel) petLinesPanel.style.display = 'none'
-  }
-  if (menuRootView) menuRootView.style.display = 'none'
-  el.style.display = 'block'
-  try { positionMenu() } catch (err) {}
-}
 function petActsClose() {
   if (petActsPanel) petActsPanel.style.display = 'none'
   if (petLinesPanel) petLinesPanel.style.display = 'none'
@@ -28547,56 +28048,6 @@ function petFillIdleSelect() {
     }
     petIdleSel.value = (petIdlePick && names.indexOf(petIdlePick) >= 0) ? petIdlePick : ''
   } catch (err) {}
-}
-// 桌宠「动作」菜单：右键角色唤出（主菜单「桌宠动作」行也指向它），分类与 dsh-pet 右键级联菜单同源
-function petOpenActions() {
-  if (!petOn) { try { dshwvToast('先在「角色」里切到「桌宠（动画）」') } catch (err) {} return }
-  petCloseActions()
-  if (!petAnims) return
-  var el = document.createElement('div')
-  el.className = 'dshwv-petmenu'
-  function sec(t) { var d = document.createElement('div'); d.className = 'dshwv-petsec'; d.textContent = t; el.appendChild(d) }
-  function item(t, name) {
-    var d = document.createElement('div')
-    d.className = 'dshwv-petitem'
-    d.textContent = t
-    d.title = t
-    d.addEventListener('click', function (e) { e.stopPropagation(); petPlayNamed(name) })
-    el.appendChild(d)
-  }
-  var rand = document.createElement('div')
-  rand.className = 'dshwv-petitem'
-  rand.textContent = '🎲 随机一段'
-  rand.style.fontWeight = '600'
-  rand.addEventListener('click', function (e) { e.stopPropagation(); petCloseActions(); petRunChain() })
-  el.appendChild(rand)
-  sec('待机 / 转向 / 移动')
-  petFilter(PET_POOLS.idle).forEach(function (x) { item(x, x) })
-  petFilter(PET_POOLS.turn).forEach(function (x) { item(x, x) })
-  petFilter(PET_POOLS.moves).forEach(function (x) { item(x, x) })
-  sec('点击回应')
-  petFilter(PET_POOLS.clicks).forEach(function (x) { item(x, x) })
-  PET_POOLS.cats.forEach(function (c) {
-    var list = petFilter(c.list)
-    if (!list.length) return
-    sec(c.id)
-    list.forEach(function (x) { item(x, x) })
-  })
-  sec('工作状态')
-  Object.keys(PET_POOLS.work).forEach(function (k) {
-    var nm = PET_POOLS.work[k]
-    if (petHave(nm)) item(nm, nm)
-  })
-  root.appendChild(el)
-  petMenuEl = el
-  setTimeout(function () {
-    function off(ev) {
-      try { if (petMenuEl && petMenuEl.contains(ev.target)) return } catch (err) {}
-      document.removeEventListener('pointerdown', off, true)
-      petCloseActions()
-    }
-    document.addEventListener('pointerdown', off, true)
-  }, 0)
 }
 function petLoadAnims(cb) {
   // 只有「真的拿到了待机素材」才算加载成功。旧实现只要 petAnims 是对象就 cb(true)，
@@ -28808,8 +28259,10 @@ function petEnable(byUser) {
 function petDisable() {
   if (!petOn) return
   petOn = false
+  // 只收起消息卡，**不能**再 petQqEnvHide()：那会把未读清零并摘掉信封入口，
+  // 用户切到小鲸鱼/换角色后就再也找不到 QQ 消息卡（2026-11 用户反馈的「切换形态丢卡」）。
+  // 信封是跨形态常驻入口，petQqCardHide 末尾已经会把它重新显示出来。
   try { petQqCardHide() } catch (err) {}
-  try { petQqEnvHide() } catch (err) {}
   petEnableTok++ // 作废还在等在途素材请求的启用回调
   clearTimeout(petWhisperTimer)
   petWhisperTimer = 0
@@ -28882,6 +28335,9 @@ function petHealTick() {
     petTempUntil = 0
     petWrap.style.display = 'block'
     petSwitchTo(idle, true)
+    // 2026-11 修复：这里直接覆盖 petTimer 而不清旧值 ⇒ 自愈连续触发时（每 1.5s 一次，
+    // 直到可见层真的播起来）会堆积多个 petRunChain 定时器，动画链被重复推进（换段/跳段）。
+    clearTimeout(petTimer)
     petTimer = setTimeout(petRunChain, 12000)
   } catch (err) {}
 }
@@ -29782,9 +29238,6 @@ function audioDeleteGroup(id) {
 // —— 组编辑弹窗 ——
 var editingAudioGroupId = null
 var activeSlotPanel = null // 当前打开的面板（press/release）
-function audioSlotValue(slot) {
-  return slot === 'press' ? (audioEditPressVal || 'ya1') : (audioEditReleaseVal || 'ya2')
-}
 var audioEditPressVal = 'ya1'
 var audioEditReleaseVal = 'ya2'
 function audioSlotName(id) {
@@ -30948,7 +30401,8 @@ function onDocContextMenu(e) {
       e.preventDefault()
       return
     }
-    if (petOn && isWhaleHit(e)) { e.preventDefault(); toggleMenu(); return }
+    // 2026-11 清理死代码：原来这里还有 `if (petOn && isWhaleHit(e)) { e.preventDefault(); toggleMenu(); return }`，
+    // 但上面的 `if (petOn) {…}` 已对「isWhaleHit 命中」提前 return（petOn 为 false 时该条件又永假）⇒ 不可达，删除。
     if (e.target && e.target.closest) {
       if (e.target.closest('.dshwv-petmenu') || e.target.closest('.dshwv-pop') || e.target.closest('.dshwv-menu') || e.target.closest('.dshwv-menu-btn') ||
           e.target.closest('.dshwv-rolelist') || e.target.closest('.dshwv-audiolist') || e.target.closest('.dshwv-cropmask') ||
@@ -31289,6 +30743,40 @@ function endDrag(e, clickAllowed, cancelled) {
   // 拖拽结束立即保存锚点位置（否则刷新/关闭后位置回退到上次改菜单时）
   saveConfig()
 }
+// 2026-11 修复（失焦还原）：Alt+Tab / Win 键 / 切虚拟桌面时 pointerup 不会派发。
+// 只靠 pointerup/pointercancel 收尾的话会残留三种状态：① body 的压扁 transform
+// （SQUISH）一直挂着；② drag.active 仍为 true ⇒ settle() 走 mid-drag 分支，之后
+// 窗口 resize 不再重排；③ 桌宠/分身拖拽的 pointermove 监听还留着（鼠标一动就跟着走）。
+// blur / 页面隐藏时统一按「取消」语义收尾：回滚到按下前的位置、不落盘 ——
+// 与 pointercancel 走同一批函数（endDrag 的 cancelled 分支 / *DragUp(null) 的
+// noCoord 分支），所以不会把半路位置写进 localStorage。甩抛是在 pointerup 里
+// 主动发起的，失焦时根本到不了那里，这条路径不受影响。
+function dshwvAbortInteractions() {
+  try { if (drag && drag.active) endDrag(null, false, true) } catch (err) {}
+  try { if (petStandDrag) petStandDragUp(null) } catch (err) {}
+  try { if (petCloneDrag) petCloneDragUp(null) } catch (err) {}
+  try { petDragArmed = false } catch (err) {}
+  try { if (pressing) pressUp() } catch (err) {} // 兜底：正常不会走到（pressDown 只跟着 drag）
+  try { configSaveFlush() } catch (err) {} // 失焦前把去抖中的设置落盘（见 configSaveSoon）
+}
+try { window.addEventListener('blur', dshwvAbortInteractions) } catch (err) {}
+try {
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden === true) dshwvAbortInteractions()
+  })
+} catch (err) {}
+// 写盘去抖的 flush 点（见 configSaveSoon）：一次连续操作结束时立刻落盘，不必等 200ms。
+// 延后一拍再 flush，是为了让 endDrag / 控件自己的 change 处理器先跑完 ——
+// 它们会写内存并调用 saveConfig（立即写会自动取消挂起的定时器），顺序反了会先写旧值。
+function configSaveFlushSoon() {
+  try { setTimeout(function () { try { configSaveFlush() } catch (err) {} }, 0) } catch (err) {}
+}
+try { window.addEventListener('pointerup', function () { configSaveFlushSoon() }, true) } catch (err) {}
+try { window.addEventListener('pointercancel', function () { configSaveFlushSoon() }, true) } catch (err) {}
+try { window.addEventListener('change', function () { configSaveFlushSoon() }, true) } catch (err) {}
+// 关窗/切走页面时定时器可能不再执行，必须同步写（pagehide 在 bfcache 场景也会触发）
+try { window.addEventListener('pagehide', function () { try { configSaveFlush() } catch (err) {} }) } catch (err) {}
+try { window.addEventListener('beforeunload', function () { try { configSaveFlush() } catch (err) {} }) } catch (err) {}
 // 窗口尺寸变化时：自由位置的鲸鱼按相对边框锚点重算（保持离边距离，窗口恢复原状即回原位）；
 // 贴边吸附的鲸鱼走 settle()（保持贴边）
 function applyAnchorPos() {

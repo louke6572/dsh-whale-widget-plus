@@ -40,7 +40,9 @@ const ROOT = rootArg
   ? path.resolve(rootArg.slice('--root='.length))
   : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const HOST = 'lib/index.js'
-const README = 'README.md'
+// 合并成单插件仓库后文档只有仓库根一份 README.md（widget/README.md 不存在）；
+// 这里指回根 README，避免审计因为缺文件直接 ENOENT 崩掉。
+const README = '../README.md'
 const CANDIDATES = ['/home/u/.dsh/.dshw-bubble.json', '/home/u/.dsh/profiles/web/.dshw-bubble.json']
 /** Every write the extracted loader attempted (must stay empty). */
 const writeCalls = []

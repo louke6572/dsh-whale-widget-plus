@@ -328,6 +328,10 @@ run('3', '检查打包后是否可以运行', (problems, notes) => {
             const p2 = path.join(dir, f)
             const r2 = pre + f
             if (fs.statSync(p2).isDirectory()) walkUntracked(p2, r2 + '/')
+            // docs/ 下的美术素材是**故意 gitignore** 的（.gitignore 里按 docs/assets-第X版/ 忽略，
+            // 与 assets/ 下的正式素材重复，只为文档截图服务）。它们不进 git 是预期行为，
+            // 报成「git 安装会缺文件」只会制造噪音；运行期需要的素材在 assets/ 下，照旧逐文件查。
+            else if (/^(widget\/)?docs\//.test(r2)) continue
             else if (!gitTracks(r2)) {
               problems.push('files 白名单目录里的 "' + r2 + '" **没有被 git 跟踪** —— npm/zip 安装没事，但 git 安装的用户会缺这个文件')
             }
@@ -340,21 +344,29 @@ run('3', '检查打包后是否可以运行', (problems, notes) => {
     }
   }
   const patch = pkg.dsh && pkg.dsh.bundle && pkg.dsh.bundle.patch
-  if (!patch) problems.push('package.json 缺少 dsh.bundle.patch —— DSH 找不到挂载声明')
+  // dsh.bundle.patch 既可以是单个路径字符串，也可以是路径数组（本仓库合并插件后就是数组）。
+  // 旧实现只认字符串，遇到数组合集直接 patch.replace 抛错 → 整项检查以「脚本 bug」结束，
+  // 后面的打包产物校验全都不跑（真正缺文件也看不见）。
+  const patchList = Array.isArray(patch) ? patch : (patch ? [patch] : [])
+  if (!patchList.length) problems.push('package.json 缺少 dsh.bundle.patch —— DSH 找不到挂载声明')
   else {
-    const rel = patch.replace(/^\.\//, '')
-    if (!has(rel)) problems.push('dsh.bundle.patch 指向不存在的文件：' + patch)
-    else if (files && !files.includes(rel) && !files.some((f) => rel.startsWith(f.replace(/\/$/, '') + '/'))) {
-      problems.push('dsh.bundle.patch 指向的 ' + rel + ' 不在 files 白名单里（装出来没有这个文件）')
-    } else {
-      // 挂载声明里的插件名应与包名一致，否则 patch 挂的不是这个包
+    // 每个 patch 都必须真实存在且被打包；但「name 是否等于包名」只对挂载本插件的那个
+    // patch 有意义 —— presets/*.patch.yml 是 @deepseek-ai/dsh-agent-preset 条目，
+    // 全量比对会把它们误判成「名字不一致」。
+    let mountsSelf = false
+    for (const p of patchList) {
+      const rel = String(p).replace(/^\.\//, '')
+      if (!has(rel)) { problems.push('dsh.bundle.patch 指向不存在的文件：' + p); continue }
+      if (files && !files.includes(rel) && !files.some((f) => rel.startsWith(f.replace(/\/$/, '') + '/'))) {
+        problems.push('dsh.bundle.patch 指向的 ' + rel + ' 不在 files 白名单里（装出来没有这个文件）')
+        continue
+      }
       const yml = read(rel)
       const nm = yml.match(/^\s*name:\s*(.+)$/m)
-      const declared = nm ? nm[1].trim() : null
-      if (declared && declared !== pkg.name) {
-        problems.push(rel + ' 里声明的 name (' + declared + ') 与 package.json 的 name (' + pkg.name + ') 不一致')
-      }
+      const declared = nm ? nm[1].trim().replace(/^['"]|['"]$/g, '') : null
+      if (declared === pkg.name) mountsSelf = true
     }
+    if (!mountsSelf) problems.push('没有任何 dsh.bundle.patch 声明本包名 (' + pkg.name + ') —— 插件的挂载声明可能挂错了包')
   }
 
   // WIDGET_FILE_CANDIDATES 的候选顺序（宿主按这个顺序找前端单文件，装到 npm 后必须命中）
@@ -402,17 +414,22 @@ run('3', '检查打包后是否可以运行', (problems, notes) => {
     for (const need of ['lib/index.js', 'widget/lib/accounting.mjs', FRONT_FILE, 'package.json']) {
       if (!inPack.has(need)) problems.push('发布包里缺少 ' + need)
     }
-    if (patch) {
-      const rel = patch.replace(/^\.\//, '')
+    // dsh.bundle.patch 可能是字符串或字符串数组（本仓库是数组），逐个核对是否真的被打进 tarball。
+    for (const p of patchList) {
+      const rel = String(p).replace(/^\.\//, '')
       if (!inPack.has(rel)) problems.push('发布包里缺少 dsh.bundle.patch 指向的 ' + rel)
     }
     // 候选是三个「安装后可能的相对位置」：lib/（被拆包时）、包根、assets/。
     // 三个都是同一个文件名 whale-widget.js，所以只要包里有任一处即可被 loadWidgetJs() 命中。
+    // 合并成单插件仓库后包的相对布局变成 widget/{lib,assets}/…，这里同时认老布局与新布局，
+    // 否则 monorepo 里明明有文件也会被判定成「候选不存在」。
     const hit = cands.find((c) => {
       const base = path.posix.basename(c)
       return inPack.has(path.posix.join('lib', base))
         || inPack.has(base)
         || inPack.has(path.posix.join('assets', base))
+        || inPack.has(path.posix.join('widget', 'lib', base))
+        || inPack.has(path.posix.join('widget', 'assets', base))
     })
     if (!hit) problems.push('发布包里没有任何 WIDGET_FILE_CANDIDATES 候选（宿主 loadWidgetJs() 会返回空串 → 挂件不出现）')
 

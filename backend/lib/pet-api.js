@@ -14,7 +14,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { isLoopbackReq, json, readBody, sameOrigin, safeEqual } from './http-guard.js';
+import { contentTypeRejection, isLoopbackReq, json, readBody, sameOrigin, safeEqual } from './http-guard.js';
 import { callBridge } from './bridge.js';
 import { QQBOT_ROOT } from './paths.js';
 
@@ -175,8 +175,11 @@ export function createPetApiService({ chat, purpose, petService, stateDir, petRo
   async function handle(req, res, url) {
     if (!isLoopbackReq(req)) { json(res, 403, { ok: false, error: '只接受本机回环访问' }); return; }
     if (req.method !== 'GET' && !sameOrigin(req)) { json(res, 403, { ok: false, error: '跨站请求被拒绝' }); return; }
-    if (req.method !== 'GET' && !String(req.headers['content-type'] ?? '').toLowerCase().includes('application/json')) {
-      json(res, 415, { ok: false, error: '写操作必须是 application/json' });
+    // 和设置页 API 同一口径（http-guard.contentTypeRejection）：只对浏览器写请求强制 JSON，
+    // 桌宠主进程/本机脚本不带 Content-Type 也放行（它们的 body 由 JSON 解析兜底）。
+    const ctRejection = contentTypeRejection(req);
+    if (ctRejection) {
+      json(res, 415, { ok: false, code: 'CONTENT_TYPE', error: ctRejection });
       return;
     }
     if (!authOk(req, url)) {

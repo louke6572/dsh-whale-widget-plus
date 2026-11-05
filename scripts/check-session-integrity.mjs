@@ -29,6 +29,9 @@ const ROOT = argOf('--root', path.join(DSH_HOME, 'sessions'));
 const JSON_OUT = argv.includes('--json');
 const QUARANTINE = argv.includes('--quarantine');
 const LOGFILE = /^session\.v(\d+)\.jsonl(\.zstd)?$/;
+// zlib 的 zstd 解压是 Node 22.15 才有的 API（package.json 的 engines 写的是 >=22.13）。
+// 旧 Node 上不能把「读不了 .zstd」当成"会话损坏"报警 —— 那是环境能力缺失，不是数据问题。
+const ZSTD_OK = typeof zlib.createZstdDecompress === 'function';
 
 /** DSH 的项目目录编码：`--` + cwd（`:` 丢弃，`\`/`/` → `-`，连续非 ASCII → `~XXXX~XXXX~` 包一段）+ `--` */
 export function encodeProjectDir(cwd) {
@@ -57,6 +60,12 @@ export function encodeProjectDir(cwd) {
 function readHeaderLine(file) {
   return new Promise((resolve, reject) => {
     if (file.endsWith('.zstd')) {
+      if (!ZSTD_OK) {
+        const error = new Error('当前 Node 不支持 zstd 解压（需要 ≥ 22.15），无法读取 .zstd 会话文件');
+        error.code = 'ZSTD_UNAVAILABLE';
+        reject(error);
+        return;
+      }
       let settled = false;
       const stream = zlib.createZstdDecompress();
       const chunks = [];
@@ -99,6 +108,7 @@ async function main() {
     process.exit(1);
   }
   const issues = [];
+  const skipped = [];
   const ids = new Map();
   let checked = 0;
   for (const entry of sessionDirs(ROOT)) {
@@ -111,6 +121,9 @@ async function main() {
       try {
         header = JSON.parse(await readHeaderLine(file));
       } catch (error) {
+        // 环境能力缺失（旧 Node 没有 zstd 解压）不等于会话损坏：跳过并单独提示，
+        // 否则用户会看到一堆假的"不可读"而真的问题被淹没。
+        if (error && error.code === 'ZSTD_UNAVAILABLE') { skipped.push(file); continue; }
         issues.push({ kind: '不可读', file, detail: String(error?.message ?? error).slice(0, 160) });
         continue;
       }
@@ -132,9 +145,13 @@ async function main() {
     }
   }
 
-  if (JSON_OUT) console.log(JSON.stringify({ root: ROOT, checked, issues }, null, 2));
+  if (JSON_OUT) console.log(JSON.stringify({ root: ROOT, checked, skipped, issues }, null, 2));
   else {
     console.log(`[session-integrity] 扫描 ${checked} 个会话日志：${ROOT}`);
+    if (skipped.length) {
+      console.log(`[session-integrity] ⚠️ 跳过 ${skipped.length} 个 .zstd 会话：当前 Node ${process.version} 没有 zstd 解压（需要 ≥ 22.15）。`);
+      console.log('[session-integrity]    升级 Node 后重跑即可完整检查；这些文件不会被误报为损坏。');
+    }
     if (!issues.length) console.log('[session-integrity] ✅ 没有发现身份错位/损坏');
     else {
       console.log(`[session-integrity] ❌ 发现 ${issues.length} 个问题：`);

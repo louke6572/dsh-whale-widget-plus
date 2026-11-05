@@ -1,78 +1,95 @@
-# 贡献指南.CONTRIBUTING
+# 贡献指南
 
 感谢你愿意贡献！为了不让任何人的努力白费，请先花一分钟读完本文，无论你是人类，鲸鱼娘，还是硅基生命！
 
 ## 如何贡献？
 
-- 欢迎在issue任何bug反馈和功能建议！bug一定会修，但不一定所有的功能建议都会采纳，这是为了避免代码无限变臃肿成为我们痛恨的一些国产软件的样子。issue请明，你想实现这个issue，还是你希望维护者或者其他人帮你实现这个issue
-- pr必须关联 issue 并写 `close #编号`。你可以自由发起任何关联bug-issue的pr，但是feat（新功能）pr或者refactoring（重构）pr必须关联到已经被维护者批准的issue，否则会被关闭
+- 欢迎在 issue 提任何 bug 反馈和功能建议！bug 一定会修，但不一定所有的功能建议都会采纳，这是为了避免代码无限变臃肿。issue 请说明：你想自己实现这个 issue，还是希望维护者或者其他人帮你实现。
+- pr 必须关联 issue 并写 `close #编号`。你可以自由发起任何关联 bug-issue 的 pr，但是 feat（新功能）pr 或者 refactoring（重构）pr 必须关联到已经被维护者批准的 issue，否则会被关闭。
 
 ## 有什么需要注意的？
 
-- 可以完全用ai发起pr，但我们希望pr的正文描述自己来写，说明你自己做了什么。完全由ai生成的pr可能关闭
-- 代码请保持简洁，解耦性——现有的巨大单文件和耦合代码会慢慢拆分，请不要增加后续拆解难度
+- 可以完全用 AI 发起 pr，但我们希望 pr 的正文描述自己来写，说明你自己做了什么。完全由 AI 生成的 pr 可能关闭。
+- 代码请保持简洁、解耦 —— 现有的巨大单文件和耦合代码会慢慢拆分，请不要增加后续拆解难度。
+- 提交前请跑一遍「本地门禁」（见下文），特别是 `node build.mjs --check`：`lib/client.js` 是**入库的构建产物**，改了 `lib/ui/*.js` 却忘了重建，等于线上跑的还是旧代码。
 
 ## 仓库结构和说明
 
-如果你的pr更新了仓库结构，请顺便更改CONTRIBUTING中的本部分以保持最新
+如果你的 pr 更新了仓库结构，请顺便更新本部分以保持最新。
 
 ### 分支
 
-| 你要改的东西                                                 | 用哪条分支       | 说明                                     |
-| ------------------------------------------------------------ | ---------------- | ---------------------------------------- |
-| **DSH Web 界面里的挂件**（本仓库的主产品，README 描述的就是它） | **`main`**       | npm 包 `dsh-whale-widget`                |
-| Codex 桌面伴随挂件                                           | `For-Codex`      | npm 包 `api-balance-whale`，**独立维护** |
-| Windows 桌面版（Tauri）                                      | `For–WinDesktop` | /                                        |
-
-在当前，平台移植类改动请提到对应分支。提到 `main` 会被关闭，未来三个分支会整合成同一个 —— 除非你的多平台重构方案issue通过了维护者的批准
+本仓库只有一条长期分支 **`main`**，所有改动都提到 `main`。
+（上游挂件/移植版本的文档里可能出现 `For-Codex`、`For–WinDesktop` 之类的分支名 —— 那些属于另外独立维护的移植版本，**不在本仓库**。）
 
 ### 目录结构
 
-下面是你打开仓库第一时间看到的东西。行数按仓库内 LF 内容统计（git 里的真实内容，不是 Windows 工作区的 CRLF），口径与维护者的自检脚本一致。
-
 ```
-dsh-whale-widget/
-├── package.json                     35 行   DSH bundle 插件元数据（dsh.bundle.patch → cordis.patch.yml）
-├── cordis.patch.yml                 15 行   插件挂载声明
-├── README.md                       471 行   安装 / 使用 / 定价 / 完整目录结构（动代码前先读它）
-├── PROVENANCE.md                    35 行   素材来源与许可范围（动 assets/ 前必读）
-├── whale-widget-prompt.md          202 行   完整规格、视觉参数、路由清单、维护提示词（二次开发入口）
+dsh-Dfy/
+├── package.json               DSH bundle 元数据（dsh.bundle.patch → cordis.patch.yml + presets/*.patch.yml）
+├── cordis.patch.yml           挂载声明（dsh-dfy 主插件 + qq-mode 命名空间垫片，两行）
+├── build.mjs                  lib/ui/*.js → lib/client.js（构建产物入库，宿主只认单个 client 入口）
+├── config.example.json        配置骨架（首次安装复制为 config.json；config.json 含凭据，不入库）
 │
-├── lib/
-│   ├── index.js                  3,953 行   宿主侧本体：23 条路由 + 记账接线 + 音效/图片/角色服务
-│   ├── client.js                    64 行   客户端半区：dsh.client 生命周期 + 挂载 whale-widget.js
-│   └── accounting.mjs              252 行   记账内核：定点金额运算 + 余额观测/校正账本
-│
-├── assets/
-│   ├── whale-widget.js          16,853 行   前端挂件本体（**宿主按 mtime 热读这个单文件**）
-│   ├── DSH2.png / DSniang1.png / DSniang02.png   角色图与 README 展示图
-│   ├── rua.gif / bubble-petpet.gif / bubble-money1.gif
-│   ├── Ya1.mp3 / Ya2.mp3 / D1.mp3 / D2.mp3  预置音效
-│   └── minecraft-exp-orb.wav / task-end-a.wav
-│
-├── tools/
-│   └── z-layer-audit.mjs            59 行   浮层 z 层级自检（CI 与发布流程都会跑）
-│
-└── .github/workflows/
-    ├── ci.yml                       68 行   push / PR 到 main：图层审计 + 语法 + 开发机路径扫描
-    └── publish.yml                 186 行   **手动触发**：发布 npm + 建 GitHub Release
+├── lib/                       宿主入口与设置界面
+│   ├── index.js               宿主侧本体
+│   └── ui/                    设置界面源码（改完必须 node build.mjs）
+├── backend/                   SurfCore 后端（QQ / B站 / MCP 工具面 / 记账 / 记忆…）
+├── widget/                    小鲸鱼挂件与桌宠
+│   ├── lib/index.js           宿主侧路由与服务
+│   ├── assets/                前端本体 whale-widget.js（宿主按 mtime 热读）+ 美术素材
+│   └── tools/                 0 依赖的审计/回归脚本（CI 全部会跑，见下）
+├── src/                       桥接与 MCP（bridge.js、mcp-*.js、voice-*、人格/记忆）
+├── dsh/agent-presets/         Agent preset 源（qq-chat / qq-chat-v2，人格与工具面在这里改）
+├── presets/                   由源生成的 bundle patch 文件（勿手改）
+├── shims/qq-mode/             QQ 桥接的 Config 命名空间垫片
+├── scripts/                   安装 / 维护 / 审计脚本
+├── roles/                    默认人格卡    examples/  示例角色与记忆卡
+├── locale/                   文案元数据
+└── .github/workflows/         ci.yml（push/PR 门禁）、publish.yml（tag 发布门禁）
 ```
 
-> 上面的行数会随代码变化，不是硬约束。想核对或更新，用 `git ls-tree -r --long main` 看文件清单，用 `git show main:<路径>` 自行统计行数即可；改完请顺手更新本节和 README 里对应的数字。
+### 本地门禁（提交前）
+
+```powershell
+node build.mjs --check                              # 构建产物与源一致
+node scripts/build-agent-preset-patches.mjs --check # preset 产物与源一致（需要先 npm install）
+node --check <改过的 .mjs/.js>                      # 语法
+node scripts/privacy-scan.mjs --strict              # 本机路径 / 账号 / 令牌 / 私钥
+node scripts/version.mjs check                      # 版本面一致
+node widget/tools/ci-audit.mjs --no-pack            # 路由安全 / 接口对等 / 注入面
+node widget/tools/bubble-config-audit.mjs           # 泡泡配置「全量替换」语义
+node widget/tools/choice-options-audit.mjs          # 并列候选不被静默裁掉
+node widget/tools/check-dead-settings.mjs           # 「控件有值、没有消费方」初筛
+node widget/tools/expr-smoke.mjs                    # 表情包清单 / 图片路由 / 配置键冒烟
+node widget/tools/ci-audit-selftest.mjs             # 审计脚本自检
+```
+
+除 `ci-audit.mjs --pack` 外都是 0 依赖脚本，`npm install` 之前也能跑；CI 跑的就是这一组。
 
 ### 发布流程（改版本号前必读）
 
-**发布是手动触发的，push 不会发版。**
+**版本号是单一真相：只在根 `package.json` 里写一份。** 文档里对外展示的版本面（README 顶部横幅、
+AGENT.md 汇报模板、CHANGELOG 小节）必须与它一致 —— `node scripts/version.mjs check` 会逐一校验，
+CI 与发布门禁都会跑。
 
-- **日常检查**：`.github/workflows/ci.yml` 在 push 到 `main` 和 PR 到 `main` 时自动跑，只做检查、权限 `contents: read`、**永不发布**。它跑三件事：图层自检、两个前端/宿主文件的语法检查、以及"发布副本不得含开发机绝对路径"的扫描。
-- **真正发版**：`.github/workflows/publish.yml` **只有手动触发**（GitHub Actions 页面的 Run workflow，或 `gh workflow run publish.yml`）。它可以填一个"发版原因"（会写在 Release 说明最前面），也支持 `dry_run` 演练 —— 跑完全部门禁并生成 Release 说明，但**不发布、不建 Release**。
-- **版本号不自动递增**：发出去的版本号就是 `package.json` 里的 `version` 字段。改版本号 → push → 手动触发，才会发布 npm 并创建 `v<version>` tag 与 GitHub Release。
-- **为什么必须手动**：npm 同名版本一旦发布就**不能覆盖**，只能 deprecate。所以"某次 push 恰好带了 version 变更就自动发布"是不安全的，这一步必须有人把关。
-- **发布前的门禁**：`publish.yml` 会在发布前把与 `ci.yml` 相同的检查再跑一遍（图层审计 + 语法 + 开发机路径），**审计不过就不允许发布**；另外如果 `package.json` 的版本号在 npm 上已经存在，会直接跳过发布，避免重复触发把 workflow 炸掉。
-- **发布副本必须先 strip**：宿主发布前必须跑一次 `_strip-dev-paths.mjs --apply`（它会删掉 `RUA_GIF_CANDIDATES` / `IMAGE_CANDIDATES` 这类开发机候选路径）。忘了跑的后果是老用户拿到的包会去读不存在的本机路径 —— 这正是 CI 里那个 `TestBox` 扫描要拦的东西。
-- 发布只允许在 `main` 上触发：手动触发时如果 `Use workflow from` 选成了别的分支，workflow 会硬失败并提示。
+- **日常检查**：`.github/workflows/ci.yml` 在 push 到 `main` 和 PR 时自动跑：全量 `node --check`、
+  构建产物一致性、版本一致性、隐私扫描（`--strict`）、开发机路径扫描、图层审计、挂件行为回归、
+  `ci-audit` 与审计脚本自检。**它永不发布。**
+- **发版**：
+  1. `node scripts/version.mjs bump patch`（自动同步 README 横幅 / AGENT 汇报模板 / 插入 CHANGELOG 空小节）
+  2. 补 CHANGELOG 小节 → `git add -A && git commit -m "release: vX.Y.Z"`
+  3. `node scripts/version.mjs tag --push` 打注释 tag 并推送
+- **发布门禁**：推送 `v*` tag（或在 Actions 里手动触发）会跑 `.github/workflows/publish.yml`：
+  第一件事就是校验 **tag == `package.json` 的 version**，然后重跑上面同一组检查。门禁失败就不要发。
+- **本插件不做 npm 发布**：安装方式是把 GitHub 仓库 clone 到本机再 `node scripts/setup-dsh.mjs`
+  注册进 DSH profile（见 README）。`publish.yml` 只做门禁，不上传任何产物；GitHub Release 需要手动创建。
+- **发布前必须扫隐私**：`node scripts/privacy-scan.mjs --strict`。历史上踩过的坑是工作树里散落真实的
+  QQ 号 / 本机绝对路径 / 令牌被直接推上去 —— Git 历史里的东西删提交删不掉（还会被 fork 保留）。
+  误报用 `privacy-rules.json` 的 `allowPaths`（整文件）或 `allowRulePairs`（文件 + 规则名，更窄）登记。
+- **自检不过就不要发**：`ci-audit-selftest.mjs` 会证明审计断言不是空转；它红了说明护栏自己坏了。
 
-### 运行时数据放
+### 运行时数据放哪
 
 运行时的东西都在 `$DSH_HOME`（默认 `~/.dsh`）：
 
@@ -81,14 +98,20 @@ dsh-whale-widget/
 | `.dshw-size.json`          | 外观与开关（缩放、音量、音效组、吸附相关）     |
 | `.dshw-usage.json`         | 记账账本 + 按日余额观测 + 用量设置             |
 | `.dshw-turn.json`          | 每轮消耗的 seq（避免热重载后把新轮次当旧轮次） |
-| `.dshw-bubble.json`        | 自定义泡泡配置（点击序列 + 模块库）            |
+| `.dshw-bubble.json`        | 自定义泡泡配置（点击序列 + 模块库；**全量替换**语义，删文件即恢复出厂） |
 | `.dshw-api.json`           | 自定义 API 模型注册表（**不含密钥**）          |
 | `.dshw-usage-archive.json` | 账本归档（明细 90 天 / 2 万条，逐日 365 天）   |
 | `.dshw-codex.json`         | Codex 本地会话统计缓存（**不含任何凭据**）     |
 | `whale-roles/`             | 自定义角色图 + `roles.json` 索引               |
 | `whale-audio/`             | 音频片段 + `audio.json` 索引                   |
 | `whale-bubble-imgs/`       | 泡泡图库 + `bubble-imgs.json` 索引             |
+| `surfcore/`                | QQ / B站 / 桥接配置、记忆卡、账单与遥测（含凭据，**不要外发**） |
 
-### 关于那两个超大文件
+仓库根也会有运行时文件（都已 gitignore，**不要提交**）：`config.json`（含 SnowLuma token）、
+`state/`（桥接令牌、聊天记录、缓存）、`pet/`（本地桌宠状态）。
 
-`assets/whale-widget.js`（16,853 行）和 `lib/index.js`（3,953 行）确实已经很大，我们知道而且正在计划拆分，在拆分落地之前，请按拆分友好的方式写：新逻辑尽量自成一块、少依赖全局状态、不要加深既有耦合
+### 关于那几个超大文件
+
+`widget/assets/whale-widget.js`（前端挂件本体，宿主按 mtime 热读）和由 `lib/ui/*.js` 拼出来的
+`lib/client.js` 确实很大。在拆分落地之前，请按拆分友好的方式写：新逻辑尽量自成一块、少依赖全局状态、
+不要加深既有耦合。`lib/client.js` 是生成物，**不要直接改它** —— 改 `lib/ui/` 里的源文件再跑 `node build.mjs`。

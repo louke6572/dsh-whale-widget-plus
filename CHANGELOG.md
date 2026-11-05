@@ -2,7 +2,36 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
-发布规则见 [docs/guides/VERSIONS.md](docs/guides/VERSIONS.md)。
+发布规则见 [`scripts/version.mjs`](scripts/version.mjs)：`node scripts/version.mjs check` 会校验
+根 `package.json` 与 README 横幅 / AGENT 汇报模板 / CHANGELOG 小节 / git tag 是否一致。
+
+> **版本号说明（合并遗留）**：本文件是 dsh-Dfy / SurfCore / whale-widget 三条线合并后的统一日志。
+> 合并时对外版本号统一为 **0.7.3**（见下一节），因此 `0.8.x` 小节排在它**下面** —— 那些是合并前
+> 独立仓库的历史版本，不是"比 0.7.3 更新"。以根 `package.json`（+ `scripts/version.mjs check`）
+> 作为当前版本，不要从本文件的排列顺序推断新旧。
+
+## [Unreleased]
+
+### 修复（2026-11-05 全面审查）
+
+- **形态切换后 QQ 消息卡丢失**：切回小鲸鱼/换角色时信封入口被摘掉、新消息不记未读，关闭对话窗后入口也不恢复。
+  现在信封是跨形态常驻入口，任何形态下新消息都会累加未读，卡片/菜单同时打开时互斥不再互相遮挡。
+- **语音设置不生效**：设置页读写根级 `voice.tts.*`，桥接只读 `socialV2.voice.tts.*`（配置里两处值早已分叉）；已改为真实路径。
+- **设置页**：管理员 `biliMid/displayName` 回显与校验、群分层未预读导致保存覆盖、只读字段可改、数字输入写 `NaN`、
+  保存失败无提示、扫码轮询与弹窗、时间字段异常导致白屏等。
+- **安全**：`GET /config` 的 unified 分支明文返回 `updates.githubToken`；更新组件 id 命令注入/目录穿越；
+  下载流缺 `error` 监听与背压、重定向上限；发布清单路径越界；`?set=__proto__` 与模型 id 原型污染；bubble 索引路径穿越。
+- **稳定性**：`balance.json` 的 `t0` 未定义、路由包装器无兜底、平台用量请求无超时/去重、主动搭话定时器不幂等、
+  QQ 长轮询无看门狗、设置写盘无去抖、状态文件非原子写。
+- **`src/`**：social-v2 状态合并落盘（300ms，关键点与退出强制 flush）、语音缓冲上限、事件去重与计价口径、日志不再打印 token 片段。
+- **安装/发布**：`bootstrap` 失败退出码恒 0、`install-snowluma` 覆盖损坏配置、`uninstall` 认错包名、发布包缺 `cordis.patch.yml`、
+  preset 守卫壳死路径、CI 门禁补全、publish 增加 tag 与版本一致性校验。
+- **文档**：README 重写（结构重排 + 事实校准）；CONTRIBUTING 按现状重写；补充版本号说明。
+
+### 自检
+
+- `ci-audit`（完整含 npm pack）5/5、`ci-audit-selftest` 14/14、`bubble/choice/dead-settings/z-layer/expr-smoke` 全绿、
+  `privacy-scan --strict` 0 命中、`version.mjs check` 通过、`build.mjs --check` 与源一致、全仓 `node --check` 通过。
 
 ## [0.7.3] - 2026-11-04
 

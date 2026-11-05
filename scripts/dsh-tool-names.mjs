@@ -1,9 +1,7 @@
-// DSH 工具名抽取：**唯一实现**，供
-//   · `scripts/scan-dsh-tool-names.mjs`（人工/升级时对账，打印清单）
-//   · `scripts/test-preset-local-tools.mjs`（登记期断言，防拼错假名）
-// 共同使用。
+// DSH 工具名抽取：**唯一实现**，供 `scripts/scan-dsh-tool-names.mjs`
+// （升级后对账守卫名单，打印清单/退出码）使用。
 //
-// 为什么要抽成模块：这两处过去各有一份实现，而测试那份是**模糊**的
+// 为什么要抽成模块：这里和测试曾经各有一份实现，而测试那份是**模糊**的
 // （`\bname:\s*['"]x['"]` 全文件乱扫 + 只认少数包名前缀 + 只读包根目录的
 // cordis.patch.yml）。结果 0.2.0 对账时把 10 个**真实存在**的工具名误判成
 // 「假名」——`dsh-mcp-resources` 与 `dsh-experimental-tool-agent-team` 不匹配它
@@ -17,6 +15,7 @@
 //      （dsh-tool-subagent 的 subagent / subagent_fork 就是这样声明的）
 //   ③ YAML patch 里的 `toolName: X` 行（任意层级 *.patch.yml，含 presets/ 子目录）
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { dshModulesDir } from './dsh-modules.mjs';
 
@@ -30,9 +29,9 @@ export function dshPackagesDir() {
 
 /** 用户安装的第三方插件目录（也会注册工具：plugin-guard / 超级注入器等）。 */
 export function dshPluginDirs() {
-  const home = process.env.DSH_HOME
-    || (process.env.USERPROFILE ? path.join(process.env.USERPROFILE, '.dsh') : null);
-  return [home ? path.join(home, 'plugins') : null].filter((p) => p && fs.existsSync(p));
+  // 用 os.homedir() 而不是 %USERPROFILE%：本脚本在 macOS/Linux 上也要能跑（CI 就是 ubuntu）。
+  const home = process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
+  return [path.join(home, 'plugins')].filter((p) => fs.existsSync(p));
 }
 
 function walkFiles(dir, out = [], depth = 0, maxDepth = 5) {

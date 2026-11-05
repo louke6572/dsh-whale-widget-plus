@@ -20,6 +20,12 @@ function walk(dir, out = []) {
 }
 
 let total = 0;
+let failed = 0;
+/**
+ * 这是 postinstall 的**尽力修补**：单个文件读不了/写不了（权限、被占用、node_modules
+ * 是别的包管理器接过来的软链）不应该让整次 `npm install` 失败 —— 那会让用户连
+ * 「装依赖」都过不去，却看不出真正原因。所以逐文件 try/catch，最后用一句明确的警告收尾。
+ */
 for (const pkg of TARGETS) {
   const distRoot = path.join(ROOT, 'node_modules', pkg, 'dist');
   if (!fs.existsSync(distRoot)) {
@@ -29,7 +35,14 @@ for (const pkg of TARGETS) {
   let patched = 0;
   for (const file of walk(distRoot)) {
     if (!file.endsWith('.js')) continue;
-    const src = fs.readFileSync(file, 'utf8');
+    let src;
+    try {
+      src = fs.readFileSync(file, 'utf8');
+    } catch (error) {
+      failed += 1;
+      console.log(`[patch-snowluma] ${pkg}: 读不了 ${path.relative(distRoot, file)}（${error?.code ?? error}），跳过`);
+      continue;
+    }
     const next = src.replace(/from\s+'(\.[^']+)'/g, (m, spec) => {
       if (spec.endsWith('.js') || spec.endsWith('.json')) return m;
       const target = path.resolve(path.dirname(file), spec);
@@ -38,11 +51,22 @@ for (const pkg of TARGETS) {
       return m;
     });
     if (next !== src) {
-      fs.writeFileSync(file, next);
-      patched += 1;
+      try {
+        fs.writeFileSync(file, next);
+        patched += 1;
+      } catch (error) {
+        failed += 1;
+        console.log(`[patch-snowluma] ${pkg}: 写不了 ${path.relative(distRoot, file)}（${error?.code ?? error}），跳过`);
+      }
     }
   }
   console.log(`[patch-snowluma] ${pkg}: 修补了 ${patched} 个文件`);
   total += patched;
 }
 console.log(`[patch-snowluma] 合计 ${total} 个文件`);
+if (failed) {
+  // 不 exit 1：postinstall 失败会让 npm install 直接红掉，但这里的修补是"尽力而为"，
+  // 而且真报错时用户也不知道该改什么。只把风险说清楚。
+  console.log(`[patch-snowluma] ⚠️ ${failed} 个文件未能处理（上面有逐条原因）。`);
+  console.log('[patch-snowluma] 若运行时出现 ERR_MODULE_NOT_FOUND（@snowluma/*），请手动重跑：node scripts/patch-snowluma-sdk.mjs');
+}

@@ -38,6 +38,9 @@ const ONE_SECOND = 1000;
 const MAX_INPUT_CHARS = 1200;
 const MAX_HISTORY_MESSAGES = 200;
 const EVENT_LIMIT = 200;
+// 桌宠对话：同时最多几条在跑 / 单条模型调用的超时上限。
+const MAX_CONCURRENT_CHAT = 2;
+const CHAT_LLM_TIMEOUT_MS = 90_000;
 
 function readJson(file, fallback = null) {
   try {
@@ -182,19 +185,29 @@ export function createPetChatService({ ctx, stateDir, pluginLog = () => {}, toke
     fs.mkdirSync(voiceDir, { recursive: true });
   }
 
-  /** 桌宠进程和插件共用的一把本地令牌；只写在本机用户目录里。 */
+  /**
+   * 桌宠进程和插件共用的一把本地令牌；只写在本机用户目录里。
+   *
+   * 内存缓存是必须的：host-token 落盘失败时（只读安装目录/杀软拦截），以前每次调用
+   * 都新生成一个随机令牌 —— pet-api 的 authOk() 和写进 host.json 的令牌因此每次都不一样，
+   * 桌宠永远 401，而且日志里看不出原因。生成一次就固定住，落盘失败也至少进程内一致。
+   */
+  let tokenCache = '';
   function token() {
-    try {
-      const existing = textFile(tokenFile);
-      if (/^[a-f0-9]{32,80}$/.test(existing)) return existing;
-    } catch {}
+    if (/^[a-f0-9]{32,80}$/.test(tokenCache)) return tokenCache;
+    const existing = textFile(tokenFile);
+    if (/^[a-f0-9]{32,80}$/.test(existing)) {
+      tokenCache = existing;
+      return existing;
+    }
     ensureDirs();
     const next = crypto.randomBytes(24).toString('hex');
+    tokenCache = next;
     try {
       fs.writeFileSync(tokenFile, next, { encoding: 'utf8', mode: 0o600 });
       try { fs.chmodSync(tokenFile, 0o600); } catch {}
     } catch (error) {
-      pluginLog('[pet-chat] 写 host-token 失败：', String(error?.message ?? error));
+      pluginLog('[pet-chat] 写 host-token 失败（本次运行内仍使用同一把内存令牌）：', String(error?.message ?? error));
     }
     return next;
   }
@@ -771,6 +784,11 @@ export function createPetChatService({ ctx, stateDir, pluginLog = () => {}, toke
     if (!say) return { ok: false, error: '说点什么吧' };
     const mode = modality === 'voice' ? 'voice' : 'text';
     if (!llmReady()) return { ok: false, error: 'DSH 模型服务还没就绪，稍后再试' };
+    // 并发闸：挂件重连/重复点击时会并行发几条 /chat，而这里每条都是一次完整模型调用。
+    // 以前只把 inFlight 当展示字段，几条并发就翻几倍 token；现在超了就明确拒绝（挂件会重试）。
+    if (inFlight >= MAX_CONCURRENT_CHAT) {
+      return { ok: false, busy: true, error: '上一句话还在说，稍等一下再发' };
+    }
     if (tokenBudget?.block) {
       try {
         const gate = await tokenBudget.block('other');
@@ -790,12 +808,19 @@ export function createPetChatService({ ctx, stateDir, pluginLog = () => {}, toke
       history.messages.length ? '' : `（${owner.name}在桌面上对你说）${say}`,
     ].filter(Boolean).join('\n');
 
+    // 模型流没有超时：DSH 那边一旦卡住，这条请求会永远挂着（inFlight 也永远 >0）。
+    // 给一次明确的 90 秒上限，超时就 abort，让挂件拿到可读错误而不是一直转圈。
+    const controller = new AbortController();
+    const timeoutTimer = setTimeout(() => controller.abort(), CHAT_LLM_TIMEOUT_MS);
+    timeoutTimer.unref?.();
+
     try {
       const result = await complete({
         system,
         user,
         maxTokens: mode === 'voice' ? 400 : 700,
         temperature: s.chat.temperature,
+        signal: controller.signal,
       });
       recordUsage(result.usage, result.model);
       let reply = cleanReply(result.text);
@@ -835,9 +860,12 @@ export function createPetChatService({ ctx, stateDir, pluginLog = () => {}, toke
         voice: aiMessage.audioKey ? { ok: true, key: aiMessage.audioKey } : (mode === 'voice' ? { ok: false, error: lastError || '语音合成失败，已用文字回复' } : null),
       };
     } catch (error) {
-      lastError = String(error?.message ?? error).slice(0, 200);
+      // abort 的报错原文是 "This operation was aborted"，对用户没有意义，翻译成人话。
+      const aborted = controller.signal.aborted;
+      lastError = aborted ? '模型响应超时（90 秒），这次没说完' : String(error?.message ?? error).slice(0, 200);
       return { ok: false, error: lastError };
     } finally {
+      clearTimeout(timeoutTimer);
       inFlight = Math.max(0, inFlight - 1);
     }
   }

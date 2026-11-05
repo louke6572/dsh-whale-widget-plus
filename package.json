@@ -72,6 +72,7 @@
     "examples",
     "dsh",
     "icon.png",
+    "cordis.patch.yml",
     "config.example.json",
     "README.md",
     "AGENT.md",

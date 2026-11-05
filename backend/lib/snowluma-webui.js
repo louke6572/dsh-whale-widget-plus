@@ -10,11 +10,15 @@
  *   · 密码只存在本机 config.json（`snowluma.webuiPassword`），任何接口都不回显；
  *   · token 只在内存里缓存，401 时用密码自动重登一次。
  */
-const TOKEN_TTL_MS = 0; // 0 = 不清除，过期靠 401 自动重登
+// token 有效期：默认 0 = 永不过期（靠 401 自动重登，最省事也最稳）。
+// 2026-11 收尾审计：这里的 TOKEN_TTL_MS/tokenAt 之前是"常量 0 + 只写不读的时间戳"，
+// 看着像死代码；现在把 TTL 变成真开关（环境变量可调），tokenAt 才真正参与判定。
+// 默认值不变（0），旧行为逐字节一致。
+const TOKEN_TTL_MS = Math.max(0, Number(process.env.SURFCORE_SNOWLUMA_TOKEN_TTL_MS) || 0);
 
 export function createSnowLumaWebuiClient({ baseUrl, readConfig, saveConfig, log = () => {} } = {}) {
   let token = '';
-  let tokenAt = 0;
+  let tokenAt = 0; // 上次登录成功的时间戳（仅 TTL>0 时参与 authed 判定）
 
   function urlPath(pathname) {
     const base = typeof baseUrl === 'function' ? baseUrl() : baseUrl;
@@ -46,8 +50,15 @@ export function createSnowLumaWebuiClient({ baseUrl, readConfig, saveConfig, log
     if (typeof saveConfig !== 'function') return;
     saveConfig({ snowluma: { webuiPassword: value } });
   }
+  function tokenValid() {
+    if (!token) return false;
+    if (TOKEN_TTL_MS === 0) return true;
+    return Date.now() - tokenAt < TOKEN_TTL_MS;
+  }
   async function ensureToken({ interactive = false } = {}) {
-    if (token) return true;
+    if (tokenValid()) return true;
+    // 过期（TTL>0）或从未登录：清掉旧 token，用密码重登一次。
+    token = ''; tokenAt = 0;
     const password = storedPassword();
     if (!password) {
       if (interactive) return false;
@@ -88,7 +99,7 @@ export function createSnowLumaWebuiClient({ baseUrl, readConfig, saveConfig, log
   }
 
   return {
-    get authed() { return Boolean(token) && (TOKEN_TTL_MS === 0 || Date.now() - tokenAt < TOKEN_TTL_MS); },
+    get authed() { return tokenValid(); },
     login,
     savePassword,
     hasPassword: () => Boolean(storedPassword()),

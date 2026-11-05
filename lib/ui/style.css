@@ -285,3 +285,21 @@ body[data-ds-dark-theme] .qbw-app .qbw-nav-groups button.on{background:var(--qbw
 .qbw-vtitle{display:block;min-width:0;font-size:12.5px;font-weight:600;line-height:18px;color:var(--qbw-t1);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 a.qbw-vtitle:hover{color:var(--qbw-accent)}
 .qbw-srow-main>.qbw-vtitle{flex:0 1 auto}
+
+/* ── 无障碍：分区标题行现在带 role=button（可 Tab / Enter / 空格展开） ──
+   没有焦点环的话键盘用户看不出焦点停在哪，所以补一条可见焦点样式。 */
+.qbw-app .qbw-group[role="button"]:focus-visible,
+.qbw-app .qbw-sitem:focus-visible{outline:2px solid var(--qbw-accent);outline-offset:2px;border-radius:6px}
+
+/* ── 窄屏：宿主设置弹窗在窄窗口 / 手机浏览器里会缩到 360px 上下 ──
+   状态行标题原本 nowrap，会顶掉右侧按钮或被容器直接裁掉（看不出被截断）；
+   这里允许换行，并让动作区独占一行靠右。 */
+@media (max-width: 420px){
+  .qbw-head{flex-wrap:wrap;row-gap:4px}
+  .qbw-dots{width:100%;margin-left:0;flex-wrap:wrap;gap:8px}
+  .qbw-srow{flex-wrap:wrap}
+  .qbw-srow-main{flex-wrap:wrap}
+  .qbw-srow-title{white-space:normal;overflow-wrap:anywhere}
+  .qbw-srow-acts{flex:1 1 100%;justify-content:flex-end;flex-wrap:wrap;padding-top:2px}
+  .qbw-card>h4{row-gap:4px}
+}

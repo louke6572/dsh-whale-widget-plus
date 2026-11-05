@@ -21,6 +21,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+
+// 仓库根 = 本脚本所在目录的上一级。以前默认取 `path.basename(process.cwd())`：
+// 从 scripts/ 目录里执行会生成 `https://github.com/<owner>/scripts/...` 这种错误占位 URL，
+// 而且结果会随「你在哪个目录敲命令」变化。改成与 cwd 无关的仓库目录名。
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const args = process.argv.slice(2);
 function arg(name, fallback = '') {
@@ -31,7 +37,7 @@ function arg(name, fallback = '') {
 const version = String(arg('version')).trim();
 const file = String(arg('file')).trim();
 const out = String(arg('out', 'version.json')).trim();
-const repo = String(arg('repo', path.basename(process.cwd()))).trim();
+const repo = String(arg('repo', path.basename(REPO_ROOT))).trim();
 const owner = String(arg('owner', '<owner>')).trim();
 const notesFile = String(arg('notes')).trim();
 

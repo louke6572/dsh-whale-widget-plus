@@ -415,6 +415,9 @@ export async function processAudioVolume(file, {
   let res = await run();
   // 原扩展名可能没有可用编码器（如 .amr/.silk 只读）→ 退回 wav 再试一次
   if ((res.error || res.code !== 0 || !fs.existsSync(outPath)) && ext && ext.toLowerCase() !== '.wav') {
+    // 第一次尝试可能已经写出半截文件（ffmpeg 非 0 退出但已落盘）。切换输出路径前先删掉它：
+    // 文件名带随机串，永远不会被复用或覆盖，留着就是在临时目录里永久漏一个文件。
+    try { if (fs.existsSync(outPath)) fs.unlinkSync(outPath); } catch {}
     const wavPath = outPath.replace(/\.[^.]+$/, '.wav');
     const wavArgs = ['-hide_banner', '-loglevel', 'error', '-y', '-i', file, '-af', filters.join(','), '-ac', '1', wavPath];
     res = await new Promise((resolve) => {

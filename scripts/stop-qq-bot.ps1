@@ -10,9 +10,9 @@
 # (that broke "restart bridge on new DSH port" every time DSH restarted).
 # Keep every byte ASCII here so no editor/encoding can break it again.
 #
-# Safety: the launcher (一键启动.bat) auto-restarts node when it dies, so kill the parent
+# Safety: the launcher (.bat file next to this repo) auto-restarts node when it dies, so kill the parent
 # cmd window first, then node. Never kill by port alone: verify the process is node + bridge.js.
-param([switch]$All)
+param([switch]$All, [int]$SnowLumaPort = 0)
 
 $ErrorActionPreference = 'SilentlyContinue'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
@@ -97,16 +97,29 @@ if ($bridgeStopped) {
 }
 
 if ($All) {
-    $slPid = Get-ListenerPid 5100
+    # SnowLuma's listener port is not guaranteed to be 5100 across versions / custom builds.
+    # Use -SnowLumaPort to override; when nothing listens on the default port, fall back to
+    # matching the process by name instead of silently reporting "nothing to stop".
+    $slPort = if ($SnowLumaPort -gt 0) { $SnowLumaPort } else { 5100 }
+    $slPid = Get-ListenerPid $slPort
     if ($slPid) {
         $p = Get-ProcessInfo $slPid
-        if ($p -and $p.Name -imatch 'SnowLuma') {
+        if ($p -and ($p.Name -imatch 'SnowLuma' -or $p.CommandLine -match 'SnowLuma')) {
             Stop-WithParent $slPid 'SnowLuma' | Out-Null
         } else {
-            Write-Output ("  [!] 5100 is held by a non-SnowLuma process (pid={0}); refusing to kill it." -f $slPid)
+            Write-Output ("  [!] port {0} is held by a non-SnowLuma process (pid={1}); refusing to kill it." -f $slPort, $slPid)
         }
     } else {
-        Write-Output '  SnowLuma: nothing listening on 5100'
+        $slProcs = @(Get-CimInstance Win32_Process | Where-Object {
+            ($_.Name -imatch '^SnowLuma') -or ($_.CommandLine -match 'SnowLuma.*index\.mjs')
+        })
+        if ($slProcs.Count -gt 0) {
+            foreach ($proc in $slProcs) {
+                Stop-WithParent ([int]$proc.ProcessId) 'SnowLuma' | Out-Null
+            }
+        } else {
+            Write-Output ("  SnowLuma: nothing listening on {0} and no SnowLuma process found" -f $slPort)
+        }
     }
 }
 

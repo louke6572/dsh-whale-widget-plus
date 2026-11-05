@@ -40,6 +40,38 @@ if (!fs.existsSync(pendingFile)) {
 }
 
 const pending = JSON.parse(fs.readFileSync(pendingFile, 'utf8'));
+
+/**
+ * 安全阀（2026-11 审查）：这里的两个路径都来自 pending.json，而脚本会对它们做破坏性操作
+ *   · `staging` 在成功后 `rmSync(recursive)` 整棵删掉；
+ *   · `target` 被 robocopy /E **覆盖**写。
+ * pending.json 正常由插件生成，但文件可能被手工改过、或来自旧版本残留。因此：
+ *   · staging 只允许在 `~/.dsh` 或系统临时目录之下（插件的 staging 就在 ~/.dsh/surfcore/staging）；
+ *   · target 必须是绝对路径、不是驱动器根、且（存在时）是 DSH 插件目录（有 package.json）。
+ * 不满足就**拒绝执行**（exit 6），绝不在陌生路径上删/覆盖。
+ */
+function isInside(child, parent) {
+  const rel = path.relative(path.resolve(parent), path.resolve(child));
+  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+const stagingRoots = [path.join(os.homedir(), '.dsh'), os.tmpdir()];
+const stagingSafe = Boolean(pending.staging) && stagingRoots.some((root) => isInside(pending.staging, root));
+const targetAbs = path.resolve(String(pending.target ?? ''));
+const targetIsDriveRoot = path.dirname(targetAbs) === targetAbs;
+const targetLooksLikeInstall = fs.existsSync(path.join(targetAbs, 'package.json'));
+if (targetIsDriveRoot) {
+  console.error(`[apply-update] 拒绝执行：target 指向驱动器根（${targetAbs}）`);
+  process.exit(6);
+}
+if (!fs.existsSync(targetAbs)) {
+  console.error(`[apply-update] 拒绝执行：target 不存在（${targetAbs}）`);
+  process.exit(6);
+}
+if (!targetLooksLikeInstall) {
+  console.error(`[apply-update] 拒绝执行：target 里没有 package.json，不像插件安装目录（${targetAbs}）`);
+  process.exit(6);
+}
+
 // 启动标记：插件侧 2.5 秒后检查它，确认"助手真的跑起来了"（Electron 没带 RUN_AS_NODE 时会静默退出）。
 try { fs.writeFileSync(`${pendingFile}.started`, JSON.stringify({ pid: process.pid, at: new Date().toISOString() })); } catch {}
 const logFile = pending.logFile || path.join(path.dirname(pendingFile), 'apply-update.log');
@@ -170,7 +202,12 @@ try {
     process.exit(4);
   }
   log(`[apply-update] 完成并验证：${pending.component} → v${actualVersion}`);
-  try { fs.rmSync(pending.staging, { recursive: true, force: true }); } catch {}
+  if (pending.staging && stagingSafe) {
+    try { fs.rmSync(pending.staging, { recursive: true, force: true }); } catch {}
+  } else if (pending.staging) {
+    // 不在 ~/.dsh / 临时目录之下 ⇒ 不删（可能是手工改过的 pending.json 指到了用户目录）
+    log(`[apply-update] 跳过清理：staging 不在允许的目录内（${pending.staging}），请自行确认后删除`);
+  }
   try { fs.rmSync(pendingFile, { force: true }); } catch {}
   try { fs.rmSync(`${pendingFile}.started`, { force: true }); } catch {}
   try {

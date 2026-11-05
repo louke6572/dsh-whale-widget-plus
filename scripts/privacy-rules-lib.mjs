@@ -40,5 +40,12 @@ export function isNoise(value, rule = {}) {
   // 这类串含小写+大写+数字，能骗过上面的启发式，但它是**时间戳尾巴**，不可能是密钥
   // （真凭据不会恰好以 ISO 时间结尾）。2026-10-26 实测：只这条就占 docs/ 里全部高熵命中。
   if (/-?\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z$/.test(text)) return true;
+  // base64 图片数据（内联 PNG / GIF / JPEG / WEBP 的 data URI）：高熵但显然不是凭据。
+  // 2026-11 实测：widget/tools/expr-smoke.mjs 的 1×1 透明 PNG fixture 会占满「高熵串」规则。
+  if (/^(?:iVBORw0KGgo|R0lGOD|UklGR|\/9j\/)/.test(text)) return true;
+  // 纯标识符 / 点号属性引用且**不含数字**：`storedPassword`、`snowlumaWebuiClient.hasPassword`。
+  // 这是变量/函数引用（谁都能猜到的英文单词），不是随机字面量；
+  // 带数字的（`password: 'hunter2hunter2'`）不会被这条挡掉。
+  if (/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/.test(text) && !/[0-9]/.test(text)) return true;
   return false;
 }

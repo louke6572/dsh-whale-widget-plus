@@ -61,6 +61,17 @@ ${body}
 });
 `;
 
+// 只认一个选项。以前 `process.argv.includes` 对未知参数是**静默忽略**：
+// `node build.mjs --chek`（手滑打错）会走"构建"分支把 lib/client.js 覆盖掉，
+// 而使用者以为自己在做校验 —— CI 里打错一个字母就会悄悄改写构建产物。
+const KNOWN_FLAGS = new Set(["--check"]);
+const unknown = process.argv.slice(2).filter((a) => !KNOWN_FLAGS.has(a));
+if (unknown.length) {
+  console.error(`❌ 不认识的参数：${unknown.join(" ")}`);
+  console.error("用法：node build.mjs             # 生成 lib/client.js");
+  console.error("      node build.mjs --check     # 只校验产物与源一致（不一致 exit 1）");
+  process.exit(2);
+}
 const check = process.argv.includes("--check");
 const outPath = path.join(here, "lib", "client.js");
 if (check) {

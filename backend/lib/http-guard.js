@@ -26,12 +26,48 @@ export function readBody(req, limit = 512 * 1024) {
     const chunks = [];
     req.on('data', (chunk) => {
       size += chunk.length;
-      if (size > limit) { reject(new Error('请求体过大')); req.destroy(); return; }
+      if (size > limit) {
+        // 带上 statusCode：上层（lib/index.js 的 route catch）据此回 413，
+        // 而不是把「请求体过大」当成 5xx 内部错误（以前用户只看到「服务器 500」）。
+        const error = new Error('请求体过大');
+        error.statusCode = 413;
+        error.code = 'BODY_TOO_LARGE';
+        reject(error);
+        req.destroy();
+        return;
+      }
       chunks.push(chunk);
     });
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     req.on('error', reject);
   });
+}
+
+/**
+ * 读请求体并按 JSON 解析（空体 → `{}`）。
+ *
+ * 为什么不各路由自己 `JSON.parse(await readBody(req) || '{}')`：那样解析失败会抛到
+ * 统一 catch，变成 500 + 一段 V8 解析器原文（`Unexpected token } ...`）——
+ * 设置页既拿不到可读提示，错误码也错了（这本该是 400 客户端错误）。
+ * 这里把失败翻译成带 statusCode 的 Error，由上层统一回 400。
+ */
+export async function readJsonBody(req, limit) {
+  const text = await readBody(req, limit);
+  const raw = String(text ?? '').trim();
+  if (!raw) return {};
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    const error = new Error('请求体不是合法 JSON');
+    error.statusCode = 400;
+    error.code = 'BAD_JSON';
+    throw error;
+  }
+  // 所有路由都按对象读 body（`body.action` / `body.qq`…）。如果客户端发了 `null` / 数组 /
+  // 数字，后面的 `body.qq = …` 在 ESM 严格模式下会抛 TypeError 变成 500 —— 统一收敛成 {}，
+  // 让路由自己的「缺参数」分支去回 400。
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
 }
 
 /**
@@ -71,11 +107,50 @@ export function sameOrigin(req) {
   }
 }
 
+/**
+ * 请求是不是**浏览器**发出来的。
+ *
+ * 判据只用浏览器会强制附加、脚本无法伪造的头（Origin / Sec-Fetch-*），不看
+ * User-Agent（UA 谁都能改）。curl、本机脚本、桌宠进程通常一个都不带。
+ */
+export function isBrowserRequest(req) {
+  const headers = req.headers ?? {};
+  if (headers.origin) return true;
+  return Boolean(headers['sec-fetch-site'] || headers['sec-fetch-mode'] || headers['sec-fetch-dest']);
+}
+
+/**
+ * 写接口的 Content-Type 是否可接受：`application/json`，允许带 charset 等参数。
+ * 用「拆分后精确相等」而不是 `includes('application/json')` —— 后者会让
+ * `text/plain; note=application/json` 这种冒充头也混过去。
+ */
+export function hasJsonContentType(req) {
+  const raw = String(req.headers?.['content-type'] ?? '').trim().toLowerCase();
+  return raw.split(';')[0].trim() === 'application/json';
+}
+
+/**
+ * 写接口的 Content-Type 校验（**只对浏览器请求强制**）。
+ *
+ * 为什么放宽：这个判据原本对**所有** POST 生效，于是 curl / 本机脚本 / 文件回放
+ * 这类不带 Content-Type 的合法调用会被 415 挡掉，用户以为服务坏了。真正要防的是
+ * 浏览器里的跨站表单/文本提交（简单请求不需要预检就能打到本机端口），所以只对
+ * 带浏览器信号的请求强制 JSON；非浏览器请求的 body 由 readJsonBody 按 JSON 解析，
+ * 解析失败自然回 400，不会比之前更宽松（跨站写还另有一层 sameOrigin）。
+ *
+ * 返回 null 表示放行，否则返回给客户端的中文原因。
+ */
+export function contentTypeRejection(req) {
+  if (req.method === 'GET' || req.method === 'HEAD') return null;
+  if (!isBrowserRequest(req)) return null;
+  if (hasJsonContentType(req)) return null;
+  return '写操作必须是 application/json';
+}
+
 /** 定长比较令牌：`!==` 会在第一个不同字符处短路，可被本机进程用响应时延逐字节试探。 */
 export function safeEqual(a, b) {
   const left = Buffer.from(String(a ?? ''));
-  const right = Buffer.from(String(b ?? ''));
-  // 空令牌永不通过：`timingSafeEqual` 对两个空 buffer 返回 true，
+  const right = Buffer.from(String(b ?? ''));  // 空令牌永不通过：`timingSafeEqual` 对两个空 buffer 返回 true，
   // 那样"还没生成令牌"就会被当成"令牌正确"。失败关闭。
   if (left.length === 0 || right.length === 0) return false;
   if (left.length !== right.length) return false;

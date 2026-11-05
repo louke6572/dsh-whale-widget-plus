@@ -620,6 +620,10 @@ function soundSetFromUrl(url) {
 }
 const BALANCE_URL = 'https://api.deepseek.com/user/balance'
 const BALANCE_TTL_MS = 25000
+// v882（审查发现，安全）：任何"把请求/配置里的字符串当对象下标、再往读出来的对象上写"的地方，
+//   都必须先挡掉这三个键 —— `obj['__proto__']` 读出来的是 Object.prototype，
+//   在它上面赋值等于**给整个宿主进程的对象挂属性**（原型污染）。集中在这里，便于审计。
+const DANGEROUS_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
 // v781：账号登录路的兜底超时（毫秒）。DSH 账号服务自身默认 30s，太长会把前端 FETCH_TIMEOUT_MS(25s) 先耗掉。
 const ACCOUNT_FALLBACK_MS = 5000
 const RUA_GIF_CANDIDATES = [
@@ -970,6 +974,8 @@ export default {
       return deny(typeof code === 'number' ? code : 403)
     }
     // 统一注册入口：所有路由自动套上信任栅栏
+    // 同一路由只 warn 一次：避免前端轮询把一个必然失败的接口刷成日志洪水
+    const routeErrorWarned = new Set()
     function registerRoute(route) {
       const inner = route && route.handler
       const wrapped = Object.assign({}, route, {
@@ -989,7 +995,29 @@ export default {
               res.setHeader('Vary', 'Origin')
             }
           } catch (err) {}
-          return inner(req, res)
+          // v882（审查发现，稳定性）：**兜底捕获**。本文件里各 handler 大多自带 try/catch，但
+          //   ① 少数同步 handler / 读 body 后再 await 的分支会在自己的 try 之外抛错；
+          //   ② 任何 future 改动漏一处，async handler 抛出的异常就变成**未处理的 Promise 拒绝**，
+          //      客户端只能等到超时（socket 一直挂着直到宿主超时），日志里也看不到路由名。
+          //   所以统一在包装器兜一层：没发过头 → 413（读体超限）/ 500 JSON（错误结构与其他路由一致）；已发过 → 安全收尾。
+          try {
+            return await inner(req, res)
+          } catch (err) {
+            try {
+              const msg = String((err && err.message) || err).slice(0, 200)
+              if (!routeErrorWarned.has(route.path)) {
+                routeErrorWarned.add(route.path)
+                try { console.warn('[whale-balance] 路由处理异常 ' + String(route.path || '') + '：' + msg) } catch (e2) {}
+              }
+              if (res && !res.headersSent && typeof res.writeHead === 'function') {
+                // 读体超限走 413（与 Content-Length 预检同一语义），其它异常 500
+                res.writeHead(Number(err && err.status) || 500, JSON_HEADERS)
+                res.end(JSON.stringify({ ok: false, error: msg }))
+              } else if (res && typeof res.end === 'function' && !res.writableEnded) {
+                res.end()
+              }
+            } catch (e2) {}
+          }
         },
       })
       return ctx.webServer.register(wrapped)
@@ -1872,6 +1900,14 @@ export default {
       }      // 按模型保存提醒/预算：{ modelId, alert?, budget? }
       if (p.modelSettings && p.modelSettings.id) {
         const mid = String(p.modelSettings.id)
+        // v882（审查发现，安全）：`led.settings.models[mid]` 是**用请求里的字符串当下标的读**。
+        //   若 mid = '__proto__'，这一读返回的是 Object.prototype（typeof 也是 object ⇒ 通过下面那个类型判断），
+        //   随后 `cur.alert = …` / `cur.budget = …` / `cur.quota = …` 就成了**往 Object.prototype 上挂属性**
+        //   —— 整个宿主进程（以及所有同进程插件）的每个对象都会继承到这三个键，属于典型的原型污染。
+        //   这里只挡三个危险键（不收紧成纯字母数字白名单：老注册表里可能存在带 . / : 的自定义 id）。
+        if (DANGEROUS_OBJECT_KEYS.has(mid)) {
+          return { ok: false, error: '模型标识不合法' }
+        }
         led.settings.models = led.settings.models && typeof led.settings.models === 'object' ? led.settings.models : {}
         const cur = led.settings.models[mid] && typeof led.settings.models[mid] === 'object' ? led.settings.models[mid] : {}
         if (p.modelSettings.alert && typeof p.modelSettings.alert === 'object') cur.alert = Object.assign({}, cur.alert || {}, p.modelSettings.alert)
@@ -2376,12 +2412,18 @@ export default {
     // 「被诱导去读云元数据把凭据带出来」，而不是「访问本机服务」。
     // decimal / octal / hex 形式的 IPv4 已由 WHATWG URL 规范化成点分十进制，这里只按规范化结果判定。
     // 内网 / 回环地址判定：用于 SSRF 防护（自建网关需显式 allowCustomHost 才放行）。
+    // v800（收尾审计 S2）：只补「确定不可路由」的 `::` / 废弃 site-local(fec0::)。
+    // ⚠️ 刻意**不**把 198.18.0.0/15 与 100.64.0.0/10 判成内网：
+    //   · 198.18.0.0/15 是 Clash / sing-box 等 TUN 模式的 fake-IP 段，代理用户的所有域名
+    //     都会解析到这里（本机实测 api.deepseek.com → 198.18.0.47）；判成内网会**误杀全部公网 API**。
+    //   · 100.64.0.0/10 是运营商级 NAT / Tailscale 常用段，属于"可用服务地址"，不在
+    //     SSRF 要防的「读云元数据/回环控制面」范围内。
     function isPrivateApiHost(host) {
       const h = String(host || '').toLowerCase().replace(/^\[|\]$/g, '')
       if (!h) return false
-      if (h === 'localhost' || h.endsWith('.localhost') || h === '::1') return true
+      if (h === 'localhost' || h.endsWith('.localhost') || h === '::1' || h === '::') return true
       if (h.indexOf('::ffff:') === 0) return true // IPv4-mapped IPv6（如 ::ffff:127.0.0.1）一律按内网处理
-      if (/^f[cd][0-9a-f]{2}:/.test(h) || /^fe[89ab][0-9a-f]:/.test(h)) return true // ULA / link-local
+      if (/^f[cd][0-9a-f]{2}:/.test(h) || /^fe[89ab][0-9a-f]:/.test(h) || h.indexOf('fec0:') === 0) return true // ULA / link-local / 废弃 site-local
       const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h)
       if (!m) return false
       const a = Number(m[1]), b = Number(m[2])
@@ -2391,7 +2433,51 @@ export default {
       if (a === 169 && b === 254) return true
       return false
     }
-    function assertSafeApiUrl(u, opts) {
+    // ── v800（收尾安全修复 S2）：DNS 解析后复核 IP ────────────────────────────
+    // 上面只看 URL 里的主机名，`https://internal.example.com`（A 记录指向 10.x/127.x）
+    // 仍会带着凭据发出去 —— 这是 SSRF 的常见绕过。这里在**发请求前**解析域名，
+    // 任一结果落在回环/内网/链路本地/ULA 就拒绝。
+    // 显式勾选 allowCustomHost 的模型（自建网关 / 本地 Ollama）保持原语义：不强制校验。
+    const DNS_RECHECK_TIMEOUT_MS = 3000
+    function lookupHost(host) {
+      return new Promise((resolve, reject) => {
+        let done = false
+        const timer = setTimeout(() => {
+          if (done) return
+          done = true
+          reject(new Error('DNS_TIMEOUT'))
+        }, DNS_RECHECK_TIMEOUT_MS)
+        if (timer.unref) timer.unref()
+        dns.lookup(host, { all: true, verbatim: true }, (err, addrs) => {
+          if (done) return
+          done = true
+          clearTimeout(timer)
+          if (err) { reject(err); return }
+          resolve(Array.isArray(addrs) ? addrs : (addrs ? [addrs] : []))
+        })
+      })
+    }
+    async function assertResolvedHostSafe(host, opts) {
+      if (opts && opts.allowPrivate === true) return
+      // 字面量 IP（v4/v6）已在 assertSafeApiUrl 里按字符串判过；这里只解析域名。
+      if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.indexOf(':') >= 0) return
+      let addrs
+      try {
+        addrs = await lookupHost(host)
+      } catch (err) {
+        const code = String((err && (err.code || err.message)) || '')
+        // 解析不了就发不出请求；但这是安全闸门，按"无法确认指向公网"拒绝并给可读原因。
+        if (code === 'DNS_TIMEOUT') throw new Error('接口地址解析超时（' + host + '），已拒绝：无法确认它指向公网')
+        throw new Error('接口地址解析失败（' + host + '）：' + (code || 'DNS 错误'))
+      }
+      for (const item of addrs) {
+        const ip = String((item && item.address) || item || '')
+        if (ip && isPrivateApiHost(ip)) {
+          throw new Error('接口地址解析到内网/本机地址（' + host + ' → ' + ip + '），已拒绝（如确需自建网关，请勾选「允许把凭据发送到自定义地址」）')
+        }
+      }
+    }
+    async function assertSafeApiUrl(u, opts) {
       let parsed
       try { parsed = new URL(u) } catch { throw new Error('无效的接口地址') }
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('不支持的协议: ' + parsed.protocol)
@@ -2412,6 +2498,8 @@ export default {
       // v761（安全修复 S1）：URL 里不允许带 userinfo（`https://user:pass@host/`）——
       // 它是把凭据塞进 URL 的另一种写法，也会让日志/报错里出现凭据
       if (parsed.username || parsed.password) throw new Error('接口地址不允许携带用户名/密码')
+      // v800：域名 → IP 复核（挡「公网域名解析到内网」的 SSRF 绕过）
+      await assertResolvedHostSafe(host, opts)
     }
     // —— v761（安全修复 S1）：**凭据目的地白名单** ——
     // 规则：只有当目标 origin **恰好等于该厂商内置模板里写死的端点**时，才允许携带凭据；
@@ -2556,7 +2644,8 @@ export default {
       const headers = headersFromAuth(auth, key)
       // v724：URL 里也支持 {key}（如 Gemini 的 ?key=… 形式；auth 传空串时不带 Authorization 头）
       const u = String(url).replace('{key}', key)
-      assertSafeApiUrl(u, { allowPrivate: o.allowPrivate === true })
+      // v800：assertSafeApiUrl 现在是 async（要 DNS 解析后复核 IP），必须 await。
+      await assertSafeApiUrl(u, { allowPrivate: o.allowPrivate === true })
       const init = { headers, signal: AbortSignal.timeout(15000) }
       const method = httpMethodOf(o)
       if (method !== 'GET') {
@@ -2988,6 +3077,9 @@ export default {
       // v761（安全修复 S1）：凭据名加白名单 —— 原实现接受任意字符串，理论上能写到别的键名上
       if (!/^[A-Za-z0-9_]{1,64}$/.test(keyRef)) return { ok: false, error: '凭据名只能包含字母、数字与下划线（≤64 字符）' }
       const id = p.id ? String(p.id) : ('api_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7))
+      // v882（审查发现，安全）：模型 id 会被当对象下标用（reg.usage[id]、settings.models[id]）⇒
+      //   必须挡掉 __proto__ / constructor / prototype，否则写注册表/配额时会踩到原型链。
+      if (DANGEROUS_OBJECT_KEYS.has(id)) return { ok: false, error: '模型标识不合法' }
       const reg = readApiRegistry()
       let model = reg.models.find((m) => m && m.id === id)
       if (!model) {
@@ -3462,41 +3554,40 @@ export default {
       return { ok: false, error: '无法持久化挂件尺寸' + (lastSizeErr && lastSizeErr.message ? '：' + lastSizeErr.message : '') }
     }
 
-    function readBody(req) {
+    // v882（审查发现）：原来超限时先 reject 再 `req.destroy()` —— 但 destroy 会把 socket 直接掐掉，
+    //   路由自己的 catch 里那句 `res.writeHead(400, …)` 根本发不出去，客户端看到的是 ECONNRESET，
+    //   在界面上表现为"请求失败/网络错误"，与"请求体过大"完全对不上（qq-sync 曾经专门为此打补丁）。
+    //   现在：**超限只停止缓冲**（不 destroy），让调用方把 4xx 正常写回去；内存仍只保留到上限为止。
+    //   错误带 code=BODY_TOO_LARGE，统一包装器（registerRoute）会把它映射成 413。
+    function readBodyLimit(req, maxBytes) {
       return new Promise((resolve, reject) => {
         const chunks = []
+        const limit = Number.isFinite(Number(maxBytes)) && Number(maxBytes) > 0 ? Number(maxBytes) : 8192
         let size = 0
+        let settled = false
+        const fail = (err) => {
+          if (settled) return
+          settled = true
+          reject(err)
+        }
         req.on('data', (c) => {
+          if (settled) return // 已超限：继续消费但不缓冲，避免连接被掐断
           size += c.length
-          if (size > 8192) {
-            reject(new Error('body too large'))
-            req.destroy()
+          if (size > limit) {
+            const err = new Error('body too large')
+            err.code = 'BODY_TOO_LARGE'
+            err.status = 413
+            fail(err)
             return
           }
           chunks.push(c)
         })
-        req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
-        req.on('error', reject)
+        req.on('end', () => { if (!settled) { settled = true; resolve(Buffer.concat(chunks).toString('utf8')) } })
+        req.on('error', (err) => fail(err))
       })
     }
-
-    function readBodyMax(req, maxBytes) {
-      return new Promise((resolve, reject) => {
-        const chunks = []
-        let size = 0
-        req.on('data', (c) => {
-          size += c.length
-          if (size > maxBytes) {
-            reject(new Error('body too large'))
-            req.destroy()
-            return
-          }
-          chunks.push(c)
-        })
-        req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
-        req.on('error', reject)
-      })
-    }
+    function readBody(req) { return readBodyLimit(req, 8192) }
+    function readBodyMax(req, maxBytes) { return readBodyLimit(req, maxBytes) }
 
     // —— 自定义角色存储：whale-roles/ 目录，每个角色一个 <id>.png + roles.json 索引 ——
     function pickRoleDir() {
@@ -3884,9 +3975,22 @@ export default {
         at: Date.now(),
       }
     }
+    // v882（审查发现，稳定性）：这个函数原来有两个坑：
+    //   ① 两个 fetch **都没有超时**（Node/undici 默认 headersTimeout 300s）——平台侧一旦不响应，
+    //      请求会挂好几分钟，期间每次 /balance.json 都会在后台再发起一对新请求，连接只增不减；
+    //   ② **没有在途去重**：并发请求（前端每秒轮询 wait/balance）会各发一对，形成请求风暴。
+    //   所以：加超时 + 复用在途 Promise（失败后自然被 finally 清掉，下次重新取）。
+    const PLATFORM_USAGE_TIMEOUT_MS = 8000
+    let platformUsageInFlight = null
     async function fetchPlatformUsage(force) {
       const now = Date.now()
       if (!force && platformUsageCache && now - platformUsageAt < PLATFORM_USAGE_TTL_MS) return platformUsageCache
+      if (platformUsageInFlight) return platformUsageInFlight
+      platformUsageInFlight = fetchPlatformUsageOnce().finally(() => { platformUsageInFlight = null })
+      return platformUsageInFlight
+    }
+    async function fetchPlatformUsageOnce() {
+      const now = Date.now()
       // 凭据来源优先级：① 官方登录态（桌面端零配置）② 手动 DEEPSEEK_USER_TOKEN（Web 端）
       let origin = 'https://platform.deepseek.com'
       let token = ''
@@ -3909,8 +4013,8 @@ export default {
         const qs = '?month=' + (d.getMonth() + 1) + '&year=' + d.getFullYear()
         const headers = Object.assign({}, extraHeaders, { authorization: 'Bearer ' + token, referer: origin + '/usage', accept: 'application/json' })
         const [a, c] = await Promise.all([
-          fetch(origin + '/api/v0/usage/amount' + qs, { headers: headers }),
-          fetch(origin + '/api/v0/usage/cost' + qs, { headers: headers }),
+          fetch(origin + '/api/v0/usage/amount' + qs, { headers: headers, signal: AbortSignal.timeout(PLATFORM_USAGE_TIMEOUT_MS) }),
+          fetch(origin + '/api/v0/usage/cost' + qs, { headers: headers, signal: AbortSignal.timeout(PLATFORM_USAGE_TIMEOUT_MS) }),
         ])
         if (a.status === 401 || c.status === 401 || a.status === 403 || c.status === 403) { platformUsageCode = 'AUTH_FAILED'; return null }
         if (!a.ok || !c.ok) { platformUsageCode = 'HTTP_' + a.status; return null }
@@ -3967,7 +4071,8 @@ export default {
           res.writeHead(405, JSON_HEADERS)
           res.end(JSON.stringify({ ok: false, code: 'METHOD' }))
         } catch (err) {
-          res.writeHead(500, JSON_HEADERS)
+          // v882：读体超限（BODY_TOO_LARGE）带 status=413 —— 照抄它，别一律报 500
+          res.writeHead(Number(err && err.status) || 500, JSON_HEADERS)
           res.end(JSON.stringify({ ok: false, code: 'ERROR', error: String((err && err.message) || err).slice(0, 160) }))
         }
       },
@@ -3977,6 +4082,10 @@ export default {
       kind: 'exact',
       path: '/dsh-whale/balance.json',
       handler: async (req, res) => {
+        // v882（审查发现）：这里原来没有 `t0`，而下面两处 `Date.now() - t0` 都写在 try/catch 里
+        //   ⇒ ReferenceError 被静默吞掉，`balanceLast` **永远是 null**，「关于/自检」面板的
+        //   「余额取数」一行因此永远显示"本次会话尚未取过"。t0 必须在取数前就位。
+        const t0 = Date.now()
         // 后台刷新平台用量（不阻塞本次响应；有缓存时响应里直接用缓存值）
         try { fetchPlatformUsage(false).catch(function () {}) } catch (err) {}
         try {
@@ -4354,6 +4463,13 @@ export default {
       kind: 'exact',
       path: '/dsh-whale/update-check.json',
       handler: async (req, res) => {
+        // v882（审查发现）：这是一个"点一下才联网"的 GET 接口，内部会并行打 5 个外部源
+        //   （含 `npm view` 子进程）。原来**任何方法**都会触发一次完整外呼 ⇒ 补方法与缓存前置校验。
+        if (req.method !== 'GET' && req.method !== undefined) {
+          res.writeHead(405, { ...JSON_HEADERS, Allow: 'GET' })
+          res.end(JSON.stringify({ ok: false, error: '不支持的请求方法' }))
+          return
+        }
         const now = Date.now()
         try {
           if (updateCheckCache && now - updateCheckCache.at < 10 * 60 * 1000) {
@@ -4474,7 +4590,13 @@ export default {
           }
           const fresh = await getBalance(true)
           const led = readUsageLedger()
-          const days = accountingDays(led).sort().reverse().map(day => balanceSummary(led, day))
+          // v882（审查发现）：accountingDays() 是**所有记账本的日期并集**（换过 API key 时旧本的日期也在里面），
+          //   而 balanceSummary() 只认当前本 ⇒ 旧本独有的日期会算成 null 一起下发，前端 `rows.forEach(row => row.day)`
+          //   直接 TypeError，整个「余额校正」弹窗打不开。这里只下发**当前本真有观测行**的日子
+          //   （校正本来就只能针对当前本的行：reconcileBalance 对缺失行会报「这一天没有余额观测记录」）。
+          const days = accountingDays(led).sort().reverse()
+            .map(day => balanceSummary(led, day))
+            .filter(Boolean)
           res.writeHead(200, JSON_HEADERS)
           res.end(JSON.stringify({
             ok: true, days, today: todayKey(), fresh: !!fresh.ok && !fresh.stale,
@@ -4536,10 +4658,16 @@ export default {
      * 通用 SurfCore pet-api 请求：读 host.json 拿 baseUrl + token。
      * 挂件只在本机回环调用，令牌随 DSH 重启自动更新。
      */
-    async function surfcoreRequest(pathname, { method = 'GET', body, timeout = 30000 } = {}) {
+    async function surfcoreRequest(pathname, { method = 'GET', body, timeout = 30000, signal } = {}) {
       const host = readSurfcoreHost()
       if (!host) return null
       const url = String(host.baseUrl).replace(/\/+$/, '') + String(host.api) + pathname
+      // v882（审查发现）：允许调用方传 signal（浏览器断开时由路由层 abort）——
+      //   与既有的超时 signal 合并（AbortSignal.any 不可用时退回只带超时，行为与旧版一致）。
+      let sig
+      try {
+        sig = signal ? AbortSignal.any([signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout)
+      } catch (err) { sig = AbortSignal.timeout(timeout) }
       try {
         const r = await fetch(url, {
           method,
@@ -4549,7 +4677,7 @@ export default {
             ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
           },
           ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-          signal: AbortSignal.timeout(timeout),
+          signal: sig,
         })
         const data = await r.json().catch(() => null)
         if (!data) return null
@@ -4814,14 +4942,16 @@ export default {
         try {
           const url = new URL(req.url || '/', 'http://127.0.0.1')
           if (req.method === 'POST') {
-            // 先按 Content-Length 拒绝超大请求（readBody 只有 8KB 上限，直接 destroy 会让客户端看到 ECONNRESET）
+            // v882（审查发现）：这里原来用 readBody（8KB 上限）却按 64KB 做前置检查 ——
+            //   8~64KB 的请求体会先通过检查、再被 readBody 直接 destroy 连接，客户端看到的是 ECONNRESET
+            //   而不是下面这条 413。改成同一个上限，两处保持一致。
             const declared = Number(req.headers['content-length'] || 0)
             if (declared > 64 * 1024) {
               res.writeHead(413, JSON_HEADERS)
               res.end(JSON.stringify({ ok: false, error: '请求体过大（上限 64KB）' }))
               return
             }
-            const body = JSON.parse((await readBody(req)) || '{}')
+            const body = JSON.parse((await readBodyMax(req, 64 * 1024)) || '{}')
             // 严格校验：只接受字符串，且最多 150 字（和卡片输入框上限一致），不再静默截断/强转
             if (typeof body.text !== 'string') {
               res.writeHead(400, JSON_HEADERS)
@@ -4861,7 +4991,23 @@ export default {
           const wait = Math.max(0, Math.min(25000, Number(url.searchParams.get('wait')) || 0))
           const q = new URLSearchParams({ wait: String(wait), client: 'whale-widget' })
           if (since !== null && since !== '' && since !== 'null') q.set('since', since)
-          const data = await surfcoreRequest(`/events?${q.toString()}`, { timeout: wait + 8000 })
+          // v882（审查发现，稳定性）：长轮询（前端固定 wait=20000）期间若页面刷新/关闭，
+          //   浏览器会断开这条 GET，但旧实现仍会把上游请求跑满 wait+8s（最坏 28 秒）才释放。
+          //   现在把"客户端断开"接到上游 fetch 的 AbortController 上，让连接与定时器立刻回收。
+          const ac = new AbortController()
+          let clientGone = false
+          const onClientClose = () => {
+            if (!res.writableEnded) { clientGone = true; try { ac.abort() } catch (err) {} }
+          }
+          try { req.on('close', onClientClose) } catch (err) {}
+          let data = null
+          try {
+            data = await surfcoreRequest(`/events?${q.toString()}`, { timeout: wait + 8000, signal: ac.signal })
+          } finally {
+            try { req.off('close', onClientClose) } catch (err) {}
+          }
+          // 客户端已经走了：不再往一个已断开的响应上写（旧实现在这里会触发 write-after-end 类噪音）
+          if (clientGone || res.destroyed || res.writableEnded) return
           if (!data || !data.ok) {
             res.writeHead(200, JSON_HEADERS)
             res.end(JSON.stringify({ ok: false, error: (data && data.error) || 'dsh-Dfy 不可达', events: [] }))
@@ -4878,7 +5024,8 @@ export default {
           }))
         } catch (err) {
           try {
-            res.writeHead(500, JSON_HEADERS)
+            // v882：读体超限（BODY_TOO_LARGE）带 status=413 —— 照抄它，别一律报 500
+            res.writeHead(Number(err && err.status) || 500, JSON_HEADERS)
             res.end(JSON.stringify({ ok: false, error: String((err && err.message) || err).slice(0, 200) }))
           } catch (e) {}
         }
@@ -4891,7 +5038,8 @@ export default {
       handler: async (req, res) => {
         try {
           if (req.method === 'PUT' || req.method === 'POST') {
-            const body = await readBody(req)
+            // v882：4 类提示的自定义泡泡内容（多模块文案）合起来可能超过 8KB，抬到 64KB（仍有界）
+            const body = await readBodyMax(req, 64 * 1024)
             const parsed = JSON.parse(body || '{}')
             if (!parsed || typeof parsed !== 'object') throw new Error('bad body')
             const result = writeUsageSettings(parsed)
@@ -4916,7 +5064,9 @@ export default {
       handler: async (req, res) => {
         try {
           if (req.method === 'PUT' || req.method === 'POST') {
-            const body = await readBody(req)
+            // v882：8KB 对"余额接口 body(4000) + auth(1000) + 若干 url"这种完整模型条目偏小，
+            //   合法保存会被判成请求体过大。抬到 64KB（仍有界），与 qq-sync 的上限一致。
+            const body = await readBodyMax(req, 64 * 1024)
             const parsed = JSON.parse(body || '{}')
             const action = String((parsed && parsed.action) || 'save')
             if (action === 'delete') {
@@ -4937,6 +5087,10 @@ export default {
             if (action === 'set-key' || action === 'delete-key') {
               const ref = String(parsed.keyRef || '').trim()
               if (!ref) throw new Error('bad keyRef')
+              // v882（审查发现，安全一致性）：apiSaveModel 早就有凭据名白名单，这里却接受任意字符串 ⇒
+              //   可借 set-key/delete-key 往**任意凭据名**上写/删（例如别的插件在用的 ref）。
+              //   与 apiSaveModel 用同一条规则：字母/数字/下划线，≤64。
+              if (!/^[A-Za-z0-9_]{1,64}$/.test(ref)) throw new Error('凭据名只能包含字母、数字与下划线（≤64 字符）')
               const svc = ctx.credentials
               if (action === 'set-key') {
                 await svc.set(ref, String(parsed.keyValue || ''))
@@ -5026,6 +5180,13 @@ export default {
       path: '/dsh-whale/role-pin.json',
       handler: async (req, res) => {
         try {
+          // v882（审查发现）：这两个写接口原来**不看方法**——只要带 JSON body 就落盘（GET/DELETE 也行）。
+          //   前端固定用 POST；补上方法校验后，非写方法一律 405，语义与其它写接口一致。
+          if (req.method !== 'POST' && req.method !== 'PUT') {
+            res.writeHead(405, { ...JSON_HEADERS, Allow: 'POST, PUT' })
+            res.end(JSON.stringify({ ok: false, error: '不支持的请求方法' }))
+            return
+          }
           const body = await readBodyMax(req, 8192)
           const parsed = JSON.parse(body)
           const id = String(parsed.id || '')
@@ -5051,6 +5212,11 @@ export default {
       path: '/dsh-whale/role-delete.json',
       handler: async (req, res) => {
         try {
+          if (req.method !== 'POST' && req.method !== 'PUT') {
+            res.writeHead(405, { ...JSON_HEADERS, Allow: 'POST, PUT' })
+            res.end(JSON.stringify({ ok: false, error: '不支持的请求方法' }))
+            return
+          }
           const body = await readBodyMax(req, 8192)
           const parsed = JSON.parse(body)
           const id = String(parsed.id || '')
@@ -5330,7 +5496,10 @@ export default {
         try {
           const q = new URL(req.url, 'http://127.0.0.1').searchParams
           const name = String(q.get('name') || '')
-          const file = petVideoList()[name]
+          // v882：清单是普通对象，`list[name]` 对 __proto__/constructor 会命中原型链拿到非字符串，
+          //   后面 path.join() 会抛 TypeError（虽然被本路由 catch 成 404，但没必要走到抛错那一步）。
+          const list = petVideoList()
+          const file = Object.prototype.hasOwnProperty.call(list, name) ? list[name] : ''
           if (!file) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }); res.end('pet animation not found'); return }
           const p = path.join(PET_VIDEO_DIR, file)
           let st = null
@@ -5575,7 +5744,11 @@ export default {
     }
 
     function loadSound(candidates) {
-      for (const p of candidates) {
+      // v882（审查发现）：?set=__proto__ / ?set=constructor 这类 URL 参数会让上层的
+      //   `SOUND_SETS[setName]` 命中**原型链**（Object.prototype / Object 构造函数，都是真值），
+      //   随后把 undefined 当候选列表传进来 ⇒ `for...of undefined` 抛 TypeError（旧版是未处理拒绝）。
+      //   这里做一次形状兜底：不是数组就当"没有候选"，由调用方回 404 / 回退默认音效。
+      for (const p of (Array.isArray(candidates) ? candidates : [])) {
         try {
           const bytes = fs.readFileSync(p)
           if (bytes && bytes.length > 0) return bytes
@@ -5605,10 +5778,13 @@ export default {
       kind: 'exact',
       path: '/dsh-whale/sound/press.mp3',
       handler: (req, res) => {
-        const set = SOUND_SETS[soundSetFromUrl(req.url)] || SOUND_SETS.duck
-        // 自定义音效组：set 为组 id 时按组内 press 片段取音频
+        // v882：只认 SOUND_SETS **自有**键 —— 直接用 `SOUND_SETS[setName]` 会让 __proto__/constructor
+        //   命中原型链，被当成"已知预设组"，既不回退默认音效也不去查用户自定义组。
         const setName = soundSetFromUrl(req.url)
-        if (setName && !SOUND_SETS[setName]) {
+        const isPresetSet = Object.prototype.hasOwnProperty.call(SOUND_SETS, setName)
+        const set = isPresetSet ? SOUND_SETS[setName] : SOUND_SETS.duck
+        // 自定义音效组：set 为组 id 时按组内 press 片段取音频
+        if (setName && !isPresetSet) {
           const fragId = groupFragmentId(setName, 'press')
           if (fragId === '') { res.writeHead(204, { 'Cache-Control': 'no-store' }); res.end(); return } // 留空槽：该事件静音（v752：补 no-store，空响应不允许被缓存）
           const bytes = loadAudioFragmentBytes(fragId)
@@ -5630,9 +5806,10 @@ export default {
       kind: 'exact',
       path: '/dsh-whale/sound/release.mp3',
       handler: (req, res) => {
-        const set = SOUND_SETS[soundSetFromUrl(req.url)] || SOUND_SETS.duck
         const setName = soundSetFromUrl(req.url)
-        if (setName && !SOUND_SETS[setName]) {
+        const isPresetSet = Object.prototype.hasOwnProperty.call(SOUND_SETS, setName)
+        const set = isPresetSet ? SOUND_SETS[setName] : SOUND_SETS.duck
+        if (setName && !isPresetSet) {
           const fragId = groupFragmentId(setName, 'release')
           if (fragId === '') { res.writeHead(204, { 'Cache-Control': 'no-store' }); res.end(); return } // 留空槽：该事件静音（v752：补 no-store，空响应不允许被缓存）
           const bytes = loadAudioFragmentBytes(fragId)
@@ -5663,7 +5840,9 @@ export default {
       handler: (req, res) => {
         let name = ''
         try { name = new URL(req.url, 'http://local').searchParams.get('name') || '' } catch (err) {}
-        const file = PET_VOICE_FILES[name]
+        // v882（审查发现）：`PET_VOICE_FILES[name]` 对 __proto__/constructor 会命中原型链，
+        //   拿到的不是字符串，path.join() 直接 TypeError（旧版是未处理拒绝）⇒ 用自有键判断。
+        const file = Object.prototype.hasOwnProperty.call(PET_VOICE_FILES, name) ? PET_VOICE_FILES[name] : ''
         if (!file) {
           res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' })
           res.end('voice unavailable')
@@ -5731,6 +5910,14 @@ export default {
         const m = /(?:^|&)id=([^&]+)/.exec(q)
         return m ? decodeURIComponent(m[1]) : ''
       } catch (err) { return '' }
+    }
+    // v882（审查发现，防御性加固）：泡泡图 id 只有两种合法来源（上传时生成 / 内置清单），
+    //   但读盘用的索引文件是**用户可编辑的** —— 一旦索引里出现 `../../` 之类 id，
+    //   直接 path.join(dir, id + '.png') 就会越出图库目录。这里与角色图/音频片段保持同一套字符校验。
+    const BUBBLE_IMG_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
+    function bubbleImgFilePath(id, format) {
+      if (typeof id !== 'string' || !BUBBLE_IMG_ID_RE.test(id)) return null
+      return path.join(pickBubbleImgDir(), id + '.' + (format === 'gif' ? 'gif' : 'png'))
     }
     // ===== v829（issue #258）：`.dshw-bubble.json` 是**全量替换** =====
     // 文件里的 items 就是整条序列 —— 出厂快照（BUBBLE_DEFAULT_ITEMS）只在**读不到文件**时兜底。
@@ -6020,6 +6207,12 @@ export default {
       path: '/dsh-whale/bubble-img-upload.json',
       handler: async (req, res) => {
         try {
+          // v882：写接口补方法校验（前端固定 POST；非写方法一律 405，与其它写接口一致）
+          if (req.method !== 'POST' && req.method !== 'PUT') {
+            res.writeHead(405, { ...JSON_HEADERS, Allow: 'POST, PUT' })
+            res.end(JSON.stringify({ ok: false, error: '不支持的请求方法' }))
+            return
+          }
           const body = await readBodyMax(req, 10 * 1024 * 1024)
           const parsed = JSON.parse(body)
           const action = parsed && parsed.action
@@ -6058,8 +6251,8 @@ export default {
             }
             index.images = index.images.filter((x) => x.id !== id)
             writeBubbleImgIndex(index)
-            const ext = img.format === 'gif' ? 'gif' : 'png'
-            try { fs.unlinkSync(path.join(pickBubbleImgDir(), id + '.' + ext)) } catch (err) {}
+            const p = bubbleImgFilePath(id, img.format)
+            if (p) { try { fs.unlinkSync(p) } catch (err) {} }
             res.writeHead(200, JSON_HEADERS)
             res.end(JSON.stringify(bubbleImgPayload()))
             return
@@ -6083,8 +6276,9 @@ export default {
           const index = readBubbleImgIndex()
           const img = index.images.find((x) => x.id === id)
           if (img) {
-            const ext = img.format === 'gif' ? 'gif' : 'png'
-            const bytes = fs.readFileSync(path.join(pickBubbleImgDir(), id + '.' + ext))
+            const p = bubbleImgFilePath(id, img.format)
+            if (!p) throw new Error('bad image id')
+            const bytes = fs.readFileSync(p)
             res.writeHead(200, {
               'Content-Type': img.format === 'gif' ? 'image/gif' : 'image/png',
               'Cache-Control': 'no-store',

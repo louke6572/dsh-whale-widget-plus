@@ -92,11 +92,26 @@ function atomicJson(file, value) {
   fs.renameSync(tmp, file);
 }
 
-export function createGateEventStore({ dir, log = () => {}, maxBytes = 2 * 1024 * 1024, now = () => Date.now() } = {}) {
+export function createGateEventStore({ dir, log = () => {}, maxBytes = 2 * 1024 * 1024, dedupeWindowMs = 60_000, now = () => Date.now() } = {}) {
   if (!dir) throw new Error('gate-events: dir is required');
   const file = path.join(dir, GATE_EVENT_FILE);
   const ackFile = path.join(dir, GATE_EVENT_ACK_FILE);
   fs.mkdirSync(dir, { recursive: true });
+
+  /**
+   * dedupeKey 去重窗口。
+   *
+   * 为什么需要：`dedupeKey` 存在的前提就是「同一件事不要报成 N 条」——例如
+   * `snowluma:send-failed:<key>`、`turn-guard:<code>:<session>`、`limit:<code>:<key>:<setting>`。
+   * 旧实现完全忽略它，每次调用都追加一行：SnowLuma 断线期间控制台列表会被同一件事
+   * 刷屏几十行，操作者反而看不出「一共发生了几类问题」。
+   *
+   * 语义：同 key 在窗口内重复出现 → 不写新行，返回上一条记录并把内存里的 repeatCount +1
+   * （不落盘，仅用于本次进程内调用方判断）。窗口外再次出现 → 正常写新行（说明是真复发）。
+   * 表本身有上限，避免被大量不同 dedupeKey 撑大。
+   */
+  const DEDUPE_MAX_KEYS = 500;
+  const dedupeSeen = new Map(); // dedupeKey -> { at, record }
 
   function rotateIfNeeded() {
     try {
@@ -111,11 +126,12 @@ export function createGateEventStore({ dir, log = () => {}, maxBytes = 2 * 1024 
   }
 
   function record(event = {}) {
+    const stamp = now();
     const level = GATE_LEVELS.includes(event.level) ? event.level : classifyGateEvent(event);
     const stored = {
       schemaVersion: GATE_EVENT_SCHEMA_VERSION,
       id: randomUUID(),
-      at: new Date(now()).toISOString(),
+      at: new Date(stamp).toISOString(),
       level,
       gate: String(event.gate ?? 'unknown').slice(0, 80),
       kind: String(event.kind ?? 'security').slice(0, 40),
@@ -130,11 +146,30 @@ export function createGateEventStore({ dir, log = () => {}, maxBytes = 2 * 1024 
       evidence: safeEvidence(event.evidence ?? {}),
       ack: false,
     };
+    const window = Number.isFinite(Number(dedupeWindowMs)) && Number(dedupeWindowMs) > 0 ? Number(dedupeWindowMs) : 0;
+    if (stored.dedupeKey && window > 0) {
+      const prev = dedupeSeen.get(stored.dedupeKey);
+      if (prev && stamp - prev.at < window) {
+        // 滑动窗口：持续刷同一件事时持续压着（否则断线重连风暴会每分钟灌一行）。
+        prev.at = stamp;
+        prev.record.repeatCount = (Number(prev.record.repeatCount) || 1) + 1;
+        return prev.record;
+      }
+      dedupeSeen.delete(stored.dedupeKey); // 重新排到 Map 末尾，近似 LRU
+    }
     try {
       rotateIfNeeded();
       fs.appendFileSync(file, `${JSON.stringify(stored)}\n`, 'utf8');
     } catch (error) {
       log('[gate-events] 写入失败：', String(error?.message ?? error).slice(0, 160));
+    }
+    if (stored.dedupeKey && window > 0) {
+      dedupeSeen.set(stored.dedupeKey, { at: stamp, record: stored });
+      while (dedupeSeen.size > DEDUPE_MAX_KEYS) {
+        const oldest = dedupeSeen.keys().next().value;
+        if (oldest === undefined) break;
+        dedupeSeen.delete(oldest);
+      }
     }
     return stored;
   }

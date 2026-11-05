@@ -6,8 +6,9 @@
 
 | 范围 | 许可 |
 |---|---|
-| `lib/`、`backend/`、`widget/`、`src/`、`scripts/`、`presets/`、`shims/`、`cordis.patch.yml`、`package.json`、文档与维护脚本 | **MIT**（见 `LICENSE`） |
+| `lib/`、`backend/`、`widget/`、`src/`、`scripts/`、`dsh/`、`presets/`、`shims/`、`locale/`、`public/`、`examples/`、`roles/`、`cordis.patch.yml`、`build.mjs`、`config.example.json`、`package.json`、文档（README / AGENT / CHANGELOG / CONTRIBUTING）与维护脚本 | **MIT**（见 `LICENSE`） |
 | `icon.png`（插件列表图标） | **不适用 MIT**：与 `widget/assets/` 下的美术素材同属"原样提供"，仅用于标识本插件；不授予再许可，也不声明为原创作品。 |
+| `assets/**`（如 `assets/deepseek娘.png`：旧版角色图） | **不适用 MIT**：与 `widget/assets/` 同属美术素材，按 as-is 随包提供，不授予再许可，也不声明为原创作品。 |
 | `widget/assets/**`（图片 / 动图 / 音效，含 `widget/assets/v1` ~ `v5` 五套表情素材） | **不适用 MIT**：由维护者提供或使用 AI 工具生成，按 **as-is** 随插件分发，仅用于运行本插件；不授予再许可，也不声明为原创作品。 |
 | `widget/assets/vN/pack.json`（素材包清单） | **MIT**：纯文本清单（文件名为键的中文显示名、眨眼/情绪/卖萌池声明），属代码范畴。 |
 
@@ -20,6 +21,7 @@
 | `DSniang1.png`（鲸鱼本体，气泡由代码绘制） | **AI 工具生成**的图像，经人工挑选与裁切。生成工具与原始出处**已不可考**（文件内元数据已被剥离，见第三节）。 |
 | `icon.png`（插件列表图标，320×320 PNG） | 由现有素材裁切 / 缩放而来（源头同 `DSniang1.png` 系列，AI 工具生成、出处不可考）。已剥离全部内嵌元数据，块序列仅 `IHDR / IDAT / IEND`。 |
 | `DSniang02.png` | 同上（备用整图，兼容旧版手动安装路径）。 |
+| `assets/deepseek娘.png`（旧版角色图，合并前的 `assets/` 目录遗留） | 同 `DSniang1.png` 系列：AI 工具生成、出处已不可考；现仍随包提供，供旧路径/旧配置引用。 |
 | `DSH2.png`（README 顶部展示图） | 由维护者自行设计与排版（使用在线设计工具），2026-09 替换为清理版（已剥离全部内嵌元数据）。 |
 | `rua.gif`、`bubble-petpet.gif` | 内置动图素材。 |
 | `bubble-money1.gif` | 内置泡泡图（余额预警默认内容的配图）。 |

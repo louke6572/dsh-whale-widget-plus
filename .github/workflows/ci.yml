@@ -14,21 +14,55 @@ jobs:
         with:
           node-version: "22"
 
+      # 入口文件显式点名（历史门禁契约：ci-audit 的 ④ 会检查这两行），
+      # 再把全部 JS/MJS 过一遍解析 —— 以前只检查 4 个文件，src/、scripts/、lib/ui/*、
+      # widget/tools/* 里的语法错误 CI 都看不到（新加的脚本尤其容易踩）。
       - name: 语法检查
         run: |
+          set -o pipefail
           node --check lib/index.js
           node --check widget/lib/index.js
           node --check backend/lib/index.js
           node --check shims/qq-mode/lib/qq-mode.js
+          git ls-files -z '*.js' '*.mjs' | xargs -0 -n1 node --check
+
+      # lib/client.js 是提交进仓库的构建产物（宿主只认这一个入口）。
+      # 改了 lib/ui/* 却忘了 `node build.mjs` = 线上跑的还是旧代码，必须在 CI 挡住。
+      - name: 构建产物与源一致
+        run: node build.mjs --check
+
+      # 版本号是单一真相（根 package.json）；README 横幅 / AGENT 汇报模板 /
+      # CHANGELOG 小节 / tag 与它不一致都算漂移。不需要装依赖。
+      - name: 版本一致性
+        run: node scripts/version.mjs check
+
+      # 本机路径 / QQ 号 / 高熵令牌 / 凭据赋值 / 私钥头 —— 命中即失败，不联网。
+      # --strict：连"扫描不完整"也判失败（否则"0 命中"可能只是没扫完）。
+      - name: 隐私与敏感信息扫描
+        run: node scripts/privacy-scan.mjs --strict
+
+      - name: 开发机路径扫描
+        run: |
+          if grep -rn "TestBox" lib backend/lib widget/lib src scripts; then
+            echo "发现开发机路径 TestBox，请先清理"; exit 1
+          fi
 
       - name: 图层审计
         run: node widget/tools/z-layer-audit.mjs
 
-      - name: 开发机路径扫描
+      # 0 依赖的挂件行为回归（都是"改错了不报错、只静默失效"的那类 bug 的护栏）。
+      # check-dead-settings.mjs 的文件头写着"随仓库发出，挂进 ci.yml"，之前并没有挂。
+      - name: 挂件行为回归（泡泡配置语义 / 并列候选 / 死设置 / 表情包冒烟）
         run: |
-          if grep -rn "TestBox" lib backend/lib widget/lib; then
-            echo "发现开发机路径 TestBox，请先清理"; exit 1
-          fi
+          node widget/tools/bubble-config-audit.mjs
+          node widget/tools/choice-options-audit.mjs
+          node widget/tools/check-dead-settings.mjs
+          node widget/tools/expr-smoke.mjs
 
+      # 核心不变量审计（路由安全 / 接口对等 / 注入面 / CI）。--no-pack 避免在 CI 里跑 npm pack。
       - name: 核心不变量审计
         run: node widget/tools/ci-audit.mjs --no-pack
+
+      # 审计脚本自己的自检：防止"断言空转"（把夹具改坏了审计还绿着）。
+      - name: 审计脚本自检
+        run: node widget/tools/ci-audit-selftest.mjs

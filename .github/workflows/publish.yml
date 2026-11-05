@@ -14,21 +14,60 @@ jobs:
         with:
           node-version: "22"
 
+      # 发布门禁的第一条：tag 必须等于 package.json 的版本，否则会发出"标签写 v0.7.4、
+      # 包内却是 0.7.3"的版本 —— 用户更新检查永远对不上。以前完全没校验这一条。
+      - name: tag 与 package.json 版本一致
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          case "$tag" in
+            v*) ;;
+            *) echo "只接受 v* tag（当前：$tag）"; exit 1 ;;
+          esac
+          node scripts/version.mjs check
+          ver=$(node -p "require('./package.json').version")
+          if [ "$tag" != "v$ver" ]; then
+            echo "tag $tag ≠ package.json v$ver"
+            exit 1
+          fi
+          echo "OK: $tag"
+
       - name: 语法检查
         run: |
+          set -o pipefail
           node --check lib/index.js
           node --check widget/lib/index.js
           node --check backend/lib/index.js
           node --check shims/qq-mode/lib/qq-mode.js
+          git ls-files -z '*.js' '*.mjs' | xargs -0 -n1 node --check
+
+      - name: 构建产物与源一致
+        run: node build.mjs --check
+
+      - name: 版本一致性
+        run: node scripts/version.mjs check
+
+      - name: 隐私与敏感信息扫描
+        run: node scripts/privacy-scan.mjs --strict
+
+      - name: 开发机路径扫描
+        run: |
+          if grep -rn "TestBox" lib backend/lib widget/lib src scripts; then
+            echo "发现开发机路径 TestBox，请先清理"; exit 1
+          fi
 
       - name: 图层审计
         run: node widget/tools/z-layer-audit.mjs
 
-      - name: 开发机路径扫描
+      - name: 挂件行为回归（泡泡配置语义 / 并列候选 / 死设置 / 表情包冒烟）
         run: |
-          if grep -rn "TestBox" lib backend/lib widget/lib; then
-            echo "发现开发机路径 TestBox，请先清理"; exit 1
-          fi
+          node widget/tools/bubble-config-audit.mjs
+          node widget/tools/choice-options-audit.mjs
+          node widget/tools/check-dead-settings.mjs
+          node widget/tools/expr-smoke.mjs
 
       - name: 核心不变量审计
         run: node widget/tools/ci-audit.mjs --no-pack
+
+      - name: 审计脚本自检
+        run: node widget/tools/ci-audit-selftest.mjs

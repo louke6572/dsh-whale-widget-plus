@@ -1,13 +1,17 @@
 ﻿# dsh-Dfy 一键安装（Windows PowerShell）
 #
+# ⚠️ 本文件必须保存为 **UTF-8 with BOM**：Windows PowerShell 5.1 在没有 BOM 时会按 ANSI
+#    解码，中文注释/横幅会变成乱码甚至让脚本解析失败（`powershell -File scripts\bootstrap.ps1`
+#    这条本地执行路径；`irm ... | iex` 走的是已解码的字符串，不受影响）。
+#
 # 普通用户（复制这一行到 PowerShell）：
 #   powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/louke6572/dsh-Dfy/main/scripts/bootstrap.ps1 | iex"
 #
 # 只装挂件/桌宠，不接 QQ（不装 SnowLuma）：
 #   $env:DSHDFY_SKIP_SNOWLUMA = '1'; ... | iex
 #
-# 只检查环境、不安装：
-#   ... | iex -Check
+# 只检查环境、不安装（⚠️ 管道进 iex 时无法传 -Check；用环境变量）：
+#   $env:DSHDFY_CHECK = '1'; ... | iex
 #
 # 自定义安装位置：
 #   $env:DSHDFY_DIR = 'D:\dsh-Dfy'; ... | iex
@@ -18,6 +22,15 @@ param(
 
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+# 失败必须让**退出码**也是失败：AGENT.md / README 把「退出码 0」当作安装成功的判据，
+# 而管道进 iex 的脚本里 `return` 只结束脚本块、退出码仍是 0（2026-11 审查修复）。
+function Fail($m) {
+  Write-Host "  [!!] $m" -ForegroundColor Yellow
+  Write-Host ''
+  Write-Host '安装未完成。按上面的提示修好后重跑同一条命令（已完成的步骤会跳过/复用）。' -ForegroundColor Yellow
+  exit 1
+}
 
 function Say($m = '') { Write-Host $m }
 function Ok($m) { Write-Host "  [OK] $m" -ForegroundColor Green }
@@ -41,13 +54,15 @@ if (-not $nodeExe -and (Test-Path $bundledNode)) {
   Bad 'PATH 里没有 node，改用 DSH 自带的 Node'
 }
 if (-not $nodeExe) {
-  Bad '没找到 Node.js。请先装 Node 22.13+： https://nodejs.org/'
-  return
+  Fail '没找到 Node.js。请先装 Node 22.13+： https://nodejs.org/'
 }
-$nodeVer = (& $nodeExe -v).TrimStart('v')
+$nodeVer = (& $nodeExe -v 2>$null | Out-String).Trim().TrimStart('v')
 $parts = $nodeVer.Split('.')
-$okNode = ([int]$parts[0] -gt 22) -or (([int]$parts[0] -eq 22) -and ([int]$parts[1] -ge 13))
-if ($okNode) { Ok "Node v$nodeVer" } else { Bad "Node v$nodeVer 太老（需要 >= 22.13）"; return }
+$major = 0; $minor = 0
+$parsed = [int]::TryParse($parts[0], [ref]$major) -and $parts.Length -gt 1 -and [int]::TryParse($parts[1], [ref]$minor)
+$okNode = $parsed -and (($major -gt 22) -or (($major -eq 22) -and ($minor -ge 13)))
+if (-not $okNode) { Fail "Node v$nodeVer 太老或无法识别（需要 >= 22.13）" }
+Ok "Node v$nodeVer"
 
 $dshHome = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFILE '.dsh' }
 $hasDsh = Test-Path (Join-Path $dshHome 'profiles')
@@ -56,23 +71,34 @@ if ($hasDsh) { Ok "DSH 配置目录：$dshHome" } else { Bad "没找到 DSH。�
 $gitCmd = Get-Command git -ErrorAction SilentlyContinue
 if ($gitCmd) { Ok 'git 可用' } else { Bad '没有 git，会改用 zip 下载（也能装）' }
 
-if ($Check) { Say "`n仅检查模式，结束。"; return }
+$checkOnly = $Check -or ($env:DSHDFY_CHECK -eq '1')
+if ($checkOnly) { Say "`n仅检查模式，结束。"; exit 0 }
 
 # ── 2. 下载代码 ────────────────────────────────────────────────────────────
 Step 2 '下载 dsh-Dfy'
 $Dir = if ($env:DSHDFY_DIR) { $env:DSHDFY_DIR } else { Join-Path $env:USERPROFILE 'dsh-Dfy' }
 Say "  安装到：$Dir"
 
+# 目录已存在但不像 dsh-Dfy（没有 package.json）：zip 分支里 Move-Item 会把它挪成**子目录**，
+# 结果装出来的路径和打印的不一样。宁可让人先处理，也不静默装错位置。
+if ((Test-Path $Dir) -and -not (Test-Path (Join-Path $Dir 'package.json'))) {
+  Fail "安装目录已存在但不是 dsh-Dfy：$Dir。请移走/改名它，或用 `$env:DSHDFY_DIR 指定别的目录。"
+}
+
 if (Test-Path (Join-Path $Dir 'package.json')) {
   Ok '目录已存在，执行更新'
   if ($gitCmd -and (Test-Path (Join-Path $Dir '.git'))) {
     Push-Location $Dir
-    try { & git pull --ff-only 2>&1 | Out-Null; Ok 'git pull 完成' } catch { Bad 'git pull 失败（继续用现有版本）' }
-    Pop-Location
+    try {
+      # 不要 `2>&1`：PowerShell 5.1 + $ErrorActionPreference='Stop' 会把 git 的 stderr
+      # 包装成 ErrorRecord 并抛出（pull 成功也显示失败）。用 $LASTEXITCODE 判成败。
+      & git pull --ff-only 2>$null | Out-Null
+      if ($LASTEXITCODE -eq 0) { Ok 'git pull 完成' } else { Bad 'git pull 失败（继续用现有版本）' }
+    } finally { Pop-Location }
   }
 } elseif ($gitCmd) {
   & git clone --depth 1 https://github.com/louke6572/dsh-Dfy.git $Dir
-  if ($LASTEXITCODE -ne 0) { Bad 'git clone 失败（检查网络/代理）'; return }
+  if ($LASTEXITCODE -ne 0) { Fail 'git clone 失败（检查网络/代理）' }
   Ok '克隆完成'
 } else {
   $zip = Join-Path $env:TEMP 'dsh-Dfy-main.zip'
@@ -81,6 +107,9 @@ if (Test-Path (Join-Path $Dir 'package.json')) {
   $tmp = Join-Path $env:TEMP ("dshdfy_" + [guid]::NewGuid().ToString('N'))
   Expand-Archive -LiteralPath $zip -DestinationPath $tmp -Force
   $src = Get-ChildItem $tmp -Directory | Select-Object -First 1
+  if (-not $src) { Fail "zip 解压后没有目录（$tmp）" }
+  $parent = Split-Path -Parent $Dir
+  if ($parent -and -not (Test-Path $parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
   Move-Item $src.FullName $Dir
   Ok '解压完成'
 }
@@ -100,10 +129,9 @@ try {
     Bad '没有 npm，改用 DSH 自带的 pnpm'
     & $nodeExe $bundledPnpm install
   } else {
-    Bad '没有 npm 也没有 pnpm，请装 Node 22.13+ 后重试'
-    return
+    Fail '没有 npm 也没有 pnpm，请装 Node 22.13+ 后重试'
   }
-  if ($LASTEXITCODE -ne 0) { Bad '依赖安装失败；检查网络后重跑本命令'; return }
+  if ($LASTEXITCODE -ne 0) { Fail '依赖安装失败；检查网络后重跑本命令（已下载的代码会复用）' }
   Ok '依赖完成'
 } finally { Pop-Location }
 
@@ -113,8 +141,7 @@ Push-Location $Dir
 try {
   & $nodeExe (Join-Path $Dir 'scripts\setup-dsh.mjs')
   if ($LASTEXITCODE -ne 0) {
-    Bad "注册失败。可手动执行：cd `"$Dir`"; node scripts\setup-dsh.mjs"
-    return
+    Fail "注册失败。可手动执行：cd `"$Dir`"; node scripts\setup-dsh.mjs"
   }
   Ok '已注册'
 } finally { Pop-Location }

@@ -65,13 +65,13 @@ const BASE = {
   }, null, 2),
   'cordis.patch.yml': '- insert:\n    - id: dsh-whale-widget\n      name: dsh-whale-widget\n',
   'README.md': '全部 **2 个** `/dsh-whale/*` 路由都已接入信任栅栏。\n',
-  'lib/accounting.mjs': 'export const ok = true\n',
-  'lib/index.js': HOST,
-  'assets/whale-widget.js': FRONT,
+  'widget/lib/accounting.mjs': 'export const ok = true\n',
+  'widget/lib/index.js': HOST,
+  'widget/assets/whale-widget.js': FRONT,
   '.github/workflows/ci.yml': WF,
   '.github/workflows/publish.yml': WF,
-  'tools/ci-audit.allowlist.json': JSON.stringify({
-    allow: [{ key: 'assets/whale-widget.js :: toast.innerHTML = msg', why: '样本用：已知动态入口' }],
+  'widget/tools/ci-audit.allowlist.json': JSON.stringify({
+    allow: [{ key: 'widget/assets/whale-widget.js :: toast.innerHTML = msg', why: '样本用：已知动态入口' }],
   }, null, 2),
 }
 
@@ -119,7 +119,7 @@ check('基线：干净样本必须全绿（五项一起跑，标题即 ci-audit 
 // --- ① 栅栏不变量 ------------------------------------------------------------
 check('① 多出一处绕过 registerRoute 的裸注册 → 必红', () => {
   const dir = writeFixture('c1-bare', {
-    'lib/index.js': HOST.replace(
+    'widget/lib/index.js': HOST.replace(
       "registerRoute({ kind: 'exact', path: '/dsh-whale/widget.js', handler: (q, s) => s.end() })",
       "ctx.webServer.register({ kind: 'exact', path: '/dsh-whale/widget.js', handler: (q, s) => s.end() })",
     ),
@@ -135,25 +135,25 @@ check('① README 声明的路由条数与实际不符 → 必红', () => {
 // --- ② 路由对等 --------------------------------------------------------------
 check('② 前端引用了宿主未注册的路径 → 必红', () => {
   const dir = writeFixture('c2-parity', {
-    'assets/whale-widget.js': FRONT + "var TYPO_URL = '/dsh-whale/balanc.json'\n",
+    'widget/assets/whale-widget.js': FRONT + "var TYPO_URL = '/dsh-whale/balanc.json'\n",
   })
   red(dir, '2', '前端引用不存在的路由')
 })
 
 check('② 只有注释提到不存在的路径 → 必须绿（注释不算引用）', () => {
   const dir = writeFixture('c2-comment', {
-    'assets/whale-widget.js': '// 历史注释：老路由 /dsh-whale/legacy.json 已废弃\n' + FRONT,
+    'widget/assets/whale-widget.js': '// 历史注释：老路由 /dsh-whale/legacy.json 已废弃\n' + FRONT,
   })
   green(dir, '2', '注释里提到不存在的路由')
 })
 
 check('② 动态前缀拼接（能落在已注册路径下）→ 必须绿', () => {
   const dir = writeFixture('c2-prefix', {
-    'lib/index.js': HOST.replace(
+    'widget/lib/index.js': HOST.replace(
       "registerRoute({ kind: 'exact', path: '/dsh-whale/widget.js', handler: (q, s) => s.end() })",
       "registerRoute({ kind: 'exact', path: '/dsh-whale/sound/press.mp3', handler: (q, s) => s.end() })",
     ),
-    'assets/whale-widget.js': FRONT + "var legacy = '/dsh-whale/sound/' + slot + '.mp3'\n",
+    'widget/assets/whale-widget.js': FRONT + "var legacy = '/dsh-whale/sound/' + slot + '.mp3'\n",
   })
   green(dir, '2', '前缀拼接的动态路径')
 })
@@ -161,40 +161,40 @@ check('② 动态前缀拼接（能落在已注册路径下）→ 必须绿', ()
 // --- ⑤ 注入面 ---------------------------------------------------------------
 check('⑤ innerHTML 接上变量 → 必红', () => {
   const dir = writeFixture('c5-inject', {
-    'assets/whale-widget.js': FRONT + 'panel.innerHTML = serverMsg\n',
+    'widget/assets/whale-widget.js': FRONT + 'panel.innerHTML = serverMsg\n',
   })
   red(dir, '5', '未登记的动态写入')
 })
 
 check('⑤ 模板串带 ${} 插值 → 必红', () => {
   const dir = writeFixture('c5-template', {
-    'assets/whale-widget.js': FRONT + 'box.innerHTML = `<b>${name}</b>`\n',
+    'widget/assets/whale-widget.js': FRONT + 'box.innerHTML = `<b>${name}</b>`\n',
   })
   red(dir, '5', '模板串插值')
 })
 
 check('⑤ 登记过、但写法改了（换成别的变量）→ 必红', () => {
   const dir = writeFixture('c5-rekey', {
-    'assets/whale-widget.js': FRONT.replace('toast.innerHTML = msg', 'toast.innerHTML = other'),
+    'widget/assets/whale-widget.js': FRONT.replace('toast.innerHTML = msg', 'toast.innerHTML = other'),
   })
   red(dir, '5', '允许清单只认精确写法')
 })
 
 check('⑤ 允许清单里有已不存在的条目 → 必红（防清单腐烂）', () => {
-  const dir = writeFixture('c5-stale', { 'assets/whale-widget.js': FRONT.replace('toast.innerHTML = msg\n', '') })
+  const dir = writeFixture('c5-stale', { 'widget/assets/whale-widget.js': FRONT.replace('toast.innerHTML = msg\n', '') })
   red(dir, '5', '清单过期条目')
 })
 
 check('⑤ 跨行拼接的静态 SVG → 必须绿（真实写法，不能误判）', () => {
   const dir = writeFixture('c5-multiline', {
-    'assets/whale-widget.js': FRONT + "box.innerHTML = '<svg viewBox=\"0 0 10 10\">' +\n  '<path d=\"M0 0\"/>' +\n  '</svg>'\n",
+    'widget/assets/whale-widget.js': FRONT + "box.innerHTML = '<svg viewBox=\"0 0 10 10\">' +\n  '<path d=\"M0 0\"/>' +\n  '</svg>'\n",
   })
   green(dir, '5', '跨行静态字面量')
 })
 
 check('⑤ 字面量后面还有尾随代码 → 必须绿（.catch(function(){…}) 的真实写法）', () => {
   const dir = writeFixture('c5-tail', {
-    'assets/whale-widget.js': FRONT + "p.then(function () { card.innerHTML = '<div>ok</div>' })\n",
+    'widget/assets/whale-widget.js': FRONT + "p.then(function () { card.innerHTML = '<div>ok</div>' })\n",
   })
   green(dir, '5', '字面量 + 尾随代码')
 })

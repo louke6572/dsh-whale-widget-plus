@@ -167,14 +167,32 @@ export function beijingParts(atMs) {
   };
 }
 
+/**
+ * 节假日数组 → Set 的缓存。
+ *
+ * 为什么需要：`isPeakAt()` 在**最热的读路径**上被逐条采样调用（控制台每 3 秒拉一次
+ * `/api/tokens/summary`，几千条采样 × 每次建一个 50+ 元素的 Set）。表本身不会变，
+ * 建 Set 纯属浪费；这里按数组对象缓存，配置热重载换了新数组也不会串味。
+ */
+const holidaySetCache = new WeakMap();
+function holidaySetOf(holidays) {
+  if (holidays instanceof Set) return holidays;
+  const list = Array.isArray(holidays) ? holidays : [];
+  let cached = holidaySetCache.get(list);
+  if (!cached) {
+    cached = new Set(list);
+    holidaySetCache.set(list, cached);
+  }
+  return cached;
+}
+
 /** 判断某一时刻是否落在高峰时段。 */
 export function isPeakAt(atMs, table = DEFAULT_PRICE_TABLE) {
   const ms = Number(atMs);
   if (!Number.isFinite(ms)) return false;
   const { weekday, hour, date } = beijingParts(ms);
   if (!table.peakWeekdays.includes(weekday)) return false;
-  const holidays = table.holidays instanceof Set ? table.holidays : new Set(table.holidays ?? []);
-  if (holidays.has(date)) return false;
+  if (holidaySetOf(table.holidays).has(date)) return false;
   return (table.peakWindows ?? []).some(([start, end]) => Number.isFinite(start) && Number.isFinite(end) && hour >= start && hour < end);
 }
 

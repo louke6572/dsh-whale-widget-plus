@@ -205,7 +205,12 @@ function agentHeaders(extra = {}) {
  * 超时完全由这里的计时器按调用方预算控制。
  */
 function agentApiLongPoll(path, init = {}) {
-  const timeoutMs = Math.max(1000, Number(init.timeoutMs) || 15000);
+  // 上限必须有：timeoutMs 来自工具入参（由模型生成），没有上限时一次离奇的超大值
+  // 就能让这个 HTTP 请求挂到进程结束。上限与桥接侧 wait 的 maxMs(600s) + 静默余量
+  // 对齐：MAX_WAIT_MS(600000) + maxQuiet(120000) + 20s 网络余量 = 740s，取 750s。
+  const MAX_LONG_POLL_MS = 750_000;
+  const requested = Number(init.timeoutMs) || 15000;
+  const timeoutMs = Math.min(MAX_LONG_POLL_MS, Math.max(1000, requested));
   const url = new URL(`${agentApiBase()}${path}`);
   const body = init.body == null ? '' : String(init.body);
   const headers = agentHeaders(init.headers);

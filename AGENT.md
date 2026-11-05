@@ -32,9 +32,11 @@ powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/lou
 4. `node scripts/setup-dsh.mjs`（自动识别 profile，写 bundle / 预设 / MCP / 生成 config.json）
 5. `node scripts/install-snowluma.mjs --no-launch`（检测或下载官方 Releases）
 
-**验收**：退出码 0，最后打印「完成，只剩两步需要你」。
+**验收**：退出码 0，最后打印「完成，只剩两步需要你」。任何一步失败脚本都会打印 `[!!]` 并以**非 0 退出码**结束
+（别只看最后一行文字；`powershell -c "irm … | iex"` 的退出码就是脚本的退出码）。
 
 只要挂件不接 QQ：命令前加 `$env:DSHDFY_SKIP_SNOWLUMA='1'`。
+只体检不安装：命令前加 `$env:DSHDFY_CHECK='1'`。
 自定义目录：命令前加 `$env:DSHDFY_DIR='D:\dsh-Dfy'`。
 
 ## 二、失败时分步执行

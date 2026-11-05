@@ -14,8 +14,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..');
+// 用 fileURLToPath：`new URL(...).pathname` 在 Windows 上带前导 `/` 且不做百分号解码，
+// 仓库路径含空格/中文时会算错根目录（清单哈希全错、或直接 ENOENT）。
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const verifyRefIdx = args.indexOf('--verify-ref');
 const verifyDirIdx = args.indexOf('--verify');

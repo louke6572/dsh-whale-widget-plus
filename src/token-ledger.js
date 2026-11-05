@@ -840,7 +840,11 @@ export function createTokenLedger({
     }
     for (const s of samples.values()) {
       // 这条采样的计价只算一次：窗口内的桶与窗口外的"总额"共用同一个 p。
-      const p = priceUsage(s.buckets, { model: s.model, at: s.t || endAt, table: priceTable });
+      // 时间兜底与 summary()/conversation()/recent() 用**同一口径**（now()）：
+      // 旧写法这里用 endAt（窗口末端），若某条采样缺 t（理论路径：事件没带 time 且
+      // 调用方没给 at），同一个会话在走势图与汇总里会落在不同峰谷档位，两处金额对不上。
+      // 实际采样必有 t（ingestEvent 保证），所以这是口径统一 + 防御，不是行为变更。
+      const p = priceUsage(s.buckets, { model: s.model, at: s.t || now(), table: priceTable });
       const tokens = totalTokensOf(s.buckets);
       const base = baselines.get(s.sessionId);
       if (!base || s.seq > base.seq) {

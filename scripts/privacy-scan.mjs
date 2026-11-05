@@ -13,6 +13,8 @@
 //   node scripts/privacy-scan.mjs --json         # 机读输出
 //
 // 规则来源：`scripts/privacy-rules.json`（可自己加；里面的值是**你机器上的真实标识**，不入库）。
+//   首次使用：`cp scripts/privacy-rules.example.json scripts/privacy-rules.json`（模板不含真实数据）。
+//   不建这个文件也能跑：内置默认规则已经覆盖本机路径 / QQ 号 / 高熵令牌 / 凭据赋值 / 私钥头。
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -52,34 +54,46 @@ const DEFAULT_RULES = {
     // 报它属于纯粹的噪音（会让整个扫描被无视）。所以只报"含非 hex 字符的长串"。
     { name: '疑似令牌/密钥（高熵串）', pattern: '(?<![0-9a-zA-Z])[0-9a-zA-Z_-]{32,}(?![0-9a-zA-Z])', flags: '', requireNonHex: true },
     // 凭据赋值：**空值/占位符不算**（`accessToken: ''` 是模板常态，报它只会制造噪音）。
-    { name: '疑似凭据赋值（有实际值）', pattern: '(?:access[_-]?token|api[_-]?key|password|passwd|secret)["\']?\\s*[:=]\\s*["\']?[A-Za-z0-9_\\-./+=]{12,}', flags: 'i' },
+    // `valueGroup`：噪音判定只看**值部分**（第 1 组），否则 `hasPassword: x.hasPassword()`
+    // 这种"键里带 password"的代码会把整行当成凭据。
+    { name: '疑似凭据赋值（有实际值）', pattern: '(?:access[_-]?token|api[_-]?key|password|passwd|secret)["\']?\\s*[:=]\\s*["\']?([A-Za-z0-9_\\-./+=]{12,})', flags: 'i', valueGroup: 1 },
     { name: '私钥头', pattern: '-----BEGIN [A-Z ]*PRIVATE KEY-----', flags: '' },
-    { name: '带凭据的 URL', pattern: 'https?://[^/\\s:@]+:[^/\\s:@]+@', flags: 'i' },
+    // 同上：只看密码部分（第 1 组）——`https://user:pass@host` 这类文档示例里的
+    // 全小写占位符会被 isNoise 挡掉，真凭据（含大小写/数字/符号）照常报。
+    { name: '带凭据的 URL', pattern: 'https?://[^/\\s:@]+:([^/\\s:@]+)@', flags: 'i', valueGroup: 1 },
   ],
   // 这些文件本来就不该进公开仓库；出现即失败（无论内容）。
   denyFiles: ['config.json', 'state/', 'audio/', '*.log', '*.bak', '*.bak-*', 'roles/*.md.bak*'],
   // 路径/整行匹配到这些就跳过（脱敏模板、示例、测试夹具、已声明含占位符的文档）。
   // 注意：这是**误报白名单**，不是"这些文件不用检查"——加入前先确认里面确实只有占位数据。
   allowPaths: [
-    'scripts/privacy-', 'config.example.json', 'package-lock.json', 'src/sensitive.js',
+    'scripts/privacy-', 'config.example.json', 'src/sensitive.js',
+    // 包管理器的 lockfile 里全是 base64 integrity 哈希（不是凭据）；将来加锁文件不必再改这里。
+    'package-lock.json', 'pnpm-lock.yaml',
     // 测试夹具/回归脚本：里面是刻意构造的假 ID 与假凭据
-    'scripts/test-', 'scripts/console-ui-', 'scripts/fixtures/', 'scripts/audit-bridge-harness.mjs',
-    // 插件自己的测试也是同一性质（2026-10-26：test-store.mjs 的 `apiKey: 'sk-test-secret'` 被报）。
-    'plugins/surfcore/scripts/test-',
+    'scripts/test-', 'scripts/console-ui-', 'scripts/fixtures/',
     'scripts/check-onebot-status.mjs', 'scripts/send-test-group.mjs', 'scripts/send-voice.mjs',
-    'scripts/setup-dsh.mjs', 'scripts/patch-', 'scripts/verify-', 'scripts/probe-',
-    // ── 以下三项来自一次独立复核：在**全新克隆**里扫描会报 15 条命中，全部是误报，
-    //    但它们此前只写在本地 privacy-rules.json（不入库）里，所以对外部验证者而言
-    //    这道闸门永远是红的。把误报放进来，闸门才是可用的。
-    //    逐条依据：docs/guides/PRIVACY.md 是**讲解脱敏规则**的文档，里面的
-    //    `C:\Users\<名字>\…` / `https://user:pass@host` / `-----BEGIN … PRIVATE KEY-----`
-    //    就是它要举例的占位符；src/bridge.js:1706 是注释里的示例 `D:\...\audio\xxx.mp3`；
+    'scripts/setup-dsh.mjs', 'scripts/patch-',
+    // 挂件侧的行为回归脚本自带 fixture：expr-smoke.mjs 里有一个 1×1 透明 PNG 的 base64。
+    'widget/tools/expr-smoke.mjs',
+    // ── 以下两项来自一次独立复核：它们此前只写在本地 privacy-rules.json（不入库）里，
+    //    所以对外部验证者而言这道闸门永远是红的。把误报放进来，闸门才是可用的。
+    //    逐条依据：src/bridge.js:1706 是注释里的示例 `D:\...\audio\xxx.mp3`；
     //    src/bridge.js 的 `accessToken:` 与 src/dsh-client.js 的 `secret =` 命中的都是
     //    **运行时从配置/凭据文件读取**的赋值，源码里没有任何凭据字面量。
     //    ⚠️ 代价必须说清：allowPaths 是**按文件**粒度放行的，所以 bridge.js / dsh-client.js
-    //    今后新增的真实泄漏不会被扫出来。要收紧，正确做法是给扫描器加
-    //    「文件 + 规则名」粒度（或让凭据规则只认高熵字面量），而不是继续往这里加文件。
-    'docs/guides/PRIVACY.md', 'src/bridge.js', 'src/dsh-client.js',
+    //    今后新增的真实泄漏不会被扫出来。要收紧，正确做法是用下面的 allowRulePairs
+    //    （「文件 + 规则名」粒度）或让凭据规则只认高熵字面量，而不是继续往这里加文件。
+    'src/bridge.js', 'src/dsh-client.js',
+  ],
+  // 「文件 + 规则名」粒度的误报白名单：比 allowPaths 窄（同一文件的其它规则照常扫）。
+  // 2026-11 审查新增：CHANGELOG 里的 `D:\Tools\SnowLuma2` 之类是**示例安装路径**，
+  // 属于历史变更说明的一部分；但 CHANGELOG 里的 QQ 号/令牌仍然要被扫出来。
+  allowRulePairs: [
+    { path: 'CHANGELOG.md', rule: '本机绝对路径（非系统盘的顶层目录）' },
+    // backend/lib/snowluma-install.js:5 是**注释里的举例**（"用户填 D:\软件\SnowLuma2 时…"），
+    // 不是开发机路径。等下次改那个文件时把举例改成 `D:\<目录>\SnowLuma2` 即可删掉这条。
+    { path: 'backend/lib/snowluma-install.js', rule: '本机绝对路径（非系统盘的顶层目录）' },
   ],
 };
 
@@ -93,6 +107,7 @@ function loadRules() {
       deny: [...(raw.deny ?? []), ...DEFAULT_RULES.deny],
       denyFiles: [...(raw.denyFiles ?? []), ...DEFAULT_RULES.denyFiles],
       allowPaths: [...(raw.allowPaths ?? []), ...DEFAULT_RULES.allowPaths],
+      allowRulePairs: [...(raw.allowRulePairs ?? []), ...DEFAULT_RULES.allowRulePairs],
       fromFile: true,
     };
   } catch (error) {
@@ -217,15 +232,39 @@ if (!files.length) {
 }
 
 const allowRe = rules.allowPaths.map((p) => (p.includes('*') ? globToRe(p) : new RegExp(`^${p.replace(/[.+^${}()|[\]\\]/g, '\\$&')}`)));
-const denyFileRes = rules.denyFiles.map((p) => ({ glob: p, re: globToRe(p) }));
+const allowRulePairs = rules.allowRulePairs ?? [];
+
+/**
+ * denyFiles 里的一条 glob 是否命中该路径。
+ *
+ * 2026-11 审查修的真实 bug：以前这里统一用 `globToRe(glob).test(path)`，于是
+ *   · `'state/'`、`'audio/'` 编成 `^state/$` —— 永远匹配不到 `state/foo.json`（目录规则全部失效）；
+ *   · `'*.log'`、`'*.bak'` 编成 `^[^/]*\.log$` —— 只匹配仓库根，子目录里的同名文件漏报。
+ * 现在的语义（与 .gitignore 对齐）：
+ *   · 以 `/` 结尾 → 目录前缀（`state/` 命中 `state/` 与 `state/**`）；
+ *   · 不含 `/` → 匹配**任意层级**的同名文件（basename）；
+ *   · 含 `*` 且含 `/` → 按相对仓库根的完整路径 glob（`roles/*.md.bak*`）。
+ */
+function denyFileMatches(normalized, glob) {
+  if (glob.endsWith('/')) {
+    const dir = glob.slice(0, -1);
+    return normalized === dir || normalized.startsWith(`${dir}/`);
+  }
+  if (!glob.includes('/')) return globToRe(glob).test(path.basename(normalized));
+  return globToRe(glob).test(normalized);
+}
+
+const isAllowedByRulePair = (normalized, ruleName) => allowRulePairs.some(
+  (pair) => ruleName === pair.rule && (normalized === pair.path || normalized.startsWith(pair.path)),
+);
 
 const findings = [];
 const incomplete = [];
 for (const rel of files) {
   const normalized = rel.split(path.sep).join('/');
   // ① 文件级：本来就不该出现的文件
-  for (const { glob, re } of denyFileRes) {
-    if (re.test(normalized)) findings.push({ kind: 'file', rule: `不应入库的文件（${glob}）`, file: normalized, masked: '' });
+  for (const glob of rules.denyFiles) {
+    if (denyFileMatches(normalized, glob)) findings.push({ kind: 'file', rule: `不应入库的文件（${glob}）`, file: normalized, masked: '' });
   }
   if (allowRe.some((re) => re.test(normalized))) continue;
   if (BINARY_EXT.has(path.extname(normalized).toLowerCase())) continue;
@@ -259,8 +298,12 @@ for (const rel of files) {
     while ((m = re.exec(text)) !== null && hits < 3 && attempts < MAX_ATTEMPTS && Date.now() - started < MAX_RULE_MS) {
       attempts += 1;
       const value = m[0];
+      // `valueGroup`：规则把「值」单独捕获时，噪音判定只看值（例如凭据赋值的 RHS），
+      // 否则键名里带 password/apiKey 的正常代码会被整行误报。
+      const noiseValue = rule.valueGroup ? (m[rule.valueGroup] ?? '') : value;
       if (m.index === re.lastIndex) re.lastIndex += 1; // 空匹配保护
-      if (isNoise(value, rule)) continue;
+      if (isNoise(noiseValue, rule)) continue;
+      if (isAllowedByRulePair(normalized, rule.name)) continue;
       hits += 1;
       const line = text.slice(0, m.index).split('\n').length;
       findings.push({ kind: 'content', rule: rule.name, file: normalized, line, masked: mask(value) });
@@ -276,16 +319,6 @@ for (const rel of files) {
   }
 }
 
-/**
- * 噪音过滤：把**明显不是秘密**的命中挡掉。
- *
- * 为什么必须做：一个"什么都报"的扫描器等于没有扫描器——用户看两眼就不看了。
- * 这里挡掉的三类是实测出来的主要噪音源：
- *   - 全 hex 的长串：git commit SHA（`dea3ce8c408a…`）而不是密钥；
- *   - 全大写下划线的长串：环境变量名 / 常量名（`PLAYWRIGHT_MODULE`）；
- *   - 连字符/点号分隔的小写长串：文件名/包名/路径片段（`bridge.js.bak-20260821-1722-currentRoleHint`）。
- * 真凭据是**混合大小写 + 数字**的高熵串，因此下面要求"同时含小写与大写与数字"。
- */
 /**
  * 噪音过滤：把**明显不是秘密**的命中挡掉。
  *
@@ -308,7 +341,7 @@ if (asJson) {
       console.log(`   - [${f.kind}] ${f.rule} → ${f.file}${f.masked ? `  （命中片段：${f.masked}）` : ''}`);
     }
     console.log('[privacy-scan] 处理方式：① 真实数据删掉/换占位符；② 该文件本就该忽略 → 加进 .gitignore；');
-    console.log('[privacy-scan] ③ 是脱敏模板/测试夹具的误报 → 加进 privacy-rules.json 的 allowPaths。');
+    console.log('[privacy-scan] ③ 是脱敏模板/测试夹具的误报 → 加进 privacy-rules.json 的 allowPaths；只有单条规则误报时用 allowRulePairs（文件 + 规则名，更窄）。');
     console.log('[privacy-scan] ⚠️ 已经提交过的内容光删文件没用：还要清历史（git filter-repo）或干脆新建仓库。');
   }
   if (incomplete.length) {

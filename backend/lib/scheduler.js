@@ -46,6 +46,33 @@ function platformDir() {
   return activePlatformStateDir(path.join(dshHome, 'surfcore', 'bili'))
 }
 
+// 状态文件写入序号：同一进程内两次写同一文件不能落到同一个临时名上。
+let stateTmpSeq = 0
+
+/**
+ * 状态文件原子写（临时文件 + rename）。
+ *
+ * 为什么不能直接 `fs.writeFileSync(STATE, …)`：tick 是 60 秒一次、且各 tick 之间可能
+ * 重叠（prompt 回合要跑很久），非原子写在「写到一半」时被另一个 tick 读到就是
+ * JSON 半截 → readState() 的 catch 吞掉 → 返回 null → 当作"今天还没醒过"重算，
+ * 轻则重复叫醒、重则把当天的 wakes 记账清零。断电/强杀同样会留下半截文件。
+ *
+ * 与 store.js 的 writeTextAtomic 同口径（tmp + rename），但不调用 ensureDirs()：
+ * 这里每次 tick 都要写，没必要每次都去 mkdir 六个目录。
+ */
+function writeJsonFileAtomic(file, value) {
+  const tmp = `${file}.${process.pid}.${++stateTmpSeq}.tmp`
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
+    fs.renameSync(tmp, file)
+    return true
+  } catch {
+    try { fs.unlinkSync(tmp) } catch {}
+    return false
+  }
+}
+
 // ── 合体后的统一上下文：一张人设卡 + 身份对齐 + QQ 脱敏记忆 ────────────────────
 // 旧版只注入 persona.name/ownerTitle/selfClaim 三行，B站这边其实看不到完整人设；
 // 合体后统一从当前人格卡（unified persona.file）取同一张卡，QQ 和 B站不再各活各的。
@@ -231,7 +258,7 @@ function silenceLines() {
   let prev = null
   try { prev = JSON.parse(fs.readFileSync(seenFile, "utf8")) } catch {}
   const recovered = prev && Number(prev.days) >= after && days < after ? Number(prev.days) : null
-  try { fs.writeFileSync(seenFile, JSON.stringify({ days, at: new Date().toISOString() }, null, 2)) } catch {}
+  writeJsonFileAtomic(seenFile, { days, at: new Date().toISOString() })
 
   // 2026-10-20：矛盾自愈 —— 她日记里有记录、但 feedback 说"很久没回应"，那是反馈漏记 ✗
   //   让她以日记为准、自己补记一次，再报主人（而不是干等着，也不是当成 bug 发呆 ✗）
@@ -456,9 +483,7 @@ export function startScheduler(ctx, opts) {
   const CFG_FILE_REF = path.join(dshHome, 'surfcore', 'bili.config.json')     // 监听循环每次重读（改配置立刻生效 ✓）
   const CRED_REF = path.join(ACCOUNT_DIR, 'credentials.json')                // 账号凭证全局共用，不进角色包
   const readState = () => { try { return JSON.parse(fs.readFileSync(STATE, 'utf8')) } catch { return null } }
-  const writeState = (o) => {
-    try { fs.mkdirSync(path.dirname(STATE), { recursive: true }); fs.writeFileSync(STATE, JSON.stringify(o, null, 2) + '\n') } catch {}
-  }
+  const writeState = (o) => { writeJsonFileAtomic(STATE, o) }
   const nowMin = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes() }
   const today = () => new Date().toLocaleDateString('sv-SE')
 
@@ -709,7 +734,7 @@ export function startScheduler(ctx, opts) {
   // 现在插件每 listen.commentIntervalSec 秒看一眼「回复我的 / @我的」；有新东西就 prompt 她一次。
   const LSTATE = path.join(PLATFORM_DIR, LISTEN_STATE)
   const readL = () => { try { return JSON.parse(fs.readFileSync(LSTATE, 'utf8')) } catch { return null } }
-  const writeL = (o) => { try { fs.mkdirSync(path.dirname(LSTATE), { recursive: true }); fs.writeFileSync(LSTATE, JSON.stringify(o, null, 2) + '\n') } catch {} }
+  const writeL = (o) => { writeJsonFileAtomic(LSTATE, o) }
   const inWindow = (cfg) => {
     const wins = Array.isArray(cfg?.night?.windows) ? cfg.night.windows : []
     const d = new Date(); const m = d.getHours() * 60 + d.getMinutes()
@@ -902,7 +927,7 @@ export function startScheduler(ctx, opts) {
       if (!ns[akey]) {
         const n = attackPending()
         ns[akey] = new Date().toISOString()
-        try { fs.writeFileSync(NUDGE, JSON.stringify(ns, null, 2)) } catch {}
+        writeJsonFileAtomic(NUDGE, ns)
         if (n > 0) {
           try {
             await ensureSession()
@@ -941,7 +966,7 @@ export function startScheduler(ctx, opts) {
         const last = ns[tkey] ? new Date(ns[tkey]).getTime() : 0
         if (!last || Date.now() - last > 90 * 60_000) {
           ns[tkey] = new Date().toISOString()
-          try { fs.writeFileSync(NUDGE, JSON.stringify(ns, null, 2)) } catch {}
+          writeJsonFileAtomic(NUDGE, ns)
           try {
             await ensureSession()
             await promptBili({
@@ -980,7 +1005,7 @@ export function startScheduler(ctx, opts) {
       const lastNudge = ns[key] ? new Date(ns[key]).getTime() : 0
       if (lastNudge && Date.now() - lastNudge < gapMs) continue
       ns[key] = new Date().toISOString()
-      try { fs.writeFileSync(NUDGE, JSON.stringify(ns, null, 2)) } catch {}
+      writeJsonFileAtomic(NUDGE, ns)
 
       // 还在本类时段里 → 正常提醒；已经过了（只有上线日）→ 补发口吻（必须带 --catchup）
       const inSlot = inSlotNow

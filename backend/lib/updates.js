@@ -107,6 +107,39 @@ function normalizeDir(dir) {
 }
 
 /**
+ * 组件 id 会被拼进 staging 目录名 `staging/<id>-<时间戳>/`，再交给 PowerShell 解压。
+ * 它来自 `updates.components[].id`（本地配置，可经 POST /config 写入），所以：
+ *   · 含 `..` / 分隔符 → 能把 staging 目录指到 state 目录外面（解压越界、失败清理时 rmSync 越界）；
+ *   · 含 `'` → 能跳出 Expand-Archive 的单引号字符串，执行任意 PowerShell。
+ * 这里只放行 [A-Za-z0-9._-]，并显式拒绝 `..`。
+ */
+export function sanitizeComponentId(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw || raw.length > 60) return '';
+  if (raw.includes('..')) return '';
+  return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(raw) ? raw : '';
+}
+
+/** PowerShell 单引号字面量转义：`'` → `''`（与 lib/index.js 的 handleBrowse 同口径）。 */
+function psQuote(value) {
+  return `'${String(value ?? '').replace(/'/g, "''")}'`;
+}
+
+/**
+ * 安装清单里的相对路径是否安全。
+ * 清单来自发布包（`release/install-manifest.json`），会用于备份、覆盖、回滚的
+ * `path.join(targetDir, rel)` —— 一个 `../../x` 就能把读写带出安装目录。
+ */
+export function isSafeManifestRelPath(rel) {
+  const text = String(rel ?? '');
+  if (!text || text.length > 240) return false;
+  if (text.includes('\0')) return false;
+  if (path.isAbsolute(text) || /^[A-Za-z]:/.test(text)) return false;
+  const parts = text.split(/[\\/]+/);
+  return parts.every((part) => part !== '' && part !== '.' && part !== '..');
+}
+
+/**
  * 检查单个组件（只读；`fetch` 时才会碰网络）。
  *
  * 两种通道，按组件声明自动选：
@@ -708,7 +741,7 @@ async function fetchJson(url, { timeout = 15_000, maxBytes = 512 * 1024 } = {}) 
   });
 }
 
-async function downloadTo(url, dest, { timeout = 180_000, maxBytes = 400 * 1024 * 1024 } = {}) {
+async function downloadTo(url, dest, { timeout = 180_000, maxBytes = 400 * 1024 * 1024, redirects = 0 } = {}) {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   const local = localPathOf(url);
   if (local) {
@@ -716,30 +749,52 @@ async function downloadTo(url, dest, { timeout = 180_000, maxBytes = 400 * 1024 
       return { ok: false, error: String(error?.message ?? error) };
     }
   }
+  // 重定向环（A→B→A）会让递归无限套下去，最后堆栈/内存爆掉：给个上限。
+  if (redirects > 5) return { ok: false, error: '重定向次数过多（下载地址在循环跳转）' };
   let mod;
   try { mod = await import(/^https:/i.test(url) ? 'node:https' : 'node:http'); } catch (error) {
     return { ok: false, error: String(error?.message ?? error) };
   }
   return new Promise((resolve) => {
-    const req = mod.get(url, { timeout, headers: { 'user-agent': 'surfcore-update-download' } }, (res) => {
+    let settled = false;
+    let out = null;
+    let req = null;
+    let failed = false;
+    // 收口：只 resolve 一次，并把三端（req/写流/res）一起拆掉，避免留下半截文件或悬挂 socket。
+    // ⚠️ 必须定义在**响应回调外面**：req 的 timeout/error 监听器在回调之外注册，
+    //    回调内定义的函数在那两个监听器里是未定义引用（之前这一版会直接 ReferenceError）。
+    const finish = (value) => { if (settled) return; settled = true; resolve(value); };
+    const bail = (error) => {
+      if (failed) return;
+      failed = true;
+      try { req?.destroy(); } catch {}
+      try { out?.destroy(); } catch {}
+      finish({ ok: false, error: String(error?.message ?? error) });
+    };
+    req = mod.get(url, { timeout, headers: { 'user-agent': 'surfcore-update-download' } }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         res.resume();
-        resolve(downloadTo(new URL(res.headers.location, url).toString(), dest, { timeout, maxBytes }));
+        finish(downloadTo(new URL(res.headers.location, url).toString(), dest, { timeout, maxBytes, redirects: redirects + 1 }));
         return;
       }
-      if (res.statusCode !== 200) { res.resume(); resolve({ ok: false, error: `HTTP ${res.statusCode}` }); return; }
-      const out = fs.createWriteStream(dest);
+      if (res.statusCode !== 200) { res.resume(); finish({ ok: false, error: `HTTP ${res.statusCode}` }); return; }
+      out = fs.createWriteStream(dest);
       let size = 0;
+      // ⚠️ 磁盘满 / 目录无权限时写流会 emit 'error'：没有监听器就是**未捕获异常**，
+      // 会直接把 DSH 宿主打挂（更新下载恰好是最容易把盘写满的场景）。
+      out.on('error', bail);
       res.on('data', (chunk) => {
+        if (failed) return;
         size += chunk.length;
-        if (size > maxBytes) { req.destroy(); res.destroy(); out.destroy(); resolve({ ok: false, error: '安装包太大' }); return; }
-        out.write(chunk);
+        if (size > maxBytes) { bail(new Error('安装包太大')); return; }
+        // 背压：慢磁盘时不能把所有数据堆进内存（上限 400MB，够把宿主吃到 OOM）。
+        if (!out.write(chunk)) { res.pause(); out.once('drain', () => res.resume()); }
       });
-      res.on('end', () => out.end(() => resolve({ ok: true, bytes: size })));
-      res.on('error', (error) => { out.destroy(); resolve({ ok: false, error: String(error?.message ?? error) }); });
+      res.on('end', () => { if (!failed) out.end(() => finish({ ok: true, bytes: size })); });
+      res.on('error', bail);
     });
-    req.on('timeout', () => { req.destroy(); resolve({ ok: false, error: '下载超时' }); });
-    req.on('error', (error) => resolve({ ok: false, error: String(error?.message ?? error) }));
+    req.on('timeout', () => bail(new Error('下载超时')));
+    req.on('error', bail);
   });
 }
 
@@ -965,6 +1020,12 @@ export function createUpdatesService({ stateDir, components, blockedReason = () 
       const json = JSON.parse(fs.readFileSync(file, 'utf8'));
       if (!json || typeof json.files !== 'object' || !Object.keys(json.files).length) {
         return { ok: false, code: 'manifest-invalid', file };
+      }
+      // 清单键是相对路径，后面要拿去 path.join(目标目录, rel) 做备份/覆盖/回滚：
+      // 出现绝对路径或 `..` 一律判清单非法（失败关闭），不给"越界读写"留口子。
+      const unsafe = Object.keys(json.files).filter((rel) => !isSafeManifestRelPath(rel));
+      if (unsafe.length) {
+        return { ok: false, code: 'manifest-invalid', file, unsafe: unsafe.slice(0, 5) };
       }
       return { ok: true, file, manifest: json };
     } catch (error) {
@@ -1252,7 +1313,21 @@ export function createUpdatesService({ stateDir, components, blockedReason = () 
     }
     const url = String(item.archiveUrl || urls[0]);
     const stamp = String(Date.now());
-    const stagingRoot = path.join(stateDir, 'staging', `${item.id}-${stamp}`);
+    // id 直接来自配置：先净化再拼目录名（`..` 会让 staging 落到 state 目录外，
+    // 后面的解压和失败清理 rmSync 都会越界）。
+    const safeId = sanitizeComponentId(item.id);
+    if (!safeId) {
+      return {
+        ok: false, status: 'blocked', stage: 'preflight', code: 'component.id-invalid',
+        reason: `组件 id「${String(item.id ?? '').slice(0, 40)}」不合规：只允许字母/数字/点/下划线/短横线`,
+        hint: '在配置里把 id 改成普通标识符（例如 surfcore）后重试',
+      };
+    }
+    const stagingRoot = path.resolve(stateDir, 'staging', `${safeId}-${stamp}`);
+    const stagingBase = path.resolve(stateDir, 'staging');
+    if (!stagingRoot.startsWith(stagingBase + path.sep)) {
+      return { ok: false, status: 'blocked', stage: 'preflight', code: 'component.id-invalid', reason: '暂存目录越界，已拒绝' };
+    }
     fs.mkdirSync(stagingRoot, { recursive: true });
     // 失败即清理：以前失败会留一个 11.8MB 的 staging 目录，点几次就上百 MB（2026-10-30 反馈）
     const fail = (obj) => {
@@ -1354,8 +1429,10 @@ export function createUpdatesService({ stateDir, components, blockedReason = () 
       pluginLog(`[updates] 下载完成：${(downloaded.bytes / 1024 / 1024).toFixed(2)} MB，${(downloaded.elapsedMs / 1000).toFixed(1)} 秒（${downloaded.url}）`);
       try {
         await new Promise((resolve, reject) => {
+          // 路径必须转义成 PowerShell 单引号字面量：zipFile/stagingRoot 由 id 派生，
+          // 直接拼 `'${...}'` 时一个 `'` 就能闭合字符串并执行任意命令。
           execFile('powershell', ['-NoProfile', '-Command',
-            `Expand-Archive -LiteralPath '${zipFile}' -DestinationPath '${stagingRoot}' -Force`],
+            `Expand-Archive -LiteralPath ${psQuote(zipFile)} -DestinationPath ${psQuote(stagingRoot)} -Force`],
           { windowsHide: true, timeout: 120_000 }, (error) => (error ? reject(error) : resolve()));
         });
       } catch (error) {
@@ -1384,7 +1461,9 @@ export function createUpdatesService({ stateDir, components, blockedReason = () 
           ok: false, status: 'blocked', stage: 'verify', code: pkg.code,
           reason: pkg.code === 'manifest-missing'
             ? '这个版本没有安装清单（release/install-manifest.json），无法确认覆盖哪些文件'
-            : '安装清单格式不对，无法确认覆盖范围',
+            : pkg.unsafe?.length
+              ? `安装清单里有不安全路径（${pkg.unsafe.join('、')}）：绝对路径或 .. 会把文件写/读带出安装目录`
+              : '安装清单格式不对，无法确认覆盖范围',
           hint: '按官方 Release 页面手动下载并覆盖；或等下一个带清单的版本',
         });
       }
@@ -1476,6 +1555,9 @@ export function createUpdatesService({ stateDir, components, blockedReason = () 
       createdAt: new Date().toISOString(),
     };
     fs.mkdirSync(stateDir, { recursive: true });
+    // 新的暂存 = 一次全新的尝试：清掉上一轮失败留下的 `.failed` 标记。
+    // 不清的话，readLastApply() 会一直先命中 .failed，把之后成功的结果继续报成"失败"。
+    try { fs.rmSync(`${pendingFile}.failed`, { force: true }); } catch {}
     fs.writeFileSync(pendingFile, `${JSON.stringify(payload, null, 2)}
 `, 'utf8');
     // 测试里不想真的起"等宿主退出"的进程时，设 SURFCORE_UPDATE_NO_SPAWN=1
@@ -1700,6 +1782,12 @@ function resumePendingApply({ stateDir, pluginLog = () => {} } = {}) {
   try {
     const pendingFile = path.join(stateDir, 'updates-pending.json');
     if (!fs.existsSync(pendingFile)) return false;
+    // 上一轮已经写明失败（.failed 与 pending 同时存在）：**不要每次启动都重新排队**。
+    // 重排只会把同一个坏包再解压/覆盖一次，日志刷屏还拖慢启动；让用户显式再点一次更新。
+    if (fs.existsSync(`${pendingFile}.failed`)) {
+      pluginLog('[updates] 上次更新已失败（updates-pending.json.failed），本次启动不再自动重试');
+      return false;
+    }
     const pending = JSON.parse(fs.readFileSync(pendingFile, 'utf8'));
     const started = `${pendingFile}.started`;
     try { fs.rmSync(started, { force: true }); } catch {}

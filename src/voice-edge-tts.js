@@ -46,6 +46,10 @@ const WSS_HOST = 'speech.platform.bing.com';
 // SnowLuma 网关接受 mp3（AUDIO_EXTS 里有 .mp3），会自动转 SILK。
 const OUTPUT_FORMAT = 'audio-24khz-48kbitrate-mono-mp3';
 const MP3_BITRATE_BPS = 48_000; // 48 kbps CBR
+// 单次合成的接收/音频上限。WebSocket 帧长字段允许到 2^63，服务端异常或中间设备
+// 注入超长帧时，不设上限就是无界内存增长；120 字 × 48kbps 实际只有几百 KB。
+const MAX_RECV_BYTES = 32 * 1024 * 1024;
+const MAX_AUDIO_BYTES = 32 * 1024 * 1024;
 export const DEFAULT_EDGE_VOICE = 'zh-CN-XiaoxiaoNeural';
 
 const EDGE_UA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROMIUM_MAJOR_VERSION}.0.0.0 Safari/537.36 Edg/${CHROMIUM_MAJOR_VERSION}.0.0.0`;
@@ -95,6 +99,8 @@ function buildWssPath() {
 function wsConnect({ host, path: wsPath, timeoutMs, onMessage, onOpen, onClose, onFail }) {
   let handshakeDone = false;
   let buf = Buffer.alloc(0);
+  let pendingRecv = [];   // 尚未合并进 buf 的新分片（见 data 处理器里的按需合并）
+  let recvTotal = 0;      // 本次连接累计接收字节（有上限，防无界增长）
   let serverHeaders = null;
   let httpStatus = null;
   // 分片重组状态
@@ -131,7 +137,26 @@ function wsConnect({ host, path: wsPath, timeoutMs, onMessage, onOpen, onClose, 
   });
 
   socket.on('data', (chunk) => {
-    buf = Buffer.concat([buf, chunk]);
+    // 分片数组 + 按需合并：旧写法每个 data 事件都 `Buffer.concat([buf, chunk])`，
+    // 未消费缓冲大时会反复整块复制；而且 WebSocket 的长度字段可以是 2^63，
+    // 没有上限就是无界内存。这里用累计字节上限兜住，并让「帧正好落在一个分片里」
+    // 的常见情况零拷贝（pending 只有一项且 buf 为空时直接引用）。
+    recvTotal += chunk.length;
+    if (recvTotal > MAX_RECV_BYTES) {
+      if (!settled) {
+        settled = true;
+        onFail?.(`Edge TTS 接收数据超过上限（${Math.round(MAX_RECV_BYTES / 1024 / 1024)}MB）`);
+        try { socket.destroy(); } catch {}
+      }
+      return;
+    }
+    pendingRecv.push(chunk);
+    if (!buf.length) {
+      buf = pendingRecv.length === 1 ? pendingRecv[0] : Buffer.concat(pendingRecv);
+    } else {
+      buf = Buffer.concat([buf, ...pendingRecv]);
+    }
+    pendingRecv = [];
     if (!handshakeDone) {
       const end = buf.indexOf('\r\n\r\n');
       if (end < 0) return;
@@ -193,16 +218,32 @@ function wsConnect({ host, path: wsPath, timeoutMs, onMessage, onOpen, onClose, 
 function fetchEdgeAudioOnce({ text, voice, rate, pitch, timeoutMs }) {
   return new Promise((resolve, reject) => {
     const audioChunks = [];
+    let audioBytes = 0; // 已收音频总字节：分片数组只在结尾合并一次，但总量必须有上限
     let durationMs; // 从 metadata 帧拿到的精确时长（如果开了 metadataoptions）
     let settled = false;
     let conn = null;
     let lastServerDate = null;
     let lastHttpStatus = null;
+    // 总时限：wsConnect 的 socket.setTimeout 是**空闲**超时（每次收到数据就重置），
+    // 服务端只要持续滴流就永不到期，一条语音能把整条回复链路悬住。这里另加一个
+    // 硬 deadline，到点直接失败（失败信息里带"总时长"，与空闲超时可区分）。
+    const budgetMs = Math.max(5000, Number(timeoutMs) || 60000);
+    const deadline = setTimeout(() => {
+      fail(`Edge TTS 合成总时长超时（>${Math.round(budgetMs / 1000)}s，服务端可能一直在滴流）`);
+    }, budgetMs);
     const fail = (msg) => {
       if (settled) return;
       settled = true;
+      clearTimeout(deadline);
       conn?.close();
       reject(new Error(msg));
+    };
+    const succeed = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
+      conn?.close();
+      resolve(result);
     };
     conn = wsConnect({
       host: WSS_HOST,
@@ -231,9 +272,8 @@ function fetchEdgeAudioOnce({ text, voice, rate, pitch, timeoutMs }) {
         try {
           if (opcode === 0x8) {
             // 服务端关闭：已收到音频就当成功
-            if (audioChunks.length > 0 && !settled) {
-              settled = true; conn.close();
-              resolve({ audio: Buffer.concat(audioChunks), durationMs: 0, dateHeader: lastServerDate, httpStatus: lastHttpStatus });
+            if (audioChunks.length > 0) {
+              succeed({ audio: Buffer.concat(audioChunks), durationMs: 0, dateHeader: lastServerDate, httpStatus: lastHttpStatus });
             } else if (!settled) {
               fail('Edge TTS 连接被关闭：没拿到任何音频（可能时钟偏差或签名无效）');
             }
@@ -255,9 +295,8 @@ function fetchEdgeAudioOnce({ text, voice, rate, pitch, timeoutMs }) {
                 }
               } catch { /* 忽略 JSON 解析失败 */ }
             }
-            if (path === 'turn.end' && !settled) {
-              settled = true; conn.close();
-              resolve({ audio: Buffer.concat(audioChunks), durationMs: durationMs ?? 0, dateHeader: lastServerDate, httpStatus: lastHttpStatus });
+            if (path === 'turn.end') {
+              succeed({ audio: Buffer.concat(audioChunks), durationMs: durationMs ?? 0, dateHeader: lastServerDate, httpStatus: lastHttpStatus });
             }
             return;
           }
@@ -268,6 +307,12 @@ function fetchEdgeAudioOnce({ text, voice, rate, pitch, timeoutMs }) {
             const dataLen = payload.length - 2 - headerLen;
             // Path:audio 二进制帧 —— Edge 可能发一个 0 字节块作为末尾，忽略它
             if (headerText.includes('Path:audio') && dataLen > 0) {
+              audioBytes += dataLen;
+              if (audioBytes > MAX_AUDIO_BYTES) {
+                // 上限兜底：正常 120 字只有几百 KB，超过 32MB 说明对端异常或中间人塞数据。
+                fail(`Edge TTS 返回音频超过上限（${Math.round(MAX_AUDIO_BYTES / 1024 / 1024)}MB）`);
+                return;
+              }
               audioChunks.push(payload.subarray(2 + headerLen));
             }
           }
@@ -308,23 +353,53 @@ function edgeKey({ text, voice, rate, pitch, cacheVersion }) {
 
 /**
  * Edge TTS 缓存清理：pruneCache（voice-tts.js 导出）只认 .wav，
- * 我们 edge 缓存是 mp3，所以自己写一个小 prune（同目录、同过期策略）。
+ * 我们 edge 缓存是 mp3，所以自己写一个小 prune。
+ *
+ * 注意策略必须**同时**有「时间」和「数量/体积」两条线，不能只按时间删：
+ * 旧实现只删「超过 keepMin 个 **且** 超过 14 天」的文件——于是 14 天内的新文件
+ * 一个都不删，而 edge 现在是唯一可用的 TTS 路由（本地/云端都已弃用），每说一句
+ * 新话就多一个 mp3（120 字约 60 秒 ≈ 360 KB），高频聊天下缓存会一路涨到几百 MB。
+ * 这里改成与 voice-tts.js pruneCache 同口径：先按 TTL 淘汰，再按「最多 400 个 /
+ * 150 MB」按 mtime 从旧到新淘汰，直到回到水位以下。清理失败一律吞掉——
+ * 缓存清理绝不能影响「这条语音能不能发出去」。
  */
-function pruneEdgeCache(dir, maxAgeMs = 14 * 86400 * 1000, keepMin = 50) {
-  let files;
-  try { files = fs.readdirSync(dir).map(n => path.join(dir, n)); } catch { return; }
+function pruneEdgeCache(dir, { maxAgeMs = 14 * 86400 * 1000, maxFiles = 400, maxBytes = 150 * 1024 * 1024 } = {}) {
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isFile() && e.name.endsWith('.mp3'))
+      .map((e) => {
+        const f = path.join(dir, e.name);
+        try { const st = fs.statSync(f); return { f, size: st.size, at: st.mtimeMs }; } catch { return null; }
+      })
+      .filter(Boolean);
+  } catch { return { removed: 0 }; }
   const now = Date.now();
-  const withStat = files
-    .filter(f => f.endsWith('.mp3'))
-    .map(f => { try { return { f, m: fs.statSync(f).mtimeMs }; } catch { return null; } })
-    .filter(x => x);
-  if (withStat.length <= keepMin) return;
-  withStat.sort((a, b) => a.m - b.m);
-  // 删掉最老的、超过 keepMin 的，且过期的
-  const toDelete = withStat
-    .slice(0, withStat.length - keepMin)
-    .filter(x => now - x.m > maxAgeMs);
-  for (const x of toDelete) { try { fs.unlinkSync(x.f); } catch {} }
+  let removed = 0;
+  // ① 超过 TTL 的直接淘汰
+  const alive = [];
+  for (const entry of entries) {
+    if (now - entry.at > maxAgeMs) {
+      try { fs.unlinkSync(entry.f); removed += 1; } catch { alive.push(entry); }
+    } else {
+      alive.push(entry);
+    }
+  }
+  // ② 仍超过数量/体积水位 → 按 mtime 从旧到新淘汰
+  let total = alive.reduce((n, e) => n + e.size, 0);
+  if (alive.length <= maxFiles && total <= maxBytes) return { removed };
+  alive.sort((a, b) => a.at - b.at);
+  let count = alive.length;
+  for (const entry of alive) {
+    if (count <= maxFiles && total <= maxBytes) break;
+    try {
+      fs.unlinkSync(entry.f);
+      count -= 1;
+      total -= entry.size;
+      removed += 1;
+    } catch {}
+  }
+  return { removed };
 }
 
 /**
@@ -356,14 +431,25 @@ export async function synthesizeEdgeToFile({
     }
   }
 
+  // 超时值来自 config.json / 调用方，必须收敛：0 / 负数 / NaN 传给 socket.setTimeout
+  // 等于「永不超时」，一次卡住的合成会把整条语音链路（含 QQ 回复）悬在那里。
+  const budgetMs = Math.max(5000, Math.min(120000, Math.round(Number(timeoutMs) || 60000)));
+
   const { audio, durationMs: metaDuration } = await fetchEdgeAudio({
-    text: say, voice: voiceName, rate, pitch, timeoutMs
+    text: say, voice: voiceName, rate, pitch, timeoutMs: budgetMs
   });
   if (audio.length < 128) throw new Error('Edge TTS 返回了空音频（音色名写错了？）');
 
-  const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, audio);
-  fs.renameSync(tmp, file);
+  // 临时文件名必须唯一：同一句话被两个会话（或模型重试）同时合成时，
+  // 固定 `${pid}.tmp` 会让两个写入互相覆盖 / 先 rename 的把后 rename 的挤成 ENOENT。
+  const tmp = `${file}.${process.pid}.${Math.random().toString(16).slice(2, 10)}.tmp`;
+  try {
+    fs.writeFileSync(tmp, audio);
+    fs.renameSync(tmp, file);
+  } catch (error) {
+    try { fs.unlinkSync(tmp); } catch {}
+    throw new Error(`写入语音缓存失败：${error?.message ?? error}`);
+  }
   pruneEdgeCache(outDir);
 
   // 时长：优先 metadata 给的精确值，否则按 CBR 码率估算

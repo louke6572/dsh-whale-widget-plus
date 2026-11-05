@@ -25,7 +25,9 @@ import {
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const { names, packages } = collectDshToolNames();
-const guardPath = path.join(ROOT, 'plugins', 'surfcore', 'qq-tool-restrict.mjs');
+// 守卫的**权威实现**（合并为单插件后从 plugins/surfcore/ 挪到了 backend/）。
+// 不要指 dsh/agent-presets/*/qq-tool-restrict.mjs：那两个只是 re-export 壳。
+const guardPath = path.join(ROOT, 'backend', 'qq-tool-restrict.mjs');
 const guard = await import(pathToFileURL(guardPath).href);
 const guarded = new Set(guard.RESTRICTED_TOOL_NAMES);
 

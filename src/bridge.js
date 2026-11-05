@@ -59,6 +59,7 @@ import {
 } from './admin-identity.js';
 import { isOwnerOnlyFrame, canConsumePending, buildQuestionAnswers } from './question-answers.js';
 import { createOwnerAudit } from './owner-audit.js';
+import { createCoalescingWriter } from './save-scheduler.js';
 import { createTokenLedger } from './token-ledger.js';
 import { createTurnGuard } from './turn-guard.js';
 import { createGateEventStore } from './gate-events.js';
@@ -123,12 +124,40 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
+
+/**
+ * JSON 配置的原子写（临时文件 + rename）。
+ *
+ * 为什么：config.json 同时被本进程、DSH 宿主/设置页、用户手工编辑写入。裸
+ * `fs.writeFileSync` 写到一半被读（或断电/强杀）就是半截 JSON，读侧的 catch 又会
+ * 静默回落到默认配置 —— 用户的 QQ 号、允许列表、凭据看起来「被重置了」，实际上
+ * 只是文件坏了。rename 在同一分区上是原子的，读到的要么是旧文件、要么是新文件。
+ *
+ * 临时名带 pid + 递增序号：同一进程里两次写同一文件也不会互相覆盖临时文件。
+ */
+let __jsonTmpSeq = 0;
+function writeJsonFileAtomicSync(file, value) {
+  const tmp = `${file}.${process.pid}.${++__jsonTmpSeq}.tmp`;
+  try {
+    fs.writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+    fs.renameSync(tmp, file);
+    return true;
+  } catch (error) {
+    try { fs.unlinkSync(tmp); } catch {}
+    throw error;
+  }
+}
+
 // 嵌入模式：由 DSH 插件宿主在本进程内启动（不再 spawn 独立进程）。
 // 嵌入时**不能**抢锁、不能注册会退出宿主进程的钩子、不能把控制台 HTML 对外提供。
 // 由插件在动态 import 之前设置 SURFCORE_EMBEDDED=1。
 const EMBEDDED_MODE = process.env.SURFCORE_EMBEDDED === '1';
 // 嵌入运行时句柄（仅嵌入模式使用）：停止/热重载由插件宿主调用。
 let embeddedRuntime = null;
+// 二代会话状态的「立即落盘」钩子：由 main() 创建合并写器后注册。
+// 进程级退出钩子（installProcessGuards）与内嵌 stop() 都要把合并窗口里的脏数据刷掉，
+// 否则 300ms 合并期内正常退出会丢掉最后一批入站缓冲/唤醒计数。
+let socialV2FlushOnShutdown = null;
 const STATE_DIR = path.join(ROOT, 'state');
 const STATE_FILE = path.join(STATE_DIR, 'sessions.json');
 const ROLE_STATE_FILE = path.join(STATE_DIR, 'current-role.json');
@@ -1750,6 +1779,11 @@ async function main(options = {}) {
   let purposeStateMtime = 0;
   savePurposeState();
   let purposeTimer = null;
+  // 「主动搭话」定时器句柄：必须可重入判断、可清理。
+  // checkDsh() 每次 DSH 由不可用变可用都会调 startProactiveScheduler()，而 DSH 重启
+  // 是日常操作，没有这个句柄就会一次启动叠一个 5 分钟 interval —— 表现为「同一群里
+  // 主动 @ 越来越频繁（N 倍）」，且 stop() 也清不掉（内嵌模式热重载后叠加）。
+  let proactiveTimer = null;
   let purposeRun = null; // { runId, at, key, sessionId, planned, sentTexts, timer }
   let purposeLastLog = { at: 0, reason: '', nextFireAt: 0 };
 
@@ -3034,7 +3068,8 @@ async function main(options = {}) {
         try {
           const raw = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
           raw.dsh = { ...(raw.dsh ?? {}), baseUrl: found };
-          fs.writeFileSync(path.join(ROOT, 'config.json'), `${JSON.stringify(raw, null, 2)}\n`);
+          // 原子写：这条路径发生在启动探测失败后自动改配置，正是「写到一半被杀」最可能的时候。
+          writeJsonFileAtomicSync(path.join(ROOT, 'config.json'), raw);
         } catch (error) {
           log(`写回 dsh.baseUrl 失败（不影响本次运行）：${error?.message ?? error}`);
         }
@@ -3519,7 +3554,7 @@ async function main(options = {}) {
       st.modelSeenSeqs = new Set();
     }
     saveState();
-    saveSocialV2State();
+    flushSocialV2State();
     stopRetiredSessionWork(sessionId, key);
     log(`会话权限已变化，停用旧映射 ${key} -> ${sessionId}`);
   }
@@ -3976,7 +4011,7 @@ async function main(options = {}) {
         st.wakeSuspendedUntil = 0;
         scheduleProactiveCheckV2(key);
       }
-      saveSocialV2State();
+      flushSocialV2State();
     } catch (error) {
       log('[snowluma] 恢复唤醒调度失败：', String(error?.message ?? error).slice(0, 160));
     }
@@ -3990,7 +4025,7 @@ async function main(options = {}) {
       if (st.sendFailureStreak || st.wakeSuspendedUntil) {
         st.sendFailureStreak = 0;
         st.wakeSuspendedUntil = 0;
-        saveSocialV2State();
+        flushSocialV2State();
         scheduleProactiveCheckV2(key);
       }
     } catch {}
@@ -4035,7 +4070,7 @@ async function main(options = {}) {
         });
         log(`⏸️ ${key} 连续 ${st.sendFailureStreak} 次发送失败；自动唤醒暂停 30 分钟，避免空烧。`);
       }
-      saveSocialV2State();
+      flushSocialV2State();
     } catch {}
   }
 
@@ -4185,7 +4220,9 @@ async function main(options = {}) {
     // 挡不住本机进程。这里改成失败关闭：宁可启动时报错，也不要静默开着一个无鉴权的管理 API。
     if (!consoleToken) throw new Error('控制台令牌为空：拒绝以无鉴权方式启动控制台 API');
     if (!tokenValid && configuredToken) log(`控制台 config.consoleToken 长度/字符不合法，已忽略并回退到自动生成令牌`);
-    if (!configuredToken) log(`控制台未配置 consoleToken，已自动生成：${String(consoleToken).slice(0, 6)}…（完整值保存在 state/console-token）`);
+    // 不打印令牌任何片段：控制台令牌能读聊天记录、发消息、改配置，
+    // 前缀同样是凭据的一部分（CWE-532）。日志只需说明「已生成、去哪取」。
+    if (!configuredToken) log('控制台未配置 consoleToken，已自动生成（完整值保存在 state/console-token）');
     // 二代会话级隔离：MCP 工具调用时若带 x-agent-token，则必须匹配该会话的 agentToken。
     // 控制台/管理端请求不带此头，仍走 consoleToken 管理通道。
     //
@@ -5838,7 +5875,7 @@ async function main(options = {}) {
             scheduleProactiveCheckV2(key);
           }
           }
-          saveSocialV2State();
+          flushSocialV2State();
           sendJson({ ok: true, paused: socialV2.paused });
           return;
         }
@@ -5879,6 +5916,9 @@ async function main(options = {}) {
           markReadCalledKeys.clear();
           wakeConfigMissCount.clear();
           socialV2.paused = false;
+          // 这里是「直写空状态」而不是走合并写：必须先把合并窗口里待写的**旧快照**取消，
+          // 否则 300ms 后它会把刚清空的会话原样写回来（重置当场复活）。
+          try { cancelSocialV2PendingSave(); } catch {}
           try { atomicWriteJson(SOCIAL_V2_FILE, { conversations: {} }); } catch (error) { log('重置二代状态：写空状态文件失败:', error?.message ?? error); }
           log('控制台：二代 AI 状态已重置（会话、定时器、唤醒配置已清空，工具日志保留）');
           sendJson({ ok: true });
@@ -6127,7 +6167,7 @@ async function main(options = {}) {
           st.wakeConfig.confirmedAt = Date.now();
           st.wakeConfig.confirmedBy = 'mark_read';
           markReadCalledKeys.add(key);
-          saveSocialV2State();
+          flushSocialV2State();
           log(`[reserved2] 控制台/工具标记 ${key} 未读已读：${markedCount} 条，已确认下一次唤醒配置`);
           sendJson({ ok: true, key, markedCount, unreadCount: st.unread.length, readThroughSeq: readThroughSeqV2(st), wakeGuaranteed: computeWakeSafetyV2(st.wakeConfig).guaranteed, wakeSafety: computeWakeSafetyV2(st.wakeConfig), wakeConfig: st.wakeConfig });
           return;
@@ -6286,7 +6326,7 @@ async function main(options = {}) {
           st.preSleepWaitSatisfiedAt = 0;
           st.preSleepWaitObservedAt = 0;
           st.preSleepWaitAccumMs = 0;
-          saveSocialV2State();
+          flushSocialV2State();
           wakeConfigUpdatedKeys.add(key);
           wakeConfigMissCount.delete(key);
           if (st.pendingWakeTimer) {
@@ -6396,7 +6436,7 @@ async function main(options = {}) {
           const firstWake = !st.bootstrapSent;
           if (firstWake) st.bootstrapSent = true;
           const effectiveReason = firstWake ? 'bootstrap' : reason;
-          saveSocialV2State();
+          flushSocialV2State();
           // 和其它唤醒入口保持一致：sendWakePromptV2 是异步的，这里不 await（不能让 HTTP 回复
           // 等一个可能卡几十秒的模型回合），但必须挂 catch。裸调用一旦 reject 就是
           // unhandledRejection：Node 会打警告甚至按配置退出进程，而 HTTP 那边已经回了 {ok:true}，
@@ -7796,7 +7836,7 @@ async function main(options = {}) {
             }
             st.preSleepWaitAccumMs = 0;
           }
-          if (!replyWait) saveSocialV2State();
+          if (!replyWait) flushSocialV2State();
           // Each buffer is governed by its own tool switch: the unread buffer by
           // getUnread, the recent buffer by getRecent. A disabled switch must not leak
           // through either newMessages or the watermark, so the buffer is dropped
@@ -8701,7 +8741,7 @@ async function main(options = {}) {
           forgetAgentToken(key);
           socialV2.conversations.delete(key);
           seenForwardIds.delete(key);
-          saveSocialV2State();
+          flushSocialV2State();
           saveState();
           // 归档只隐藏会话，不终止 DSH 侧排队的工作；先清队列并取消当前回合。
           try { await withTimeout(api.stopSessionWork(oldSessionId), DSH_CONTROL_TIMEOUT_MS, 'stopSessionWork'); }
@@ -8762,7 +8802,7 @@ async function main(options = {}) {
           socialV2.conversations.clear();
           CONVERSATION_TOKENS.clear();
           KNOWN_AGENT_TOKENS.clear();
-          saveSocialV2State();
+          flushSocialV2State();
           state.sessions = {};
           state.sessionPolicies = {};
           reverse.clear();
@@ -8791,7 +8831,7 @@ async function main(options = {}) {
             // 退出前落盘：SIGINT/SIGTERM 的收尾路径会 saveState()/saveSocialV2State()，
             // 而重启这条路径以前直接 process.exit，500ms 窗口内改动的唤醒配置/计数器会丢。
             try { saveState(); } catch (error) { log('重启前保存会话映射失败:', error?.message ?? error); }
-            try { saveSocialV2State(); } catch (error) { log('重启前保存二代会话状态失败:', error?.message ?? error); }
+            try { flushSocialV2State(); } catch (error) { log('重启前保存二代会话状态失败:', error?.message ?? error); }
             releaseLock();
             process.exit(0);
           }, 500);
@@ -10035,7 +10075,7 @@ async function main(options = {}) {
     for (const st of socialV2.conversations.values()) {
       if (refreshDefaultWakeConfigV2(st)) changed = true;
     }
-    if (changed) saveSocialV2State();
+    if (changed) flushSocialV2State();
     return changed;
   }
 
@@ -10108,7 +10148,7 @@ async function main(options = {}) {
         st.sleepTimer = null;
       }
       st.wakeConfig = defaultWakeConfigV2();
-      if (!opts.skipSave) saveSocialV2State();
+      if (!opts.skipSave) flushSocialV2State();
       if (key) setupSleepTimerV2(key);
       log(`[reserved2] 唤醒配置无任何触发条件，已重置为默认配置，避免永眠`);
     }
@@ -10316,7 +10356,7 @@ async function main(options = {}) {
         if (fileStamp !== null && nowStamp !== null && fileStamp !== nowStamp) {
           log('⚠️ state/social-v2.json 在本次加载期间被其它进程改写，跳过回写以免覆盖更新的状态（是否误开了第二个桥接实例？）');
         } else {
-          saveSocialV2State();
+          flushSocialV2State();
         }
       }
     } catch (error) {
@@ -10324,53 +10364,97 @@ async function main(options = {}) {
     }
   }
 
-  function saveSocialV2State() {
-    try {
-      const obj = { paused: socialV2.paused, conversations: Object.create(null) };
-      for (const [key, st] of socialV2.conversations) {
-        obj.conversations[key] = {
-          wakeConfig: st.wakeConfig,
-          recentMessages: st.recentMessages.slice(-200),
-          unread: st.unread.slice(-100),
-          lastWakeReason: st.lastWakeReason,
-          lastAiReplyAt: st.lastAiReplyAt,
-          lastActionAt: st.lastActionAt,
-          agentToken: st.agentToken,
-          bootstrapSent: st.bootstrapSent,
-          wakeTimes: st.wakeTimes.slice(-200),
-          sendTimes: st.sendTimes.slice(-500),
-          stickerCollectTimes: Array.isArray(st.stickerCollectTimes) ? st.stickerCollectTimes.slice(-500) : [],
-          lastIncomingAt: st.lastIncomingAt || 0,
-          lastHistoryMessageTime: st.lastHistoryMessageTime || 0,
-          lastHistoryCheckedAt: st.lastHistoryCheckedAt || 0,
-          lastHistoryCatchup: st.lastHistoryCatchup && typeof st.lastHistoryCatchup === 'object' ? st.lastHistoryCatchup : null,
-          preSleepWaitSatisfiedAt: st.preSleepWaitSatisfiedAt || 0,
-          preSleepWaitObservedAt: st.preSleepWaitObservedAt || 0,
-          sendFailureStreak: st.sendFailureStreak || 0,
-          wakeSuspendedUntil: st.wakeSuspendedUntil || 0,
-          lastSendFailureAt: st.lastSendFailureAt || 0,
-          channelGateLoggedAt: st.channelGateLoggedAt || 0,
-          preSleepWaitAccumMs: st.preSleepWaitAccumMs || 0,
-          lastUnreadSeq: st.lastUnreadSeq || 0,
-          lastReadThroughSeq: st.lastReadThroughSeq || 0,
-          activeTopics: Array.isArray(st.activeTopics) ? st.activeTopics.slice(-50) : [],
-          pendingThoughts: Array.isArray(st.pendingThoughts) ? st.pendingThoughts.slice(-50) : [],
-          memberImpressions: st.memberImpressions && typeof st.memberImpressions === 'object' ? st.memberImpressions : {},
-          // 对话收尾记录：只存结论（收在哪 / 下次怎么接）+ 冷却时间，不存额外消息副本。
-          closure: st.closure && typeof st.closure === 'object' ? st.closure : undefined,
-          // 鱼群保护状态（2026-10-23）：冷却、直呼放行、最近触发记录。
-          fishGuard: st.fishGuard && typeof st.fishGuard === 'object' ? st.fishGuard : undefined,
-          fishGuardBypass: st.fishGuardBypass && typeof st.fishGuardBypass === 'object' ? st.fishGuardBypass : undefined,
-          lastFishGuard: st.lastFishGuard && typeof st.lastFishGuard === 'object' ? st.lastFishGuard : undefined,
-          fishGuardLog: Array.isArray(st.fishGuardLog) ? st.fishGuardLog.slice(-30) : [],
-          seenForwardIds: Array.from(seenForwardIds.get(key) || []).slice(-1000)
-        };
-      }
-      atomicWriteJson(SOCIAL_V2_FILE, obj);
-    } catch (error) {
-      log('保存 socialV2 状态失败:', error?.message ?? error);
+  // ── 二代状态落盘：合并写（save）与立即写（flush）分开 ──────────────────────
+  //
+  // 为什么拆：原先 `saveSocialV2State()` 是同步全量重写 state/social-v2.json，而它在
+  // 每条入站消息、每条出站消息、每次记忆更新后都会被调用。多会话实例单次写就有
+  // 几十~几百 KB，繁忙群等于「每条消息一次全文件同步写」压在 DSH 事件循环上
+  // （桥接与 QQ 事件是同一个循环），表现为控制台与回复一起抖动。
+  //
+  // 现在两条路径：
+  //   · flushSocialV2State() —— **立即**同步落盘（与旧行为完全一致）。以下语义点必须用它：
+  //       唤醒/潜水配置、睡前/收尾、会话切换/重置、写完立即读回、进程退出、内嵌 stop。
+  //   · saveSocialV2State()  —— **合并写**：300ms 窗口内多次调用只落盘一次。用于高频记账
+  //       （入站消息缓冲、发送计数、记忆上下文）。窗口是「首次脏标记后固定滞后」，
+  //       不随每次调用重置，所以持续有新消息也不会被无限推迟（最坏陈旧 ≈ 300ms + 一次写）。
+  // 退出保障：installProcessGuards 的 SIGINT/SIGTERM/exit/uncaughtException、控制台重启、
+  // 内嵌 stop() 都会显式 flush，所以合并窗口里的数据不会因正常退出而丢。
+  function buildSocialV2Snapshot() {
+    const obj = { paused: socialV2.paused, conversations: Object.create(null) };
+    for (const [key, st] of socialV2.conversations) {
+      obj.conversations[key] = {
+        wakeConfig: st.wakeConfig,
+        recentMessages: st.recentMessages.slice(-200),
+        unread: st.unread.slice(-100),
+        lastWakeReason: st.lastWakeReason,
+        lastAiReplyAt: st.lastAiReplyAt,
+        lastActionAt: st.lastActionAt,
+        agentToken: st.agentToken,
+        bootstrapSent: st.bootstrapSent,
+        wakeTimes: st.wakeTimes.slice(-200),
+        sendTimes: st.sendTimes.slice(-500),
+        stickerCollectTimes: Array.isArray(st.stickerCollectTimes) ? st.stickerCollectTimes.slice(-500) : [],
+        lastIncomingAt: st.lastIncomingAt || 0,
+        lastHistoryMessageTime: st.lastHistoryMessageTime || 0,
+        lastHistoryCheckedAt: st.lastHistoryCheckedAt || 0,
+        lastHistoryCatchup: st.lastHistoryCatchup && typeof st.lastHistoryCatchup === 'object' ? st.lastHistoryCatchup : null,
+        preSleepWaitSatisfiedAt: st.preSleepWaitSatisfiedAt || 0,
+        preSleepWaitObservedAt: st.preSleepWaitObservedAt || 0,
+        sendFailureStreak: st.sendFailureStreak || 0,
+        wakeSuspendedUntil: st.wakeSuspendedUntil || 0,
+        lastSendFailureAt: st.lastSendFailureAt || 0,
+        channelGateLoggedAt: st.channelGateLoggedAt || 0,
+        preSleepWaitAccumMs: st.preSleepWaitAccumMs || 0,
+        lastUnreadSeq: st.lastUnreadSeq || 0,
+        lastReadThroughSeq: st.lastReadThroughSeq || 0,
+        activeTopics: Array.isArray(st.activeTopics) ? st.activeTopics.slice(-50) : [],
+        pendingThoughts: Array.isArray(st.pendingThoughts) ? st.pendingThoughts.slice(-50) : [],
+        memberImpressions: st.memberImpressions && typeof st.memberImpressions === 'object' ? st.memberImpressions : {},
+        // 对话收尾记录：只存结论（收在哪 / 下次怎么接）+ 冷却时间，不存额外消息副本。
+        closure: st.closure && typeof st.closure === 'object' ? st.closure : undefined,
+        // 鱼群保护状态（2026-10-23）：冷却、直呼放行、最近触发记录。
+        fishGuard: st.fishGuard && typeof st.fishGuard === 'object' ? st.fishGuard : undefined,
+        fishGuardBypass: st.fishGuardBypass && typeof st.fishGuardBypass === 'object' ? st.fishGuardBypass : undefined,
+        lastFishGuard: st.lastFishGuard && typeof st.lastFishGuard === 'object' ? st.lastFishGuard : undefined,
+        fishGuardLog: Array.isArray(st.fishGuardLog) ? st.fishGuardLog.slice(-30) : [],
+        seenForwardIds: Array.from(seenForwardIds.get(key) || []).slice(-1000)
+      };
     }
+    return obj;
   }
+
+  // 惰性创建：saveSocialV2State/flushSocialV2State 都是函数声明（会被提升），
+  // 如果 main() 里更早的同步代码在 writer 初始化之前调用它们，直接用 const 会踩 TDZ
+  // 抛 ReferenceError。惰性化后「谁先调谁创建」，行为不变但消除了这个执行顺序地雷。
+  let socialV2Writer = null;
+  function socialV2WriterInstance() {
+    if (!socialV2Writer) {
+      socialV2Writer = createCoalescingWriter({
+        write: () => atomicWriteJson(SOCIAL_V2_FILE, buildSocialV2Snapshot()),
+        coalesceMs: 300,
+        log: (message, error) => log(`${message}:`, error?.message ?? error),
+      });
+    }
+    return socialV2Writer;
+  }
+
+  /** 合并写：高频记账用，最终会落盘（崩溃最多丢一个合并窗口）。 */
+  function saveSocialV2State() {
+    socialV2WriterInstance().schedule();
+  }
+
+  /** 立即写：崩溃恢复/收尾/配置变更/会话重置/写后读回/进程退出必须走这条。 */
+  function flushSocialV2State() {
+    return socialV2WriterInstance().flush();
+  }
+
+  /** 丢弃待写的合并任务（调用方即将直写 SOCIAL_V2_FILE 时必须先调它）。 */
+  function cancelSocialV2PendingSave() {
+    return socialV2WriterInstance().cancel();
+  }
+
+  // 供模块级退出钩子与内嵌 stop() 使用（它们在 main() 作用域外）。
+  socialV2FlushOnShutdown = flushSocialV2State;
 
   // ── 二代仿真：操作者预写的「初始提示词」（每个会话一份，只在首次唤醒时注入） ──────
   //
@@ -10606,13 +10690,13 @@ async function main(options = {}) {
             assessment,
           });
         }
-        try { saveSocialV2State(); } catch {}
+        try { flushSocialV2State(); } catch {}
       }
     } else if (state.fishGuard && !cooling && st) {
       // 冷却已过、窗口也干净了：清掉旧标记（保留一次用于诊断的最近记录）。
       state.lastFishGuard = state.fishGuard;
       delete state.fishGuard;
-      try { saveSocialV2State(); } catch {}
+      try { flushSocialV2State(); } catch {}
     }
     if (!rawBlocked) delete state.fishGuardBypass;
     rawBlocked = cooling || assessment.blocked;
@@ -11027,7 +11111,7 @@ async function main(options = {}) {
     markReadCalledKeys.add(key);
     // 刚收尾就别再安排 30 秒后的「回复检查」——那等于自己把自己叫醒。
     cancelReplyCheckV2(key);
-    saveSocialV2State();
+    flushSocialV2State();
     const summaryText = record.summary ? `：${record.summary}` : '';
     log(`[收尾] ${key} 自然结束（${record.reason}）${summaryText}；冷却至 ${new Date(record.cooldownUntil).toLocaleString()}`);
     appendActivity(`${key} [收尾] ${record.summary ? record.summary.slice(0, 60) : '对话自然结束'}`);
@@ -11671,7 +11755,7 @@ async function main(options = {}) {
       st.wakeTimes.push(now);
       if (st.wakeTimes.length > 200) st.wakeTimes = st.wakeTimes.slice(-200);
       st.lastWakeReason = 'purpose';
-      saveSocialV2State();
+      flushSocialV2State();
       const result = await deliverPrompt(key, prompt);
       if (!result || result.ok !== true) throw new Error(result?.error || '投递被拒绝');
       purposeRun.sessionId = String(result.sessionId || '');
@@ -12642,7 +12726,10 @@ async function main(options = {}) {
 
   function startProactiveScheduler() {
     if (cfg.chat?.proactive?.enabled === false) return;
-    setInterval(() => { checkProactiveAt().catch(() => {}); }, 5 * 60 * 1000);
+    // 幂等：已在跑就不再叠一个 interval（见 proactiveTimer 的注释）。
+    if (proactiveTimer) return;
+    proactiveTimer = setInterval(() => { checkProactiveAt().catch(() => {}); }, 5 * 60 * 1000);
+    proactiveTimer.unref?.();
     log(`[搭话] 已启动：每群每小时最多一次主动 @（至少 ${cfg.chat?.proactive?.minMessages ?? 10} 条上下文）`);
   }
 
@@ -12850,9 +12937,13 @@ async function main(options = {}) {
     for (const [k, v] of replyInfoCache) {
       if (now - v.ts > REPLY_INFO_TTL_MS) replyInfoCache.delete(k);
     }
+    // 仍然超限就按插入顺序（Map 保证是「最早写入优先」）批量裁到 800：
+    // 旧实现只删 1 条，于是每来一条新引用都要整表扫一遍 + 反复贴着 1000 抖动。
     if (replyInfoCache.size > 1000) {
-      const oldestKey = replyInfoCache.keys().next().value;
-      if (oldestKey !== undefined) replyInfoCache.delete(oldestKey);
+      for (const k of replyInfoCache.keys()) {
+        if (replyInfoCache.size <= 800) break;
+        replyInfoCache.delete(k);
+      }
     }
   }
   async function resolveReplyInfo(kind, convId, messageId, selfId = null) {
@@ -13046,6 +13137,8 @@ async function main(options = {}) {
       const participantHit = Array.isArray(t.participants) && t.participants.some((p) => p && lowerPlain.includes(String(p)));
       if (topicHit || participantHit) t.lastMentionAt = Date.now();
     }
+    // 这里是**唯一的高频入口**（每条入站消息一次）：用合并写，300ms 窗口内多条消息
+    // 只落盘一次。崩溃最多丢一个窗口（≤300ms）的入站缓冲；正常退出由 flush 钩子兜住。
     saveSocialV2State();
   }
 
@@ -13117,7 +13210,7 @@ async function main(options = {}) {
     st.preSleepWaitSatisfiedAt = 0;
     st.preSleepWaitObservedAt = 0;
     st.preSleepWaitAccumMs = 0;
-    saveSocialV2State();
+    flushSocialV2State();
   }
 
   function readFeedbackEntries() {
@@ -13801,13 +13894,13 @@ async function main(options = {}) {
     st.wakeConfig.lastWakeAt = now;
     st.wakeConfig.wakeCount = (st.wakeConfig.wakeCount || 0) + 1;
     st.lastWakeReason = reason;
-    saveSocialV2State();
+    flushSocialV2State();
     const promptText = buildWakePromptV2(key, reason);
     log(`[reserved2] 唤醒 ${key}（${reason}）`);
     const rollbackWakeTime = () => {
       const idx = st.wakeTimes.lastIndexOf(wakeTime);
       if (idx >= 0) st.wakeTimes.splice(idx, 1);
-      saveSocialV2State();
+      flushSocialV2State();
     };
     try {
       pendingWakeKeys.add(key);
@@ -13817,7 +13910,7 @@ async function main(options = {}) {
         if (hadFiniteSleep) {
           st.wakeConfig.sleepUntil = prevSleepUntil;
           st.wakeConfig.infinite = false;
-          saveSocialV2State();
+          flushSocialV2State();
           setupSleepTimerV2(key);
         }
       };
@@ -13839,7 +13932,7 @@ async function main(options = {}) {
       if (hadFiniteSleep) {
         st.wakeConfig.sleepUntil = prevSleepUntil;
         st.wakeConfig.infinite = false;
-        saveSocialV2State();
+        flushSocialV2State();
         setupSleepTimerV2(key);
       }
       log(`[reserved2] 唤醒投递失败 ${key}: ${error?.message ?? error}`);
@@ -14224,7 +14317,7 @@ async function main(options = {}) {
       fetched: Number(fetched) || 0,
       ...summary
     };
-    saveSocialV2State();
+    flushSocialV2State();
     return summary;
   }
 
@@ -14424,6 +14517,12 @@ async function main(options = {}) {
     markReadCalledKeys.clear();
     wakeConfigMissCount.clear();
     messageMediaStore.clear();
+    // 连续等待计数也必须清：它按会话 key 记账，只在「等到消息」时删除。会话重置/模式
+    // 切换（本函数就是这两条路径的清理点）之后计数若留着，新回合第 3 次 wait 会被
+    // 直接判成 consecutive-wait-limit 而拿不到长轮询 —— 看起来像「刚 reset 就坏了」。
+    // 注意：**不清 activeWaits**。那是长轮询租约，在途 handler 自己会释放/超时；
+    // 强行清掉会让同一会话同时跑两个等待，反而可能重复交付同一条消息。
+    waitStreaks.clear();
   }
 
   function drainPromptQueue(key, errorMsg) {
@@ -14672,7 +14771,7 @@ async function main(options = {}) {
           forgetAgentToken(key);
           socialV2.conversations.delete(key);
           seenForwardIds.delete(key);
-          saveSocialV2State();
+          flushSocialV2State();
           saveState();
           // 与 retireSession 一致：先终止 DSH 侧排队的工作，再归档（归档只隐藏会话）。
           try { await withTimeout(api.stopSessionWork(old), DSH_CONTROL_TIMEOUT_MS, 'stopSessionWork'); }
@@ -14756,7 +14855,7 @@ async function main(options = {}) {
       }
       if (fish.rawBlocked && fish.bypass) {
         st.fishGuardBypass = { at: Date.now(), until: fish.until, reason: fish.reason, direct: !isOwner, owner: isOwner };
-        try { saveSocialV2State(); } catch {}
+        try { flushSocialV2State(); } catch {}
         if (isOwner && auditOnce('fish-bypass', key, 60_000)) {
           auditOwner('fish.bypass', {
             actor: auditActor(event.user_id, true),
@@ -14773,7 +14872,7 @@ async function main(options = {}) {
       });
       if (!st.bootstrapSent) {
         st.bootstrapSent = true;
-        saveSocialV2State();
+        flushSocialV2State();
         scheduleWakeV2(key, 'bootstrap');
       } else {
         const reason = evaluateWakeTriggerV2(key, st, event, kind, textContent, plainContent, quoteTargetIsSelf);
@@ -14817,7 +14916,7 @@ async function main(options = {}) {
       // 和 reserved2 一样落一个 10 分钟 bypass，发送时才能真的回那一句。
       if (fish.rawBlocked && fish.bypass) {
         st.fishGuardBypass = { at: Date.now(), until: fish.until, reason: fish.reason, direct: directed, owner: false };
-        try { saveSocialV2State(); } catch {}
+        try { flushSocialV2State(); } catch {}
       }
     }
 
@@ -15200,7 +15299,7 @@ async function main(options = {}) {
     const st = getSocialV2State(key);
     if (!st.bootstrapSent) {
       st.bootstrapSent = true;
-      saveSocialV2State();
+      flushSocialV2State();
       scheduleWakeV2(key, 'bootstrap');
     } else if (st.wakeConfig?.triggers?.poke) {
       scheduleWakeV2(key, 'poke');
@@ -15507,7 +15606,7 @@ async function main(options = {}) {
                       st.wakeConfig.noActionCount = 0;
                     }
                   }
-                  saveSocialV2State();
+                  flushSocialV2State();
                 } else {
                   log(`[reserved2] ${key} 回合结束但缺少 turn/start（重连补发），跳过无行动计数`);
                 }
@@ -15569,7 +15668,7 @@ async function main(options = {}) {
                   } else {
                     const st = getSocialV2State(key);
                     st.wakeConfig = defaultWakeConfigV2();
-                    saveSocialV2State();
+                    flushSocialV2State();
                     log(`[reserved2] ${key} 连续未设置唤醒条件，已重置为默认唤醒配置`);
                   }
                 }
@@ -16003,9 +16102,11 @@ async function main(options = {}) {
     // 端口也是 per-account 的（实测：换账号后 WS 从 3001 之类变到别的端口），
     // 只换 token 不换 URL 会一直 1006 重连。
     bot.url = wsUrl;
-    if (wsChanged) log(`🔄 SnowLuma WS 连接已更新：${wsUrl}（token ${String(wsToken).slice(0, 4)}…）`);
+    if (wsChanged) log(`🔄 SnowLuma WS 连接已更新：${wsUrl}`);
     if (cfg.snowluma.accessToken !== httpToken) {
-      log(`🔄 SnowLuma HTTP token 已更新（来源 ${r.source}）：${String(cfg.snowluma.accessToken).slice(0, 4)}… → ${String(httpToken).slice(0, 4)}…`);
+      // 不打印 token 片段：日志会被贴进 issue / 截图，前缀同样是凭据的一部分
+      // （CWE-532，与下方 syncTokenToFile 的注释同一口径）。
+      log(`🔄 SnowLuma HTTP token 已更新（来源 ${r.source}）`);
       cfg.snowluma.accessToken = httpToken;
     }
     if (!followEndpoint && r.wsUrl && r.wsUrl !== cfg.snowluma.wsUrl) {
@@ -16208,7 +16309,10 @@ async function main(options = {}) {
         if (shuttingDown) return { ok: true, already: true, message: '内嵌桥接已停止' };
         shuttingDown = true;
         try { saveState(); } catch {}
-        try { saveSocialV2State(); } catch {}
+        // 先落盘，再摘掉退出钩子：停止之后本实例不能再回写 —— 宿主可能已经让
+        // 独立 bridge 接管，进程退出时用我们这份旧快照覆盖它更新的状态就是数据回退。
+        try { flushSocialV2State(); } catch {}
+        socialV2FlushOnShutdown = null;
         for (const timer of embeddedTimers) {
           try { clearInterval(timer); } catch {}
           try { clearTimeout(timer); } catch {}
@@ -16217,6 +16321,7 @@ async function main(options = {}) {
         try { clearAllSocialV2Timers(); } catch {}
         try { if (social.loopTimer) clearInterval(social.loopTimer); } catch {}
         try { if (purposeTimer) clearTimeout(purposeTimer); } catch {}
+        try { if (proactiveTimer) { clearInterval(proactiveTimer); proactiveTimer = null; } } catch {}
         try { if (morningGreetingTimer) clearTimeout(morningGreetingTimer); } catch {}
         try { biliDynamics?.stop?.(); } catch {}
         try { biliShare?.stop?.(); } catch {}
@@ -16243,13 +16348,26 @@ async function main(options = {}) {
  * 嵌入 DSH 后这些钩子绝不能注册 —— 它们会 `process.exit()`，等于把整个 DSH 带走。
  */
 function installProcessGuards() {
+  /**
+   * 退出前把「合并落盘」窗口里的二代会话状态刷到磁盘。
+   *
+   * 为什么必须有：saveSocialV2State() 现在是 300ms 合并写，正常退出如果不等这个窗口，
+   * 最后一次入站缓冲 / 唤醒计数 / 读水位就会随进程一起消失（SIGTERM 恰好落在窗口内
+   * 的概率不低：守护脚本 stop、DSH 退出、控制台重启都走这条路径）。
+   * 用同步写，所以 'exit' 事件里也能生效。
+   */
+  const flushSocialV2StateOnExit = () => {
+    try { socialV2FlushOnShutdown?.(); } catch {}
+  };
   process.on('SIGINT', () => {
     log('退出中…');
+    flushSocialV2StateOnExit();
     saveState();
     releaseLock();
     process.exit(0);
   });
   process.on('SIGTERM', () => {
+    flushSocialV2StateOnExit();
     saveState();
     releaseLock();
     process.exit(0);
@@ -16269,11 +16387,21 @@ function installProcessGuards() {
    */
   process.on('uncaughtException', (error) => {
     try { log('致命异常（进程即将退出）:', error?.stack ?? error?.message ?? error); } catch {}
+    try { flushSocialV2StateOnExit(); } catch {}
     try { saveState(); } catch {}
     releaseLock();
     process.exit(1);
   });
-  process.on('exit', () => releaseLock());
+  // 兜底最后一道：正常 return 的退出路径不经过上面几个信号处理器。
+  process.on('exit', () => {
+    flushSocialV2StateOnExit();
+    releaseLock();
+  });
+  // 事件循环自然排空（没有显式 process.exit）时也刷一次：合并窗口里的脏数据
+  // 若恰好卡在 unref 计时器上，进程会在计时器触发前就退出。
+  process.on('beforeExit', () => {
+    flushSocialV2StateOnExit();
+  });
 }
 
 // 直接 `node src/bridge.js` 才自动启动；被 DSH 插件 import 时什么都不做。
@@ -16295,6 +16423,7 @@ if (isDirectRun && !EMBEDDED_MODE) {
 // ── 嵌入模式生命周期（DSH 插件宿主使用）─────────────────────────────────────
 let embeddedStarted = false;
 let embeddedStartupError = '';
+let embeddedExitFlushHooked = false;
 
 export async function startEmbedded({ dshWebUrl = '' } = {}) {
   if (!EMBEDDED_MODE) {
@@ -16303,6 +16432,14 @@ export async function startEmbedded({ dshWebUrl = '' } = {}) {
   if (embeddedStarted) {
     if (embeddedRuntime?.error) return { ok: false, error: embeddedRuntime.error };
     return { ok: true, already: true, port: embeddedRuntime?.port ?? null };
+  }
+  // 嵌入模式**不能**装 installProcessGuards（那些钩子会 process.exit，等于把 DSH 带走），
+  // 但「退出前把合并写刷盘」是纯同步写入、不退出进程，必须装：否则 DSH 被关掉时
+  // saveSocialV2State 的 300ms 合并窗口里可能还有未落盘的入站缓冲/唤醒计数。
+  // 只注册一次（插件可能被反复启停）。
+  if (!embeddedExitFlushHooked) {
+    embeddedExitFlushHooked = true;
+    process.on('exit', () => { try { socialV2FlushOnShutdown?.(); } catch {} });
   }
   // 已有独立 bridge 占着端口：绝不能再连一次 SnowLuma，否则同一条 QQ 消息会处理两遍。
   if (consolePortInUse()) {

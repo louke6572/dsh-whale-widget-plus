@@ -36,6 +36,14 @@ const targetDir = path.resolve(argValue('--dir') || path.join(os.homedir(), 'Sno
 const force = argv.includes('--force');
 const launch = !argv.includes('--no-launch');
 
+// 官方发布物只有 Windows zip，解压还依赖 PowerShell 的 Expand-Archive。
+// 在其它平台上直接说清楚，而不是让用户看到 zip/Expand-Archive 的费解报错。
+if (process.platform !== 'win32') {
+  console.error('[snowluma-install] ERROR: 本脚本只支持 Windows（SnowLuma 官方 Releases 只提供 Windows 包）。');
+  console.error('  macOS/Linux 请手动安装 SnowLuma，然后在设置页「安装与维护 → 手动选择」指定目录。');
+  process.exit(2);
+}
+
 const log = (msg) => console.log(`[snowluma-install] ${msg}`);
 
 function fail(msg) {
@@ -43,13 +51,40 @@ function fail(msg) {
   process.exit(1);
 }
 
+/**
+ * 读取仓库根 config.json。
+ *
+ * ⚠️ 2026-11 审查：旧实现把「文件损坏 / 不是 JSON」当成「没有文件」，返回 {}，
+ * 然后 rememberInstall() 直接把 config.json **整份覆盖**成 `{snowluma:{…}}` ——
+ * 用户手改出的语法错误（尾逗号、注释）会静默丢掉 dsh / biliBridge / social 等全部配置。
+ * 现在：文件存在但解析失败 ⇒ 明确报错退出，先让用户修好，绝不覆盖。
+ */
 function readConfig() {
-  try { return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); } catch { return {}; }
+  if (!fs.existsSync(CONFIG_FILE)) return {};
+  const text = fs.readFileSync(CONFIG_FILE, 'utf8').replace(/^\uFEFF/, '');
+  if (!text.trim()) return {};
+  try {
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      fail(`${CONFIG_FILE} 不是 JSON 对象；为避免覆盖你的配置，本次不做修改`);
+    }
+    return parsed;
+  } catch (error) {
+    fail(`${CONFIG_FILE} 不是合法 JSON（${error?.message ?? error}）；为避免覆盖你的配置，本次不做修改。请先修好它。`);
+    return {};
+  }
 }
 
 function writeConfig(cfg) {
   fs.mkdirSync(path.dirname(CONFIG_FILE), { recursive: true });
-  fs.writeFileSync(CONFIG_FILE, `${JSON.stringify(cfg, null, 2)}\n`, 'utf8');
+  // 原子写：先写临时文件再改名，避免写到一半断电留下半份 config。
+  const temporary = `${CONFIG_FILE}.${process.pid}.tmp`;
+  try {
+    fs.writeFileSync(temporary, `${JSON.stringify(cfg, null, 2)}\n`, 'utf8');
+    fs.renameSync(temporary, CONFIG_FILE);
+  } finally {
+    try { fs.rmSync(temporary, { force: true }); } catch {}
+  }
 }
 
 const { findSnowLumaInstall, normalizeSnowLumaInstall } = await import(

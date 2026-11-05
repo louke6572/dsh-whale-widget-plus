@@ -22,6 +22,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /**
  * 找本机 DSH 的 app.asar。不写死盘符：先看 DSH_ASAR 环境变量，再扫常见安装位置。
@@ -168,7 +169,10 @@ export function apply(asarPath = ASAR_DEFAULT, { dryRun = false } = {}) {
   return { ...state, changed: true, backup, previous: `${asarPath}.old-${stamp}` };
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+// 用 fileURLToPath 而不是 `new URL(...).pathname`：后者在 Windows 上给出 `/C:/...`（靠正则
+// 打补丁）且**不做百分号解码** —— 仓库路径里有空格/中文（`%20`、`%E4%B8%AD`）时
+// import.meta.url 与 process.argv[1] 永远不相等，脚本会"静默什么都不做"并 exit 0。
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 if (isMain) {
   const args = process.argv.slice(2);
   const asarArg = args.indexOf('--asar');

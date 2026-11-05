@@ -1998,60 +1998,10 @@ button:active:not(:disabled) {
       </div>
       <div class="meta">一代仿真模式状态机：观望期按“明确点名 / 小概率”触发进入活跃；活跃期每 10~20 秒批量查看新消息并回应；群聊活跃超过随机上限会主动提示 AI 收尾退场；冷场后大概率回观望、小概率让 AI 试探一句。可手动强制切换状态。</div>
     </div></section>
-<section id="section-voice" class="card span-all" hidden>
+<section id="section-voice" data-page="social-v2" class="card span-all" hidden>
   <h2>语音</h2>
-  <div class="meta">语音引擎不随插件分发。不装也能正常聊天，只是不能发语音。装好之后，这里可以启停、试听、改触发规则。</div>
-<details class="settings-group" open><summary>语音功能（可选安装）</summary><div class="settings-content">
-  <div class="meta" style="margin-bottom:10px">
-    语音引擎<b>不随插件分发</b>（几百 MB 到几 GB）。不装也能正常聊天，只是不能发语音。<br>
-    两个语音包互相独立，可以只装一个、也可以都装；装完在下面「启用」即可。
-  </div>
-  <div id="voicePacks" class="meta">加载中…</div>
-  <div id="voicePackTip" class="meta" style="margin-top:10px"></div>
-  <div style="margin-top:12px;padding:10px;border:1px solid var(--line,#333);border-radius:8px">
-    <div class="row" style="gap:14px;align-items:center;flex-wrap:wrap">
-      <b>使用</b>
-      <label style="display:flex;gap:6px;align-items:center"><input type="radio" name="vpPick" value="voice-local" checked> 本地</label>
-      <label style="display:flex;gap:6px;align-items:center"><input type="radio" name="vpPick" value="voice-cloud"> 云端</label>
-      <button id="vpSwitchBtn" type="button">启动</button>
-      <span id="vpState" class="meta">○ 未启动</span>
-    </div>
-    <div class="meta" style="margin-top:6px">只能运行一个；切换会自动停掉另一个</div>
-  </div>
-
-  <div id="cloudConfigBox" style="display:none;margin-top:14px;padding:12px;border:1px solid var(--line,#333);border-radius:8px">
-    <div style="font-weight:600;margin-bottom:8px">云端包配置（三步）</div>
-
-    <div class="meta" style="margin-bottom:10px;padding:8px;background:rgba(255,255,255,.03);border-radius:6px">
-      <b>① 准备一个音色</b><br>
-      不想自己录音？<b>用我们准备好的这段</b>（19 秒，女童声，已经生成好，直接拿去复刻）：
-      <button id="cloudSampleBtn" type="button" class="btn-secondary" style="margin-left:6px">下载参考音频（0.9 MB）</button><br>
-      <span style="color:#909399">拿到 wav 后：<a id="cloudConsoleLink" href="https://console.volcengine.com/speech/service/8" target="_blank" rel="noreferrer">打开火山引擎控制台 ↗</a>
-      → 语音技术 → 声音复刻 → 上传这个 wav → 训练完成后会给你一个 <code>S_xxxxxxxx</code></span><br>
-      <span style="color:#909399">想用自己的声音也行：10~20 秒干净人声（无背景音乐、无杂音），走同样的流程。</span>
-    </div>
-
-    <div class="meta" style="margin-bottom:8px">
-      <b>② 填密钥</b>：在控制台「语音技术」页面复制 <b>AppID</b> 与 <b>Access Key</b>。
-    </div>
-    <div class="row" style="flex-wrap:wrap;gap:8px">
-      <label style="flex:0 0 90px">AppID</label><input id="cloudAppId" type="text" placeholder="控制台「语音技术」页里的 AppID" style="width:220px">
-    </div>
-    <div class="row" style="flex-wrap:wrap;gap:8px;margin-top:6px">
-      <label style="flex:0 0 90px">Access Key</label><input id="cloudAccessKey" type="password" placeholder="控制台里的 Access Key" style="width:220px">
-    </div>
-    <div class="row" style="flex-wrap:wrap;gap:8px;margin-top:6px">
-      <label style="flex:0 0 90px">音色 ID</label><input id="cloudSpeaker" type="text" placeholder="S_xxxxxxxx" style="width:220px">
-      <button id="cloudSaveBtn" type="button">保存</button>
-      <button id="cloudTestBtn" type="button" class="btn-secondary">测试连接</button>
-      <span id="cloudMsg" class="meta"></span>
-    </div>
-    <div class="meta" style="margin-top:8px">
-      <b>③ 测试连接</b>：填完点「测试连接」，成功就说明能用了。<br>
-      保存后会写进包内的 <code>config.toml</code>；密钥只存在你本机，不会上传。
-    </div>
-  </div>
-
+  <div class="meta">语音合成走桥接的 Edge TTS（在线端点，不用装模型）。这里改「能不能自动发语音」的触发规则；语音库试发在下面「二代仿真」页的调试区。</div>
+<details class="settings-group" open><summary>语音触发规则</summary><div class="settings-content">
   <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--line,#333)">
     <div style="font-weight:600;margin-bottom:8px">触发规则</div>
     <div class="row" style="flex-wrap:wrap;gap:8px;align-items:center">
@@ -4594,6 +4544,19 @@ function showConsoleToast(message) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { toast.hidden = true; }, 4200);
 }
+// 兜底：api() 在「网络断 / 响应不是 JSON」时是 reject（不是 {ok:false}），
+// 而不少按钮的 handler 没有 try/catch —— 失败时用户只看到「点了没反应」。
+// 这里把未捕获的 rejection 统一显示成 toast；同一条错误 3 秒内只弹一次，避免轮询刷屏。
+let lastUnhandledToast = { text: '', at: 0 };
+window.addEventListener('unhandledrejection', (event) => {
+  const reason = event.reason;
+  const text = (reason && (reason.message || reason.error)) || String(reason || '未知错误');
+  const now = Date.now();
+  if (text === lastUnhandledToast.text && now - lastUnhandledToast.at < 3000) return;
+  lastUnhandledToast = { text, at: now };
+  try { showConsoleToast('请求失败：' + text); } catch (e) { /* toast 还没就绪时忽略 */ }
+});
+
 function setConsolePage(page, { updateHash = true, focus = false, target = '' } = {}) {
   if (!Object.hasOwn(consolePages, page)) page = 'overview';
   currentConsolePage = page;
@@ -5227,186 +5190,44 @@ setInterval(() => { if (currentConsolePage !== 'usage') return; refreshUsage(); 
   });
 })();
 
-// ── 语音包：安装 / 启停 / 配置 / 触发规则 ───────────────────────────
-const VP = {
-  packs: [],
-  fmtSize(b) { return b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : (b / 1e6).toFixed(0) + ' MB'; },
-};
-
-async function vpLoad() {
-  const box = document.getElementById('voicePacks');
-  if (!box) return;
-  try {
-    const r = await api('/api/voice/packs');
-    if (!r.ok) throw new Error(r.error || '读取失败');
-    VP.packs = r.packs || [];
-    VP.dir = r.packsDir;
-    box.innerHTML = VP.packs.map(vpCard).join('');
-    const tip = document.getElementById('voicePackTip');
-    if (tip) {
-      tip.innerHTML = `安装目录：<code>${r.packsDir}</code> —— 卸载只删这里的文件，不会碰你的其他数据。`;
-    }
-    // 云端配置区：装了云端包就显示
-    const cloud = VP.packs.find((p) => p.id === 'voice-cloud');
-    const cfgBox = document.getElementById('cloudConfigBox');
-    if (cfgBox) cfgBox.style.display = cloud && cloud.installed ? 'block' : 'none';
-    vpBind();
-  } catch (e) {
-    box.innerHTML = `<span style="color:#e66">读取语音包失败：${e.message}</span>`;
-  }
-}
-
-function vpCard(p) {
-  const state = p.install
-    ? `<b style="color:#e6a23c">${p.install.phase} ${p.install.progress}%</b>`
-    : p.running
-      ? '<b style="color:#67c23a">● 运行中</b>'
-      : p.installed
-        ? '<b style="color:#909399">○ 已安装 · 未运行</b>'
-        : '<b style="color:#909399">未安装</b>';
-  const about = p.about || {};
-  const pros = (about.pros || []).map((x) => `<li>${x}</li>`).join('');
-  const cons = (about.cons || []).map((x) => `<li>${x}</li>`).join('');
-  const billing = about.billing
-    ? `<div class="meta" style="margin-top:6px;color:#c8a35a">${about.billing}<br>${about.disclaimer || ''}</div>`
-    : '';
-  const btns = []; // 启停统一放在下面的控制条里，卡片上不放按钮
-  if (!p.installed) btns.push(`<button data-vp-install="${p.id}">安装（${VP.fmtSize(p.sizeBytes)}）</button>`);
-  if (p.installed && !p.running) btns.push(`<button data-vp-start="${p.id}">启动</button>`);
-  if (p.running) {
-    btns.push(`<button data-vp-test="${p.id}" class="btn-secondary">试听</button>`);
-    btns.push(`<button data-vp-stop="${p.id}" class="btn-secondary">停止</button>`);
-  }
-  if (p.installed) btns.push(`<button data-vp-remove="${p.id}" class="btn-secondary">卸载</button>`);
-  const pathLine = p.installed && p.dir ? `<div class="meta" style="margin-top:4px">路径：<code>${p.dir}</code></div>` : '';
-  return `<div style="border:1px solid var(--line,#333);border-radius:8px;padding:12px;margin-bottom:10px">
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
-      <b>${p.name}</b>
-      <span class="meta">${VP.fmtSize(p.sizeBytes)} · 端口 ${p.port} · ${state}</span>
-    </div>
-    <div class="meta" style="margin:6px 0">${about.summary || ''}</div>
-    <div class="meta" style="display:flex;gap:24px;flex-wrap:wrap">
-      <ul style="margin:0;padding-left:18px">${pros}</ul>
-      <ul style="margin:0;padding-left:18px;color:#909399">${cons}</ul>
-    </div>
-    ${billing}${pathLine}
-    <div class="row" style="margin-top:6px"><span class="meta" data-vp-msg="${p.id}"></span></div>
-  </div>`;
-}
-
-function vpMsg(id, text, bad) {
-  const el = document.querySelector(`[data-vp-msg="${id}"]`);
-  if (el) { el.textContent = text; el.style.color = bad ? '#e66' : '#67c23a'; }
-}
-
-function vpBind() {
-  document.querySelectorAll('[data-vp-install]').forEach((b) => {
-    b.onclick = async () => {
-      const id = b.dataset.vpInstall;
-      const p = VP.packs.find((x) => x.id === id);
-      if (!confirm(`安装「${p.name}」？\n\n大小：${VP.fmtSize(p.sizeBytes)}\n端口：${p.port}\n\n安装会占用磁盘并可能下载较久，确定继续？`)) return;
-      b.disabled = true; vpMsg(id, '正在开始安装…');
-      const r = await api('/api/voice/packs/install', 'POST', { id });
-      if (!r.ok) { vpMsg(id, r.error || '安装失败', true); b.disabled = false; return; }
-      vpPoll(id);
-    };
-  });
-  document.querySelectorAll('[data-vp-start]').forEach((b) => {
-    b.onclick = async () => {
-      const id = b.dataset.vpStart;
-      vpMsg(id, '启动中（本地包首次要加载模型，最多 60 秒）…');
-      const r = await api('/api/voice/packs/start', 'POST', { id });
-      if (!r.ok) return vpMsg(id, r.error || '启动失败', true);
-      vpMsg(id, `已启动（${r.seconds || 0}s）`);
-      vpLoad();
-    };
-  });
-  document.querySelectorAll('[data-vp-stop]').forEach((b) => {
-    b.onclick = async () => {
-      const id = b.dataset.vpStop;
-      const r = await api('/api/voice/packs/stop', 'POST', { id });
-      vpMsg(id, r.ok ? '已停止' : (r.error || '停止失败'), !r.ok);
-      vpLoad();
-    };
-  });
-  document.querySelectorAll('[data-vp-test]').forEach((b) => {
-    b.onclick = async () => {
-      const id = b.dataset.vpTest;
-      vpMsg(id, '合成中…');
-      const r = await api('/api/voice/packs/test', 'POST', { id });
-      vpMsg(id, r.ok ? `✅ ${r.ms}ms，${r.seconds}s 音频` : (r.error || '失败'), !r.ok);
-    };
-  });
-  document.querySelectorAll('[data-vp-remove]').forEach((b) => {
-    b.onclick = async () => {
-      const id = b.dataset.vpRemove;
-      const p = VP.packs.find((x) => x.id === id);
-      if (!confirm(`确定卸载「${p.name}」？\n\n会删除：${p.dir || ''}\n不会影响聊天和其他设置。`)) return;
-      const r = await api('/api/voice/packs/remove', 'POST', { id });
-      vpMsg(id, r.ok ? '已卸载' : (r.error || '卸载失败'), !r.ok);
-      vpLoad();
-    };
-  });
-}
-
-function vpPoll(id) {
-  let n = 0;
-  const timer = setInterval(async () => {
-    n++;
-    const r = await api('/api/voice/packs').catch(() => null);
-    if (!r || !r.ok) return;
-    VP.packs = r.packs;
-    const box = document.getElementById('voicePacks');
-    if (box) box.innerHTML = VP.packs.map(vpCard).join('');
-    vpBind();
-    const p = VP.packs.find((x) => x.id === id);
-    if (!p) return;
-    if (p.install?.phase === '失败') { clearInterval(timer); vpMsg(id, p.install.error || '安装失败', true); return; }
-    if (p.installed && !p.install) { clearInterval(timer); vpMsg(id, '安装完成，点「启动」'); return; }
-    if (n > 1200) clearInterval(timer);
-  }, 1500);
-}
-
-async function vpSaveCloud() {
-  const msg = document.getElementById('cloudMsg');
-  const body = {
-    id: 'voice-cloud',
-    appId: document.getElementById('cloudAppId').value.trim(),
-    accessKey: document.getElementById('cloudAccessKey').value.trim(),
-  };
-  if (!body.appId || !body.accessKey) { msg.textContent = '请先填 AppID 和 Access Key'; return; }
-  const r = await api('/api/voice/packs/cloud-config', 'POST', body);
-  msg.textContent = r.ok ? '已保存到包内 config.toml' : (r.error || '保存失败');
-}
-
-async function vpTestCloud() {
-  const msg = document.getElementById('cloudMsg');
-  msg.textContent = '测试中…';
-  const r = await api('/api/voice/packs/test', 'POST', { id: 'voice-cloud' });
-  msg.textContent = r.ok ? `✅ 连接成功，合成 ${r.ms}ms` : `❌ ${r.error || '失败'}`;
-}
-
+// ── 语音触发规则（语音包子系统已于 2026-11 下线：/api/voice/packs* 不再存在，
+//    面板里的安装/启停/云端配置已随接口一起删除，只留触发规则）───────────────
 async function vpSaveRules() {
   const msg = document.getElementById('voiceRulesMsg');
-  const body = {
-    triggerWho: document.getElementById('voiceTriggerWho').value,
-    maxPerMinute: Number(document.getElementById('voiceMaxPerMinute').value) || 2,
-    maxPerHour: Number(document.getElementById('voiceMaxPerHour').value) || 10,
-    aiEnabled: document.getElementById('voiceAiEnabled').checked,
-  };
+  const whoEl = document.getElementById('voiceTriggerWho');
+  const aiEl = document.getElementById('voiceAiEnabled');
+  const body = { triggerWho: whoEl ? whoEl.value : 'owner', aiEnabled: !!(aiEl && aiEl.checked) };
+  // 只提交「用户填了」的频率上限：输入框空着时不要用默认 2/10 去覆盖服务端已有配置。
+  const mpm = Number(document.getElementById('voiceMaxPerMinute').value);
+  if (Number.isFinite(mpm) && mpm > 0) body.maxPerMinute = mpm;
+  const mph = Number(document.getElementById('voiceMaxPerHour').value);
+  if (Number.isFinite(mph) && mph > 0) body.maxPerHour = mph;
   const r = await api('/api/voice/rules', 'POST', body).catch((e) => ({ ok: false, error: e.message }));
-  msg.textContent = r.ok ? '已保存' : (r.error || '保存失败（接口未实现时会显示这条）');
+  msg.textContent = r.ok ? '已保存' : (r.error || '保存失败');
+}
+
+// 语音触发规则：先把服务端当前值读回来再允许保存。
+// 旧面板从不加载，输入框永远是「仅主人 / 2 / 10 / 关」这几个默认值，
+// 用户一点保存就把真实配置覆盖成默认值（和群分层同一类 bug）。
+async function vpLoadRules() {
+  try {
+    const r = await api('/api/voice/rules');
+    if (!r.ok) return;
+    const who = document.getElementById('voiceTriggerWho');
+    if (who) who.value = r.triggerWho || 'owner';
+    const mpm = document.getElementById('voiceMaxPerMinute');
+    if (mpm) mpm.value = r.maxPerMinute ?? 2;
+    const mph = document.getElementById('voiceMaxPerHour');
+    if (mph) mph.value = r.maxPerHour ?? 10;
+    const ai = document.getElementById('voiceAiEnabled');
+    if (ai) ai.checked = r.aiEnabled === true;
+  } catch (e) { /* 桥接没起来：保持输入框空白，保存前用户可看清默认值 */ }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  if (document.getElementById('voicePacks')) {
-    vpLoad();
-    document.getElementById('cloudSaveBtn')?.addEventListener('click', vpSaveCloud);
-    document.getElementById('cloudSampleBtn')?.addEventListener('click', () => {
-      window.open('/api/voice/packs/sample?id=voice-cloud&token=' + encodeURIComponent(localStorage.getItem('consoleToken') || ''), '_blank');
-    });
-    document.getElementById('cloudTestBtn')?.addEventListener('click', vpTestCloud);
+  if (document.getElementById('voiceRulesSaveBtn')) {
     document.getElementById('voiceRulesSaveBtn')?.addEventListener('click', vpSaveRules);
+    vpLoadRules();
   }
 });
 

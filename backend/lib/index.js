@@ -39,7 +39,7 @@ import {
 import { activeMemoryPaths, activePersonaLayers, activePlatformStateDir, readCurrentCharacter, touchCharacter } from '../../src/character-persona.js';
 import { automationSnapshot } from './automation.js';
 import {
-  backupFile, listBackups, pathSummary,
+  backupFile, configDefaults, listBackups, pathSummary,
   readAll, readBiliConfig, readJson, readQqConfig, readUnified,
   saveBiliConfig, saveQqConfig, saveUnified, writeJsonAtomic, writeTextAtomic,
 } from './store.js';
@@ -61,7 +61,7 @@ import {
   status as bridgeStatus, stop as stopBridge,
   consoleBase, consoleToken } from './bridge.js';
 import { PlatformRegistry } from './platforms.js';
-import { isLoopbackReq, json, readBody, sameOrigin } from './http-guard.js';
+import { contentTypeRejection, isLoopbackReq, json, readBody, readJsonBody, sameOrigin } from './http-guard.js';
 import { startScheduler } from './scheduler.js';
 import { createTokenBudgetService } from './token-budget.js';
 import { scanPluginCompatibility } from './compat.js';
@@ -71,7 +71,7 @@ import { createPetService } from './pet.js';
 import { createPetChatService } from './pet-chat.js';
 import { createPetPurposeService } from './pet-purpose.js';
 import { createPetApiService } from './pet-api.js';
-import { createUpdatesService, resumePendingApply } from './updates.js';
+import { createUpdatesService, resumePendingApply, sanitizeComponentId } from './updates.js';
 import { createSnowLumaWebuiClient } from './snowluma-webui.js';
 import {
   adminFromSources, adminSummary, normalizeAdmin, projectAdminSave,
@@ -100,8 +100,10 @@ import { createPersonaClassifier } from './persona-classify.js';
 // 读不到 dsh-Dfy 时才回落到仓库根 package.json（离线/拆包场景）。
 function readOwnVersion() {
   try {
-    const here = path.dirname(fileURLToPath(import.meta.url)); // plugins/surfcore/lib
+    const here = path.dirname(fileURLToPath(import.meta.url)); // backend/lib（单仓库布局）
     // 合并后版本号以 dsh-Dfy 主包为准（surfcore 只是被复用的后端库）。
+    // 旧布局的 `plugins/surfcore-next/package.json` 已并入单仓库，保留一级旧路径兜底；
+    // 读不到时回落到仓库根 package.json（离线 / 拆包场景）。
     const candidates = [
       path.resolve(here, '../../surfcore-next/package.json'),
       path.resolve(here, '../../package.json'),
@@ -138,6 +140,25 @@ function safeBackupName(name) {
   const base = path.basename(String(name ?? ''));
   if (!base || base !== String(name)) return '';
   return base;
+}
+
+// ── 组件更新目录的「预期范围」────────────────────────────────────────────────
+// 内建组件（surfcore 本体）与随插件安装的东西都在 DSH_HOME / 插件目录 / 仓库根下；
+// 用户自定义组件的 dir 允许任意路径（产品设定），但自动更新会往那个目录 robocopy 覆盖，
+// 所以要**告警一次**让人看见，而不是静默写入。（2026-11 收尾审计 P3）
+const UPDATE_DIR_EXPECTED_ROOTS = [DSH_HOME, PLUGIN_ROOT, path.resolve(PLUGIN_ROOT, '..')];
+const updateDirWarned = new Set();
+function updateDirInExpectedRoots(dir) {
+  let abs = '';
+  try { abs = path.resolve(String(dir ?? '')); } catch { return false; }
+  const norm = (value) => (process.platform === 'win32' ? value.toLowerCase() : value);
+  const target = norm(abs);
+  return UPDATE_DIR_EXPECTED_ROOTS.some((root) => {
+    let resolved = '';
+    try { resolved = path.resolve(root); } catch { return false; }
+    const base = norm(resolved);
+    return target === base || target.startsWith(base.endsWith(path.sep) ? base : `${base}${path.sep}`);
+  });
 }
 
 function readTextFile(file, fallback = '') {
@@ -269,8 +290,20 @@ export function apply(ctx) {
         if (Array.isArray(custom)) {
           for (const item of custom) {
             if (!item || typeof item !== 'object' || !item.id || !item.dir) continue;
+            // id 会被拼进暂存目录名并进 PowerShell 命令：非法 id 直接丢弃，
+            // 不要让它以"只是个名字"的身份一路流到解压/清理那一步。
+            const safeId = sanitizeComponentId(item.id);
+            if (!safeId) {
+              pluginLog(`[updates] 忽略 id 不合规的组件（只允许字母/数字/点/下划线/短横线）：${String(item.id).slice(0, 60)}`);
+              continue;
+            }
+            // P3：自定义目录不阻断，但要告警一次——自动更新会向这个目录覆盖写文件。
+            if (!updateDirInExpectedRoots(item.dir) && !updateDirWarned.has(safeId)) {
+              updateDirWarned.add(safeId);
+              pluginLog(`[updates] 组件 ${safeId} 的目录不在 DSH_HOME/插件目录/仓库根下（${maskPath(String(item.dir))}）：自动更新会向该目录覆盖写文件，请确认这是你要的目录`);
+            }
             list.push({
-              id: String(item.id).slice(0, 60),
+              id: safeId,
               name: String(item.name ?? item.id).slice(0, 80),
               dir: String(item.dir),
               kind: ['git', 'release', 'auto'].includes(item.kind) ? item.kind : 'auto',
@@ -687,8 +720,11 @@ export function apply(ctx) {
       handler: async (req, res) => {
         if (!isLoopbackReq(req)) { json(res, 403, { ok: false, error: '只接受本机回环访问' }); return; }
         if (req.method !== 'GET' && !sameOrigin(req)) { json(res, 403, { ok: false, error: '跨站请求被拒绝' }); return; }
-        if (req.method !== 'GET' && !String(req.headers['content-type'] ?? '').toLowerCase().includes('application/json')) {
-          json(res, 415, { ok: false, error: '写操作必须是 application/json' });
+        // Content-Type 只对**浏览器**写请求强制（判据=http-guard.isBrowserRequest）；
+        // curl / 本机脚本 / 桌宠进程不带 Content-Type 也放行，body 交给 readJsonBody 解析。
+        const ctRejection = contentTypeRejection(req);
+        if (ctRejection) {
+          json(res, 415, { ok: false, code: 'CONTENT_TYPE', error: ctRejection });
           return;
         }
         try {
@@ -704,7 +740,11 @@ export function apply(ctx) {
           await handler(req, res);
         } catch (error) {
           pluginLog('API 失败：', error?.message ?? error);
-          try { json(res, 500, { ok: false, error: String(error?.message ?? error) }); } catch {}
+          // 400/413 这类「客户端请求有问题」的错误要按自己的状态码回，别一律 500：
+          // readJsonBody 把非法 JSON 标成 400、readBody 把超限标成 413。
+          const status = Number(error?.statusCode);
+          const code = status >= 400 && status < 600 ? status : 500;
+          try { json(res, code, { ok: false, code: String(error?.code ?? ''), error: String(error?.message ?? error) }); } catch {}
         }
       },
     }));
@@ -795,7 +835,11 @@ export function apply(ctx) {
   async function handleConfig(req, res) {
     if (req.method === 'GET') {
       json(res, 200, {
-        ok: true, ...readAll(), paths: pathSummary(), backups: listBackups(20),
+        ok: true, ...readAll(),
+        // 后端真实默认值（形状与 qq/bili/unified 一致、已脱敏）：设置页显示「默认是什么」
+        // 直接读这里，别在前端再抄一份默认值（两份必然漂移）。
+        defaults: configDefaults(),
+        paths: pathSummary(), backups: listBackups(20),
         // 保存时回传这些戳：服务端据此判断"加载之后配置有没有被别处改过"
         stamps: {
           qq: fileStamp(QQ_CONFIG),
@@ -805,7 +849,7 @@ export function apply(ctx) {
       });
       return;
     }
-    const body = JSON.parse(await readBody(req) || '{}');
+    const body = await readJsonBody(req);
     // 乐观并发：设置页加载后，如果配置被控制台/别的窗口改过，这里拒绝整份回写，
     // 否则会把别人的修改覆盖掉（2026-10-29：语音开关"自己回弹"）。
     const baseStamp = body?.baseStamp && typeof body.baseStamp === 'object' ? body.baseStamp : null;
@@ -978,7 +1022,7 @@ export function apply(ctx) {
       return;
     }
     let body = {};
-    try { body = JSON.parse(await readBody(req, 16 * 1024 * 1024) || '{}'); } catch { json(res, 400, { ok: false, error: '请求体不是合法 JSON' }); return; }
+    try { body = await readJsonBody(req, 16 * 1024 * 1024); } catch { json(res, 400, { ok: false, error: '请求体不是合法 JSON' }); return; }
     const action = String(body.action ?? '');
     const id = String(body.id ?? readCurrentCharacter()?.id ?? '').trim();
     try {
@@ -1067,7 +1111,7 @@ export function apply(ctx) {
         return;
       }
       if (req.method === 'POST') {
-        const body = JSON.parse(await readBody(req) || '{}');
+        const body = await readJsonBody(req);
         const r = await callBridge('/api/socialV2/group-policy', { method: 'POST', body });
         if (!r.ok) {
           json(res, 502, { ok: false, code: 'GROUP_POLICY_SAVE', error: r.error || '保存失败', hint: '检查桥接是否运行，再重试' });
@@ -1088,7 +1132,7 @@ export function apply(ctx) {
       return;
     }
     try {
-      const body = JSON.parse(await readBody(req) || '{}');
+      const body = await readJsonBody(req);
       let text = String(body.text ?? '');
     if (layer === 'daily') text = withDailyIdentity(text);
       const drafts = await personaClassifier.classify(text);
@@ -1133,7 +1177,7 @@ ${body}`;
   async function handleLimitMute(req, res) {
     if (req.method !== 'POST') { json(res, 405, { ok: false, code: 'LIMIT_MUTE_METHOD', error: '只支持 POST' }); return; }
     try {
-      const body = JSON.parse(await readBody(req) || '{}');
+      const body = await readJsonBody(req);
       const r = await callBridge('/api/socialV2/limit-mute', { method: 'POST', body });
       if (!r.ok) { json(res, 502, { ok: false, code: 'LIMIT_MUTE_BRIDGE', error: r.error || '桥接不可用', hint: '先启动/重启 QQ 桥接' }); return; }
       json(res, 200, r.data);
@@ -1181,7 +1225,7 @@ ${body}`;
       });
       return;
     }
-    const body = JSON.parse(await readBody(req) || '{}');
+    const body = await readJsonBody(req);
     if (body.action === 'restore') {
       const name = safeBackupName(body.name);
       if (!name) { json(res, 400, { ok: false, error: '备份名非法' }); return; }
@@ -1262,7 +1306,7 @@ ${body}`;
       });
       return;
     }
-    const body = JSON.parse(await readBody(req) || '{}');
+    const body = await readJsonBody(req);
     if (body.action === 'sync') {
       const result = syncQqToBili({ force: true });
       json(res, 200, result);
@@ -1304,7 +1348,7 @@ ${body}`;
       json(res, 200, memoryCardSnapshot(config));
       return;
     }
-    const body = JSON.parse(await readBody(req) || '{}');
+    const body = await readJsonBody(req);
     const action = String(body.action ?? '');
     if (action === 'maintain') {
       const result = await runMemoryCardMaintenance({ forceDecay: body.forceDecay === true, config });
@@ -1362,7 +1406,7 @@ ${body}`;
       });
       return;
     }
-    const body = JSON.parse(await readBody(req) || '{}');
+    const body = await readJsonBody(req);
     const action = String(body.action ?? '');
     if (action === 'add') { json(res, 200, { ok: true, link: addLink(body.link ?? body) }); return; }
     if (action === 'update') { json(res, 200, { ok: true, link: updateLink(String(body.id), body.link ?? body.patch ?? {}) }); return; }
@@ -1395,7 +1439,7 @@ ${body}`;
       json(res, 200, { ok: true, ...parseModeState(), dshSetting });
       return;
     }
-    const body = JSON.parse(await readBody(req) || '{}');
+    const body = await readJsonBody(req);
     const mode = body.mode ? String(body.mode) : null;
     const ownerQQ = body.ownerQQ === undefined ? undefined : (body.ownerQQ === '' || body.ownerQQ === null ? null : String(body.ownerQQ));
     if (mode && !['chat', 'closed-agent', 'reserved', 'reserved2', 'simulation'].includes(mode)) {
@@ -1629,7 +1673,7 @@ ${body}`;
       json(res, 200, { ok: allChecks.every((c) => c.ok || c.name.includes('可选')), checks: allChecks, installOk: installOk(install), install: installJob, bridge, paths: pathSummary() });
       return;
     }
-    const body = JSON.parse(await readBody(req) || '{}');
+    const body = await readJsonBody(req);
     // ── 一键安装：发现 SnowLuma → 拉群 → 写配置（只写这一台机器上真实存在的群）
     if (body.action === 'install-scan') {
       const cfg = readQqConfig().config ?? {};
@@ -2277,7 +2321,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
       json(res, 405, { ok: false, code: 'METHOD_NOT_ALLOWED', error: '只支持 GET / POST' });
       return;
     }
-    const body = JSON.parse((await readBody(req)) || '{}');
+    const body = await readJsonBody(req);
     const action = String(body.action ?? '');
     if (action === 'login') {
       const password = String(body.password ?? '').trim();
@@ -2312,13 +2356,13 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
     if (method === 'GET' && suffix === '/status') { json(res, 200, petService.status()); return; }
     if (method === 'POST' && suffix === '/focus') {
       let body = {};
-      try { body = JSON.parse((await readBody(req)) || '{}'); } catch { json(res, 400, { ok: false, error: '请求体不是合法 JSON' }); return; }
+      try { body = await readJsonBody(req); } catch { json(res, 400, { ok: false, error: '请求体不是合法 JSON' }); return; }
       json(res, 200, { ok: true, ...petChat.setFocus(body.enabled === true, 'settings') });
       return;
     }
     if (method === 'POST' && suffix === '/chat-test') {
       let body = {};
-      try { body = JSON.parse((await readBody(req)) || '{}'); } catch { json(res, 400, { ok: false, error: '请求体不是合法 JSON' }); return; }
+      try { body = await readJsonBody(req); } catch { json(res, 400, { ok: false, error: '请求体不是合法 JSON' }); return; }
       json(res, 200, await petChatTest(body));
       return;
     }
@@ -2470,7 +2514,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
         return;
       }
       if (suffix === '/run' && method === 'POST') {
-        const body = JSON.parse((await readBody(req)) || '{}');
+        const body = await readJsonBody(req);
         if (carrier === 'pet') {
           const result = await petPurpose.run({ force: body.force !== false });
           json(res, result.ok ? 200 : 409, { ...result, source: 'pet', carrier: 'pet', availability });
@@ -2486,7 +2530,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
       }
       if (suffix === '/pet-chat' && method === 'POST') {
         // 设置页测一句话（不占主动搭话额度），回复同时弹到桌宠气泡。
-        const body = JSON.parse((await readBody(req)) || '{}');
+        const body = await readJsonBody(req);
         const result = await petChatTest(body);
         json(res, result.ok ? 200 : 400, result);
         return;
@@ -2616,7 +2660,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
 
   async function handleBridge(req, res) {
     if (req.method === 'GET') { json(res, 200, { ok: true, status: await bridgeStatus() }); return; }
-    const body = JSON.parse(await readBody(req) || '{}');
+    const body = await readJsonBody(req);
     const action = String(body.action ?? 'status');
     if (action === 'status') { json(res, 200, { ok: true, status: await bridgeStatus() }); return; }
     if (action === 'start') {
@@ -2963,7 +3007,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
     if (req.method === 'POST' && pathname.endsWith('/session-permission')) {
       // 手动修复：把当前角色的 B站 会话切到配置的权限（默认 danger-full-access）。
       // 定时器也会自动做；这个按钮用于「现在就想让她能跑命令」时立刻生效。
-      const body = JSON.parse(await readBody(req) || '{}');
+      const body = await readJsonBody(req);
       const current = readCurrentCharacter();
       const sessionId = current ? `bili-whale-${current.id}` : 'bili-whale';
       const target = String(body.target ?? readBiliConfig().config?.agent?.sandbox ?? 'danger-full-access');
@@ -3062,7 +3106,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
       return;
     }
     if (req.method !== 'POST') { json(res, 405, { ok: false, error: '只支持 GET/POST' }); return; }
-    const body = JSON.parse(await readBody(req) || '{}');
+    const body = await readJsonBody(req);
     const action = String(body.action ?? '');
     if (pathname.endsWith('/qr/start')) {
       const target = body.target === 'fish' ? 'fish' : 'owner';
@@ -3269,7 +3313,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
     }
     if (req.method === 'POST') {
       let body = {};
-      try { body = JSON.parse((await readBody(req)) || '{}'); } catch { json(res, 400, { ok: false, error: '请求体不是合法 JSON' }); return; }
+      try { body = await readJsonBody(req); } catch { json(res, 400, { ok: false, error: '请求体不是合法 JSON' }); return; }
       // 只支持「打开所在文件夹」；路径固定，不接受任何用户输入。
       if (body.action !== 'open') { json(res, 400, { ok: false, error: '未知 action' }); return; }
       if (process.platform !== 'win32') { json(res, 200, { ok: false, error: '只有 Windows 支持打开文件夹' }); return; }
@@ -3296,7 +3340,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
   async function handleUpdates(req, res) {
     if (req.method === 'GET') { json(res, 200, updates.status()); return; }
     let body = {};
-    try { body = JSON.parse((await readBody(req)) || '{}'); } catch { json(res, 400, { ok: false, error: '请求体不是合法 JSON' }); return; }
+    try { body = await readJsonBody(req); } catch { json(res, 400, { ok: false, error: '请求体不是合法 JSON' }); return; }
     const action = String(body.action ?? '');
     const ids = Array.isArray(body.ids) ? body.ids.map(String) : [];
     if (action === 'check') { json(res, 200, await updates.check({ fetch: true })); return; }
@@ -3340,7 +3384,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
     if (req.method !== 'POST') { json(res, 405, { ok: false, error: '只支持 GET / POST' }); return; }
     let body;
     try {
-      body = JSON.parse((await readBody(req)) || '{}');
+      body = await readJsonBody(req);
     } catch {
       json(res, 400, { ok: false, error: '请求体不是合法 JSON' });
       return;
@@ -3430,7 +3474,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
         return;
       }
       if (req.method === 'POST') {
-        const body = JSON.parse(await readBody(req) || '{}');
+        const body = await readJsonBody(req);
         const acked = gateEvents.ack(Array.isArray(body.ids) ? body.ids : [], body.action === 'ack-all' || body.all === true);
         json(res, 200, { ok: true, ...acked, ...gateEvents.list({ limit: 50, includeAcked: false }) });
         return;
@@ -3454,7 +3498,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
     if (pathname === `${API_PREFIX}/owner-audit` || pathname === `${API_PREFIX}/owner-audit/open`) { await handleOwnerAudit(req, res, url); return; }
     if (pathname === `${API_PREFIX}/browse`) { await handleBrowse(req, res, url); return; }
     if (pathname === `${API_PREFIX}/privacy/explain`) {
-      const body = req.method === 'POST' ? JSON.parse(await readBody(req) || '{}') : { text: url.searchParams.get('text') ?? '' };
+      const body = req.method === 'POST' ? await readJsonBody(req) : { text: url.searchParams.get('text') ?? '' };
       json(res, 200, { ok: true, ...explainText(String(body.text ?? '')) });
       return;
     }
@@ -3474,7 +3518,10 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
         await petApi.handle(req, res, url);
       } catch (error) {
         pluginLog('[pet-api] 请求失败：', String(error?.message ?? error));
-        try { json(res, 500, { ok: false, error: String(error?.message ?? error) }); } catch {}
+        // 和设置页 API 同口径：readBody 的超限(413) / readJsonBody 的坏 JSON(400) 按自己的码回。
+        const status = Number(error?.statusCode);
+        const code = status >= 400 && status < 600 ? status : 500;
+        try { json(res, code, { ok: false, code: String(error?.code ?? ''), error: String(error?.message ?? error) }); } catch {}
       }
     },
   }));

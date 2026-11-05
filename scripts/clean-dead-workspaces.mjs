@@ -108,7 +108,20 @@ async function main() {
     process.exit(1);
   }
   process.env.DSH_BASE_URL = base;
-  const { probeCookie, probeRpc } = await import('./probe-auth.mjs');
+  // ⚠️ 2026-11 审查：`--apply` 依赖的 scripts/probe-auth.mjs 已不在仓库里
+  // （它原来是「读 DSH 会话凭据 + 发 workspace RPC」的探针）。缺失时直接给出可执行提示，
+  // 不要抛 ERR_MODULE_NOT_FOUND 让人以为是自己的环境坏了。dry-run 不受影响。
+  let probeCookie;
+  let probeRpc;
+  try {
+    ({ probeCookie, probeRpc } = await import('./probe-auth.mjs'));
+  } catch (error) {
+    if (error?.code !== 'ERR_MODULE_NOT_FOUND') throw error;
+    console.error('[clean-workspaces] --apply 不可用：缺少 scripts/probe-auth.mjs（读取 DSH 会话凭据并调用 workspace RPC 的探针，已从仓库移除）。');
+    console.error('  上面的 dry-run 列表就是需要处理的目标；请直接在 DSH 里归档/删除它们，');
+    console.error('  或先把 probe-auth.mjs 补回来（导出 probeCookie() 与 probeRpc(cookie)）。');
+    process.exit(2);
+  }
   const rpc = probeRpc(probeCookie());
   console.log(`\n[clean-workspaces] DSH=${base}，开始处理 ${targets.length} 个工作区…`);
 

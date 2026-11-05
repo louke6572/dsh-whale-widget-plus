@@ -156,6 +156,10 @@ export const SECRET_PATHS = new Set([
   'snowluma.webuiPassword',
   'webSearch.apiKey',
   'consoleToken',
+  // 2026-11 审计：GitHub token 存在合体层（updates.githubToken），但没进这份清单，
+  // 于是 GET /config 的 unified 分支把它原样回了出去（qq/bili 分支都脱敏、只有它漏）。
+  // 合体层目前唯一的秘密就是它。
+  'updates.githubToken',
 ]);
 
 const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
@@ -486,8 +490,10 @@ export function normalizeBiliConfig(input) {
   cfg.share.decayPerDay = finiteNumber(cfg.share.decayPerDay, 1, 0, 10, { integer: true });
   cfg.listen = isPlainObject(cfg.listen) ? cfg.listen : {};
   cfg.listen.commentIntervalSec = finiteNumber(cfg.listen.commentIntervalSec, 300, 60, 86_400, { integer: true });
-  cfg.listen.dmScope = cfg.listen.dmScope === 'all' ? 'all' : 'owner';
-  cfg.listen.dmScope = cfg.listen.dmScope === 'mention' ? 'mention' : 'owner';
+  // 2026-11 审计：这里原来连着写了两行 —— 第二行把第一行刚归一出的 'all' 又压回 'owner'，
+  // 于是「谁找她都叫醒（dmScope=all）」这个设置**永远存不进去**（scheduler 的 dmTick
+  // 判的是 `L.dmScope === 'all'`，白名单分支成了死代码）。合并成一次判定。
+  cfg.listen.dmScope = ['all', 'mention'].includes(cfg.listen.dmScope) ? cfg.listen.dmScope : 'owner';
   // 口味：统一在这里收敛，避免 UI 里逗号分隔/大小写变体把权重表弄脏。
   cfg.preferences = isPlainObject(cfg.preferences) ? cfg.preferences : {};
   cfg.preferences.like = normalizeKeywordList(cfg.preferences.like);
@@ -506,7 +512,9 @@ export function normalizeBiliConfig(input) {
   cfg.notify.template = cfg.notify.template === 'markdown' ? 'markdown' : 'text';
   cfg.notify.args = Array.isArray(cfg.notify.args) ? cfg.notify.args.map(String) : [];
   cfg.diary = isPlainObject(cfg.diary) ? cfg.diary : {};
-  cfg.diary.enabled = true;
+  // 日记总开关必须能关：tools/commands/diary.mjs 读 `diary.enabled === false` 来跳过记录，
+  // 这里原来无条件写成 true，用户关一次、保存一次又被打开（设置项与实现互相打架）。
+  cfg.diary.enabled = cfg.diary.enabled !== false;
   cfg.diary.push = cfg.diary.push !== false;
   cfg.toolsPath = String(cfg.toolsPath ?? '');
   return cfg;
@@ -556,7 +564,9 @@ export function readAll() {
   return {
     qq: redactForUi(qq.config),
     bili: redactForUi(bili.config),
-    unified: unifiedWithAdmin,
+    // unified 也必须脱敏：它承载 updates.githubToken，之前只有 qq/bili 走了脱敏，
+    // 于是「同一个 GET /config 响应里两个分支掩码、一个分支明文」。
+    unified: redactForUi(unifiedWithAdmin),
     hasUserFile: { qq: qq.hasUserFile, bili: bili.hasUserFile, unified: unified.hasUserFile },
   };
 }
@@ -579,9 +589,12 @@ export function saveBiliConfig(incoming) {
   return { config: redactForUi(next), backup };
 }
 
-export function saveUnified(incoming) {
-  const current = readUnified().config;
-  const next = deepMerge(current, clone(incoming ?? {}));
+/**
+ * 合体层配置的归一化（保存与「默认值下发」共用同一份，避免两处漂移）。
+ * 只做既有 saveUnified 里那几步：版本号、记忆卡边界、平台启动开关、旧字段镜像。
+ */
+function normalizeUnified(config) {
+  const next = isPlainObject(config) ? { ...config } : {};
   next.version = 1;
   // 记忆卡上限必须按引擎的边界收敛：否则输入 999999 会原样落盘，界面显示 999999、
   // 实际注入/容量按 100000 算，用户会以为「改了没生效」。
@@ -596,9 +609,37 @@ export function saveUnified(incoming) {
   };
   next.bridge = isPlainObject(next.bridge) ? next.bridge : {};
   next.bridge.autoStart = next.platforms.start.qq;
+  return next;
+}
+
+export function saveUnified(incoming) {
+  const current = readUnified().config;
+  // 和 qq/bili 一样：读给 UI 的是掩码，回写时 `********` 表示保持原值。
+  // 不加这一步的话，设置页把 GET /config 拿到的 unified 原样回写时会把 githubToken 写成掩码串。
+  const next = normalizeUnified(deepMerge(current, restoreMaskedSecrets(incoming, current)));
   const backup = backupFile(UNIFIED_FILE, 'unified-config');
   writeJsonAtomic(UNIFIED_FILE, next);
   return { config: next, backup };
+}
+
+/**
+ * 后端真实默认值（设置页用：用户没配过的项该显示什么，不再由前端硬编码）。
+ *
+ * 口径 = **用户配置文件为空时后端实际采用的配置**：
+ *   · qq：`config.example.json` 模板 + normalizeQqConfig（与 `readQqConfig()` 空文件时逐字段一致）；
+ *   · bili：BIDI_DEFAULTS + normalizeBiliConfig；
+ *   · unified：DEFAULT_UNIFIED + normalizeUnified。
+ * 返回前统一走 `redactForUi`，和 GET /config 的其它分支同一套掩码规则（不得带出秘密）。
+ */
+export function configDefaults() {
+  const qq = normalizeQqConfig(deepMerge(exampleDefaults(), {}));
+  const bili = normalizeBiliConfig({});
+  const unified = normalizeUnified(deepMerge(DEFAULT_UNIFIED, {}));
+  return {
+    qq: redactForUi(qq),
+    bili: redactForUi(bili),
+    unified: redactForUi(unified),
+  };
 }
 
 export function pathSummary() {

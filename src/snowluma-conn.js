@@ -29,7 +29,9 @@ export function snowLumaHomeCandidates({ cfg = null } = {}) {
   const push = (p) => { const v = String(p || '').trim(); if (v && !out.includes(v)) out.push(v); };
   const sl = cfg?.snowluma ?? cfg ?? {};
   // 一个"根目录"可能有两种写法：SnowLuma2 根（里面是 app/）或 app 目录（里面有 config/）。
-  // 以前只取 dirname(launcherPath)：用户填 D:\Tools\SnowLuma2 时会被算成 D:\Tools → 永远检测不到。
+  // 以前只取 dirname(launcherPath)：用户填 C:\Apps\SnowLuma2 时会被算成 C:\Apps → 永远检测不到。
+  // 示例路径故意用 C: 盘写法：scripts/privacy-scan.mjs 的「本机绝对路径」规则只放行 C: 盘，
+  // 注释里写别的盘符会被它当成真实机器路径命中（发布前扫描会直接失败）。
   const expand = (raw) => {
     const v = String(raw || '').trim();
     if (!v) return;
@@ -154,7 +156,9 @@ export async function discoverSnowLumaConnection({
   const tried = [];
   for (const c of candidates) {
     const r = await probe(c.url, c.token, timeoutMs);
-    tried.push({ source: c.source, url: c.url, token: c.token ? c.token.slice(0, 4) + '…' : '(空)', ok: r.ok, status: r.status, wording: r.wording });
+    // 诊断只回报「有没有 token / 多长」和失败原因：token 前缀同样是凭据的一部分
+    // （CWE-532），这层对象会被控制台与日志链路消费，不能把片段带出去。
+    tried.push({ source: c.source, url: c.url, token: c.token ? `(${c.token.length} 字符)` : '(空)', ok: r.ok, status: r.status, wording: r.wording });
     if (r.ok) {
       // 找到有效 HTTP token 后，把**同一个账号**的 WS 信息也带回去：
       // 桥接走 WebSocket，用另一个 token、另一个端口 —— 只修 HTTP 的话桥接仍然 1006 重连。
