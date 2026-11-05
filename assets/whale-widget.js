@@ -1357,7 +1357,283 @@ var css = [
   '.dshwv-resplay:hover{background:rgba(47,122,66,.08)}',
   '.dshwv-resimp{flex:0 0 auto;border:1px solid rgba(32,49,112,.4);border-radius:5px;background:rgba(32,49,112,.08);color:#203170;font-size:11px;padding:1px 9px;cursor:pointer}',
   '.dshwv-resimp:hover{background:rgba(32,49,112,.16)}',
-  '.dshwv-resempty{color:#9fb0d9;font-size:12px;padding:2px 6px}'
+  '.dshwv-resempty{color:#9fb0d9;font-size:12px;padding:2px 6px}',
+  // ===== 设计稿移植：像素鲸鱼留言板（浅色 / 深色两套，跟随宿主主题）=====
+  // 结构完全按设计稿：外框 → 顶部状态条(饱腹/开心) → 内屏(头像+心情+回复+关闭) →
+  // 三视图(留言板/流水/回复) → 底部「皮肤」切换条 + 收起。
+  // 尺寸按 352px 卡宽从设计稿 450px 等比缩放（4px 边框→2px，6px 投影→4px）。
+  '.dshwv-qqcard{position:fixed;z-index:20500;width:min(352px,calc(100vw - 24px));box-sizing:border-box;background:#fff;border:2px solid #0f172a;border-radius:0;color:#0f172a;box-shadow:4px 4px 0 0 #0f172a;padding:7px;opacity:0;transform:translateY(8px) scale(.97);transition:left .18s ease,top .18s ease,opacity .18s ease,transform .18s ease;pointer-events:none;font-family:ui-monospace,"Cascadia Mono",Consolas,"PingFang SC","Microsoft YaHei",monospace;color-scheme:light}',
+  '.dshwv-qqcard.dshwv-qqcard-open{opacity:1;transform:none;pointer-events:auto}',
+  '.dshwv-qqcard::after{content:"";position:absolute;right:var(--dshwv-qq-tail,36px);bottom:-8px;width:10px;height:10px;background:#fff;border-right:2px solid #0f172a;border-bottom:2px solid #0f172a;transform:rotate(45deg)}',
+  '.dshwv-qqcard.dshwv-qqcard-below::after{top:-8px;bottom:auto;border:0;border-left:2px solid #0f172a;border-top:2px solid #0f172a}',
+  // —— 顶部点阵状态条 ——
+  '.dshwv-qqcard-stats{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:#fff;border:2px solid #0f172a;box-shadow:2px 2px 0 0 #0f172a;padding:4px 6px;margin-bottom:6px}',
+  '.dshwv-qqstat{min-width:0}',
+  '.dshwv-qqstat-head{display:flex;align-items:center;justify-content:space-between;font-size:9px;font-weight:700;margin-bottom:3px}',
+  '.dshwv-qqstat--hunger .dshwv-qqstat-head{color:#b45309}',
+  '.dshwv-qqstat--joy .dshwv-qqstat-head{color:#be123c}',
+  '.dshwv-qqstat-bar{display:flex;gap:2px;height:9px;background:#f1f5f9;border:2px solid #0f172a;padding:1px}',
+  '.dshwv-qqstat-seg{flex:1 1 0;background:#e2e8f0}',
+  '.dshwv-qqstat--hunger .dshwv-qqstat-seg.on{background:#f59e0b}',
+  '.dshwv-qqstat--joy .dshwv-qqstat-seg.on{background:#f43f5e}',
+  // —— 内屏 ——
+  '.dshwv-qqcard-screen{background:#fff;border:2px solid #0f172a;padding:6px}',
+  '.dshwv-qqcard-head{display:flex;align-items:center;justify-content:space-between;gap:5px;padding-bottom:5px;margin-bottom:6px;border-bottom:2px dashed #e2e8f0}',
+  '.dshwv-qqcard-id{display:flex;align-items:center;gap:5px;min-width:0}',
+  '.dshwv-qqcard-ava{width:28px;height:28px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;background:#f0f9ff;border:2px solid #0f172a;cursor:pointer;overflow:visible;padding:1px}',
+  '.dshwv-qqcard-ava svg{width:100%;height:100%;image-rendering:pixelated}',
+  '.dshwv-qqcard-title{font-size:10.5px;font-weight:700;letter-spacing:.04em;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+  '.dshwv-qqcard-head-acts{display:flex;align-items:center;gap:4px;flex:0 0 auto}',
+  '.dshwv-qqmood{display:inline-flex;align-items:center;gap:2px;padding:1px 5px;background:#fff;color:#0f172a;border:2px solid #0f172a;box-shadow:2px 2px 0 0 #0f172a;font-size:9px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap}',
+  '.dshwv-qqmood:active{transform:translateY(2px);box-shadow:none}',
+  '.dshwv-qqcard-reply{display:inline-flex;align-items:center;gap:2px;padding:1px 6px;background:#0284c7;color:#fff;border:2px solid #0f172a;box-shadow:2px 2px 0 0 #0f172a;font-size:9.5px;font-weight:700;cursor:pointer;font-family:inherit}',
+  '.dshwv-qqcard-reply:hover{background:#0369a1}',
+  '.dshwv-qqcard-reply:active{transform:translateY(2px);box-shadow:none}',
+  '.dshwv-qqcard-x{width:20px;height:20px;padding:0;display:inline-flex;align-items:center;justify-content:center;background:#fff;color:#334155;border:2px solid #0f172a;box-shadow:2px 2px 0 0 #0f172a;font-size:10px;line-height:1;cursor:pointer;font-family:inherit}',
+  '.dshwv-qqcard-x:hover{color:#e11d48;border-color:#e11d48}',
+  '.dshwv-qqcard-x:active{transform:translateY(2px);box-shadow:none}',
+  // —— 视图容器与切换 ——
+  '.dshwv-qqview{display:none}',
+  '.dshwv-qqcard.dshwv-qqcard-v-board .dshwv-qqview--board{display:block}',
+  '.dshwv-qqcard.dshwv-qqcard-v-log .dshwv-qqview--log{display:block}',
+  '.dshwv-qqcard.dshwv-qqcard-v-reply .dshwv-qqview--reply{display:block}',
+  // 留言板：✉ 来电对话框
+  '.dshwv-qqdlg{display:flex;align-items:flex-start;gap:5px;background:#fff;border:2px solid #0f172a;box-shadow:2px 2px 0 0 #0f172a;padding:6px 7px;margin-bottom:6px}',
+  '.dshwv-qqdlg-mark{flex:0 0 auto;font-size:12px;line-height:1.2;color:#f59e0b}',
+  '.dshwv-qqdlg-main{flex:1 1 auto;min-width:0}',
+  '.dshwv-qqdlg-head{display:flex;align-items:center;justify-content:space-between;gap:6px;padding-bottom:3px;margin-bottom:3px;border-bottom:1px solid #e2e8f0}',
+  '.dshwv-qqdlg-name{font-size:9.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+  '.dshwv-qqdlg-time{font-size:9px;color:#64748b;flex:0 0 auto}',
+  '.dshwv-qqdlg-body{font-size:12px;line-height:1.55;color:#1e293b;white-space:pre-wrap;word-break:break-word;margin:0}',
+  '.dshwv-qqdlg--empty{color:#94a3b8;justify-content:center;padding:16px 0}',
+  // 留言板底部：爱心/投喂 + 品牌
+  '.dshwv-qqreact{display:flex;align-items:center;justify-content:space-between;gap:6px;padding-top:5px;border-top:2px dashed #e2e8f0}',
+  '.dshwv-qqreact-l{display:flex;align-items:center;gap:5px}',
+  '.dshwv-qqreact-btn{display:inline-flex;align-items:center;gap:3px;padding:1px 6px;background:#fff;font-size:9.5px;font-weight:700;cursor:pointer;font-family:inherit;border:2px solid #0f172a;box-shadow:2px 2px 0 0 #0f172a}',
+  '.dshwv-qqreact-btn--heart{color:#e11d48;border-color:#fb7185}',
+  '.dshwv-qqreact-btn--feed{color:#b45309;border-color:#f59e0b}',
+  '.dshwv-qqreact-btn:active{transform:translateY(2px);box-shadow:none}',
+  '.dshwv-qqbrand{font-size:9px;font-weight:700;letter-spacing:.12em;color:#94a3b8}',
+  // 流水视图
+  '.dshwv-qqlog-head{display:flex;align-items:center;justify-content:space-between;padding-bottom:4px;margin-bottom:5px;border-bottom:2px dashed #e2e8f0;font-size:9.5px}',
+  '.dshwv-qqback{display:inline-flex;align-items:center;gap:3px;color:#0f172a;font-weight:700;cursor:pointer}',
+  '.dshwv-qqlog-count{font-size:9px;color:#64748b;font-weight:700}',
+  '.dshwv-qqlog-list{max-height:186px;overflow-y:auto;display:flex;flex-direction:column;gap:5px;padding-right:2px;scrollbar-width:thin;scrollbar-color:#cbd5e1 transparent}',
+  '.dshwv-qqlog{background:#fff;border:2px solid #0f172a;box-shadow:2px 2px 0 0 #0f172a;padding:5px 6px}',
+  '.dshwv-qqlog-top{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:3px}',
+  '.dshwv-qqlog-sender{font-size:9px;font-weight:700;letter-spacing:.04em}',
+  '.dshwv-qqlog-badge{font-size:8.5px;font-weight:700;padding:0 4px;border:1px solid}',
+  '.dshwv-qqlog-badge--user{background:#f0f9ff;color:#0369a1;border-color:#38bdf8}',
+  '.dshwv-qqlog-badge--ai{background:#fff1f2;color:#be123c;border-color:#fda4af}',
+  '.dshwv-qqlog-body{font-size:11.5px;line-height:1.5;color:#334155;margin:0 0 2px;white-space:pre-wrap;word-break:break-word}',
+  '.dshwv-qqlog-time{font-size:8.5px;color:#94a3b8}',
+  // 回复视图
+  '.dshwv-qqreply-head{display:flex;align-items:center;justify-content:space-between;padding-bottom:4px;margin-bottom:5px;border-bottom:2px dashed #e2e8f0;font-size:9.5px}',
+  '.dshwv-qqreply-title{font-size:9px;font-weight:700;color:#64748b;letter-spacing:.06em}',
+  '.dshwv-qqcard-wrap{position:relative;margin-bottom:5px}',
+  '.dshwv-qqcard-input{display:block;width:100%;box-sizing:border-box;min-height:68px;max-height:120px;font-size:11.5px;line-height:1.55;color:#0f172a;background:#fff;border:2px solid #0f172a;box-shadow:2px 2px 0 0 #0f172a;padding:6px 8px 15px;resize:none;font-family:inherit;outline:none}',
+  '.dshwv-qqcard-input:focus{outline:2px solid #38bdf8;outline-offset:1px}',
+  '.dshwv-qqcard-input::placeholder{color:#94a3b8}',
+  '.dshwv-qqcard-count{position:absolute;right:6px;bottom:3px;font-size:8.5px;color:#94a3b8;pointer-events:none}',
+  '.dshwv-qqreply-acts{display:flex;align-items:center;justify-content:space-between;gap:6px}',
+  '.dshwv-qqcard-acts-l{display:flex;align-items:center;gap:2px}',
+  '.dshwv-qqcard-acts-r{display:flex;align-items:center;gap:6px}',
+  '.dshwv-qqcard-mini{width:20px;height:20px;border:2px solid #0f172a;background:#fff;color:#475569;font-size:11px;line-height:1;cursor:pointer;font-family:inherit;box-shadow:2px 2px 0 0 #0f172a}',
+  '.dshwv-qqcard-mini:active{transform:translateY(2px);box-shadow:none}',
+  '.dshwv-qqcard-cancel{border:0;background:none;padding:1px 3px;font-size:9.5px;font-weight:700;color:#475569;cursor:pointer;font-family:inherit}',
+  '.dshwv-qqcard-cancel:hover{color:#0f172a}',
+  '.dshwv-qqcard-send{display:inline-flex;align-items:center;gap:3px;padding:1px 8px;background:#0ea5e9;color:#fff;border:2px solid #0f172a;box-shadow:2px 2px 0 0 #0f172a;font-size:9.5px;font-weight:700;line-height:1.7;cursor:pointer;font-family:inherit}',
+  '.dshwv-qqcard-send:hover{background:#0284c7}',
+  '.dshwv-qqcard-send:active{transform:translateY(2px);box-shadow:none}',
+  '.dshwv-qqcard-send:disabled{opacity:.55;cursor:not-allowed}',
+  '.dshwv-qqcard-send.dshwv-qqcard-ok{background:#059669}',
+  '.dshwv-qqcard-hint{margin-top:4px;font-size:8.5px;color:#94a3b8;min-height:11px}',
+  // 底部「皮肤」切换条
+  '.dshwv-qqtabs{display:flex;align-items:center;justify-content:space-between;gap:5px;margin-top:6px;padding-top:5px;border-top:2px dashed #e2e8f0;font-size:9px;color:#475569}',
+  '.dshwv-qqtabs-l{display:flex;align-items:center;gap:4px;min-width:0}',
+  '.dshwv-qqmode-label{font-size:8.5px;font-weight:700;letter-spacing:.04em;color:#475569;white-space:nowrap;margin-right:1px}',
+  '.dshwv-qqtabs-div{flex:0 0 2px;width:2px;height:12px;background:#cbd5e1;margin:0 2px}',
+  '.dshwv-qqtabs-r{display:flex;align-items:center;gap:4px}',
+  '.dshwv-qqtab{display:inline-flex;align-items:center;padding:1px 6px;background:#fff;color:#334155;border:2px solid #0f172a;box-shadow:2px 2px 0 0 #0f172a;font-size:9px;font-weight:700;cursor:pointer;font-family:inherit}',
+  '.dshwv-qqtab.dshwv-qqtab-on{background:#0284c7;color:#fff}',
+  '.dshwv-qqtab:active{transform:translateY(2px);box-shadow:none}',
+  // 音效开关按钮：emoji 比中文高，单独压一下行高
+  '.dshwv-qqtab.dshwv-qqsfx{font-size:11px;line-height:1;padding:1px 4px}',
+  // 提示条（沿用原 toast，像素风）
+  '.dshwv-qqcard-toast{position:absolute;left:50%;top:-11px;display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:#0f172a;color:#fff;border:2px solid #0f172a;box-shadow:2px 2px 0 0 #38bdf8;font-size:9.5px;font-weight:700;opacity:0;transform:translate(-50%,-6px);pointer-events:none;white-space:nowrap;transition:opacity .2s steps(4,end),transform .2s steps(4,end)}',
+  '.dshwv-qqcard-toast.dshwv-qqcard-toast-on{opacity:1;transform:translate(-50%,0)}',
+  // 像素鲸鱼：尾巴/鳍/气泡/眼态/跳跃/休眠 Zz
+  '@keyframes qqWhaleBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}',
+  '@keyframes qqTailStep{0%,100%{transform:rotate(0) scaleX(1)}50%{transform:rotate(12deg) scaleX(.88)}}',
+  '@keyframes qqFinStep{0%,100%{transform:translateY(0)}50%{transform:translateY(1px) rotate(-10deg)}}',
+  '@keyframes qqSpoutFloat{0%{transform:translateY(0) scale(.6);opacity:0}20%{opacity:1}70%{opacity:1;transform:translateY(-6px) scale(1.1)}100%{transform:translateY(-10px) scale(.8);opacity:0}}',
+  '@keyframes qqWhaleJump{0%{transform:translateY(0) scale(1) rotate(0)}30%{transform:translateY(-8px) scale(1.12) rotate(-6deg)}60%{transform:translateY(-5px) scale(1.08) rotate(5deg)}100%{transform:translateY(0) scale(1) rotate(0)}}',
+  '@keyframes qqSleepZ{0%{transform:translate(0,0) scale(.6);opacity:0}30%{opacity:1}80%{opacity:.9}100%{transform:translate(6px,-12px) scale(1.2);opacity:0}}',
+  '@keyframes qqHeartUp{0%{transform:translateY(0) scale(.5);opacity:1}50%{transform:translateY(-12px) scale(1.2);opacity:1}100%{transform:translateY(-22px) scale(.9);opacity:0}}',
+  '@keyframes qqShrimpDrop{0%{transform:translate(0,-28px) rotate(0);opacity:0}20%{opacity:1}70%{transform:translate(0,4px) rotate(15deg)}90%{transform:translate(0,5px) scale(1.1)}100%{transform:translate(0,5px) scale(0);opacity:0}}',
+  '@keyframes qqShake{0%,100%{transform:translate(0,0)}20%{transform:translate(-2px,1px)}40%{transform:translate(2px,-1px)}60%{transform:translate(-1px,-1px)}80%{transform:translate(1px,1px)}}',
+  '.dshwv-qqwhale{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center}',
+  '.dshwv-qqwhale-svg{width:100%;height:100%;animation:qqWhaleBob 1.8s steps(4,end) infinite;transform-origin:50% 50%}',
+  '.dshwv-qqwhale-svg.qq-jump{animation:qqWhaleJump .5s steps(6,end) forwards}',
+  '.dshwv-qqwhale .qq-tail{transform-origin:22px 34px;animation:qqTailStep 1.1s steps(2,end) infinite}',
+  '.dshwv-qqwhale .qq-fin{transform-origin:40px 42px;animation:qqFinStep .85s steps(2,end) infinite}',
+  '.dshwv-qqwhale .qq-zz{position:absolute;right:-4px;top:-5px;font-size:9px;font-weight:700;color:#0f172a;animation:qqSleepZ 2s steps(4,end) infinite;display:none;z-index:2;pointer-events:none}',
+  '.dshwv-qqwhale.qq-sleep .qq-zz{display:block}',
+  '.dshwv-qqwhale .qq-eye-open{display:block}',
+  '.dshwv-qqwhale .qq-eye-happy,.dshwv-qqwhale .qq-eye-sleep{display:none}',
+  '.dshwv-qqwhale.qq-happy .qq-eye-open{display:none}',
+  '.dshwv-qqwhale.qq-happy .qq-eye-happy{display:block}',
+  '.dshwv-qqwhale.qq-sleep .qq-eye-open{display:none}',
+  '.dshwv-qqwhale.qq-sleep .qq-eye-sleep{display:block}',
+  // 打盹：整只鲸鱼变暗且停止呼吸，视觉上"睡着了"；兴奋：小幅弹跳
+  '.dshwv-qqwhale.qq-sleep .dshwv-qqwhale-svg{opacity:.5;animation:none}',
+  '@keyframes qqCheerHop{0%,100%{transform:translateY(0)}40%{transform:translateY(-4px)}}',
+  '.dshwv-qqwhale.qq-cheer .dshwv-qqwhale-svg{animation:qqCheerHop .8s steps(4,end) infinite}',
+  '.dshwv-qqcard.qq-shake{animation:qqShake .28s steps(3,end)}',
+  // 特效粒子（挂在 body 上，position:fixed）
+  '.dshwv-qqfx-heart{position:fixed;pointer-events:none;z-index:20800;font-size:11px;font-weight:700;color:#e11d48;animation:qqHeartUp .9s steps(5,end) forwards}',
+  '.dshwv-qqfx-shrimp{position:fixed;pointer-events:none;z-index:20799;font-size:14px;animation:qqShrimpDrop .8s steps(6,end) forwards}',
+  // ===== 深色版（设计稿深色一套）=====
+  '.dshwv-qqcard--dark{background:#091328;border-color:#22d3ee;box-shadow:4px 4px 0 0 #0284c7,0 0 18px rgba(56,189,248,.25);color:#e0f2fe;color-scheme:dark}',
+  '.dshwv-qqcard--dark::after{background:#091328;border-color:#22d3ee}',
+  '.dshwv-qqcard--dark .dshwv-qqcard-stats{background:#020617;border-color:rgba(14,116,144,.6);box-shadow:none}',
+  '.dshwv-qqcard--dark .dshwv-qqstat--hunger .dshwv-qqstat-head{color:#fcd34d}',
+  '.dshwv-qqcard--dark .dshwv-qqstat--joy .dshwv-qqstat-head{color:#f9a8d4}',
+  '.dshwv-qqcard--dark .dshwv-qqstat-bar{background:#0f172a;border-color:rgba(180,83,9,.7)}',
+  '.dshwv-qqcard--dark .dshwv-qqstat--joy .dshwv-qqstat-bar{border-color:rgba(190,24,93,.7)}',
+  '.dshwv-qqcard--dark .dshwv-qqstat-seg{background:#1e293b}',
+  '.dshwv-qqcard--dark .dshwv-qqstat--hunger .dshwv-qqstat-seg.on{background:#fbbf24}',
+  '.dshwv-qqcard--dark .dshwv-qqstat--joy .dshwv-qqstat-seg.on{background:#f472b6}',
+  '.dshwv-qqcard--dark .dshwv-qqcard-screen{background:#040914;border-color:rgba(34,211,238,.5)}',
+  '.dshwv-qqcard--dark .dshwv-qqcard-head,.dshwv-qqcard--dark .dshwv-qqreact,.dshwv-qqcard--dark .dshwv-qqlog-head,.dshwv-qqcard--dark .dshwv-qqreply-head,.dshwv-qqcard--dark .dshwv-qqtabs{border-color:rgba(34,211,238,.3)}',
+  '.dshwv-qqcard--dark .dshwv-qqcard-ava{background:#083344;border-color:#22d3ee}',
+  '.dshwv-qqcard--dark .dshwv-qqcard-title{color:#67e8f9}',
+  '.dshwv-qqcard--dark .dshwv-qqmood{background:#0f172a;color:#67e8f9;border-color:#0e7490;box-shadow:2px 2px 0 0 #082f49}',
+  '.dshwv-qqcard--dark .dshwv-qqcard-reply{background:#22d3ee;color:#020617;border-color:#0f172a;box-shadow:2px 2px 0 0 #082f49}',
+  '.dshwv-qqcard--dark .dshwv-qqcard-x{background:#0f172a;color:#94a3b8;border-color:#334155;box-shadow:none}',
+  '.dshwv-qqcard--dark .dshwv-qqcard-x:hover{color:#fb7185;border-color:#fb7185}',
+  '.dshwv-qqcard--dark .dshwv-qqdlg{background:rgba(2,6,23,.9);border-color:#22d3ee;box-shadow:2px 2px 0 0 #0f172a}',
+  '.dshwv-qqcard--dark .dshwv-qqdlg-head{border-bottom-color:rgba(22,78,99,.6)}',
+  '.dshwv-qqcard--dark .dshwv-qqdlg-name{color:#67e8f9}',
+  '.dshwv-qqcard--dark .dshwv-qqdlg-time{color:#94a3b8}',
+  '.dshwv-qqcard--dark .dshwv-qqdlg-body{color:#f1f5f9}',
+  '.dshwv-qqcard--dark .dshwv-qqdlg-mark{color:#facc15}',
+  '.dshwv-qqcard--dark .dshwv-qqreact-btn{background:#0f172a;border-color:#334155;box-shadow:2px 2px 0 0 #082f49}',
+  '.dshwv-qqcard--dark .dshwv-qqreact-btn--heart{color:#f9a8d4;border-color:#be123c}',
+  '.dshwv-qqcard--dark .dshwv-qqreact-btn--feed{color:#fcd34d;border-color:#b45309}',
+  '.dshwv-qqcard--dark .dshwv-qqbrand,.dshwv-qqcard--dark .dshwv-qqlog-count,.dshwv-qqcard--dark .dshwv-qqlog-time{color:rgba(34,211,238,.75)}',
+  '.dshwv-qqcard--dark .dshwv-qqback{color:#67e8f9}',
+  '.dshwv-qqcard--dark .dshwv-qqlog{background:rgba(2,6,23,.9);border-color:#22d3ee;box-shadow:2px 2px 0 0 #0f172a}',
+  '.dshwv-qqcard--dark .dshwv-qqlog-sender{color:#67e8f9}',
+  '.dshwv-qqcard--dark .dshwv-qqlog-body{color:#e2e8f0}',
+  '.dshwv-qqcard--dark .dshwv-qqlog-badge--user{background:#082f49;color:#67e8f9;border-color:#0891b2}',
+  '.dshwv-qqcard--dark .dshwv-qqlog-badge--ai{background:#4c0519;color:#fda4af;border-color:#9f1239}',
+  '.dshwv-qqcard--dark .dshwv-qqreply-title{color:#94a3b8}',
+  '.dshwv-qqcard--dark .dshwv-qqcard-input{background:#0b1220;color:#e2e8f0;border-color:#22d3ee;box-shadow:2px 2px 0 0 #082f49}',
+  '.dshwv-qqcard--dark .dshwv-qqcard-input::placeholder{color:#64748b}',
+  '.dshwv-qqcard--dark .dshwv-qqcard-count,.dshwv-qqcard--dark .dshwv-qqcard-hint{color:#64748b}',
+  '.dshwv-qqcard--dark .dshwv-qqcard-mini{background:#0f172a;color:#cbd5e1;border-color:#334155;box-shadow:2px 2px 0 0 #082f49}',
+  '.dshwv-qqcard--dark .dshwv-qqcard-cancel{color:#94a3b8}',
+  '.dshwv-qqcard--dark .dshwv-qqcard-cancel:hover{color:#e2e8f0}',
+  '.dshwv-qqcard--dark .dshwv-qqcard-send{background:#38bdf8;color:#020617;border-color:#0f172a;box-shadow:2px 2px 0 0 #082f49}',
+  '.dshwv-qqcard--dark .dshwv-qqtab{background:#0f172a;color:#94a3b8;border-color:#334155;box-shadow:2px 2px 0 0 #082f49}',
+  '.dshwv-qqcard--dark .dshwv-qqtab.dshwv-qqtab-on{background:#22d3ee;color:#020617;border-color:#22d3ee}',
+  '.dshwv-qqcard--dark .dshwv-qqtabs{color:#94a3b8}',
+  '.dshwv-qqcard--dark .dshwv-qqmode-label{color:#94a3b8}',
+  '.dshwv-qqcard--dark .dshwv-qqtabs-div{background:#334155}',
+  '.dshwv-qqcard--dark .dshwv-qqcard-toast{background:#22d3ee;color:#020617;border-color:#020617;box-shadow:2px 2px 0 0 #0f172a}',
+  '.dshwv-qqcard--dark .dshwv-qqwhale .qq-zz{color:#67e8f9}',
+  '',
+
+  // ===== 信封角标：贴在角色左下角，有未读就带数字；点开才弹消息卡 =====
+  // 信封角标：2026-11 用户要求「做大一些、去掉边框和背景」——原来 30×27 + 白底 + 描边 + 毛玻璃，
+  // 又小又像一颗贴纸。现在 40×40 纯图标（透明底、无描边、无阴影），图标本身放大到 26px。
+  '.dshwv-qqenv{position:relative;z-index:20600;display:none;align-items:center;justify-content:center;width:60px;height:60px;box-sizing:border-box;border:0;border-radius:0;background:transparent;box-shadow:none;cursor:pointer;padding:0;opacity:0;transform:translateY(4px) scale(.88);transition:transform .18s steps(4,end),opacity .18s steps(4,end);-webkit-appearance:none;appearance:none}',
+  // 待机入口容器：鲸鱼居中在 PET/FEED 上方（按钮不能嵌在 <button> 里，所以用 dock 包一层）
+  '.dshwv-qqenv-dock{position:fixed;z-index:20700;display:none;flex-direction:column;align-items:center;gap:6px}',
+  '.dshwv-qqenv-dock.dshwv-qqenv-dock-on{display:flex}',
+  '.dshwv-qqenv-actions{display:flex;align-items:center;gap:6px}',
+  '.dshwv-qqenv-act{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;background:#fff;color:#e11d48;border:2px solid #0f172a;box-shadow:2px 2px 0 0 #0f172a;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;line-height:1.1}',
+  '.dshwv-qqenv-act--feed{color:#b45309}',
+  '.dshwv-qqenv-act:hover{background:#fff1f2}',
+  '.dshwv-qqenv-act--feed:hover{background:#fffbeb}',
+  '.dshwv-qqenv-act:active{transform:translateY(2px);box-shadow:none}',
+  // 待机态操作提示（卡片收起时点 PET/FEED 也要能看到「投喂成功」）
+  // 右对齐到 dock 右沿 + width:max-content：否则绝对定位在窄 dock 里会被压成竖条、靠右又会被视口裁掉
+  '.dshwv-qqenv-toast{position:absolute;left:auto;right:0;bottom:calc(100% + 6px);width:max-content;max-width:280px;padding:3px 8px;background:#0f172a;color:#fff;border:2px solid #0f172a;box-shadow:2px 2px 0 0 #38bdf8;font-size:10px;font-weight:700;line-height:1.35;text-align:center;opacity:0;pointer-events:none;z-index:5;transform:translate(0,4px);transition:opacity .12s steps(3,end),transform .12s steps(3,end)}',
+  '.dshwv-qqenv-toast.dshwv-qqenv-toast-on{opacity:1;transform:translate(0,0)}',
+  // 设计稿：信封位置就是「小鲸鱼待机」——像素鲸鱼 + 呼吸光晕 + 喷心 + 未读角标
+  '.dshwv-qqenv-whale{position:relative;display:flex;align-items:center;justify-content:center;width:100%;height:100%}',
+  '.dshwv-qqenv-whale::before{content:"";position:absolute;inset:-1px;border-radius:50%;background:rgba(186,230,253,.5);filter:blur(4px);z-index:-1;animation:qqEnvGlow 2.6s steps(4,end) infinite}',
+  '@keyframes qqEnvGlow{0%,100%{opacity:.55}50%{opacity:1}}',
+  '.dshwv-qqenv-whale svg{position:relative;z-index:1;width:50px;height:50px;image-rendering:pixelated;filter:drop-shadow(0 1px 2px rgba(15,23,42,.18));animation:qqEnvBob 1.8s steps(4,end) infinite}',
+  // 尾巴/鳍持续摆动（设计稿的 pixel-tail/fin 动效），让待机小鲸鱼看起来真的在游
+  '.dshwv-qqenv-whale svg .qq-tail{transform-origin:22px 34px;animation:qqTailStep 1.1s steps(2,end) infinite}',
+  '.dshwv-qqenv-whale svg .qq-fin{transform-origin:40px 42px;animation:qqFinStep .85s steps(2,end) infinite}',
+  // 收起消息卡时的「游一下」：整只鲸鱼摆尾横移 + 转身，尾巴/鳍同步加速（设计稿的游泳感）
+  '@keyframes qqEnvSwim{0%{transform:translate(0,0) rotate(0)}20%{transform:translate(-6px,-4px) rotate(-8deg)}45%{transform:translate(5px,2px) rotate(6deg)}70%{transform:translate(-4px,-2px) rotate(-4deg)}100%{transform:translate(0,0) rotate(0)}}',
+  '.dshwv-qqenv-whale svg.qq-swim{animation:qqEnvSwim 1.1s steps(6,end)}',
+  '.dshwv-qqenv-whale svg.qq-swim .qq-tail{animation-duration:.55s}',
+  '.dshwv-qqenv-whale svg.qq-swim .qq-fin{animation-duration:.45s}',
+  '.dshwv-qqenv-whale svg.qq-jump{animation:qqWhaleJump .5s steps(6,end)}',
+  // 入口鲸鱼也有三种眼态（设计稿同一套 SVG）
+  '.dshwv-qqenv-whale svg .qq-eye-happy,.dshwv-qqenv-whale svg .qq-eye-sleep{display:none}',
+  '.dshwv-qqenv-whale svg.qq-happy .qq-eye-open{display:none}',
+  '.dshwv-qqenv-whale svg.qq-happy .qq-eye-happy{display:block}',
+  '.dshwv-qqenv-whale svg.qq-sleep .qq-eye-open{display:none}',
+  '.dshwv-qqenv-whale svg.qq-sleep .qq-eye-sleep{display:block}',
+  // 心情联动：打盹=变暗静止，兴奋=弹跳（与卡片里的鲸鱼同一套表现）
+  '.dshwv-qqenv-whale svg.qq-sleep{opacity:.5;animation:none}',
+  '.dshwv-qqenv-whale svg.qq-cheer{animation:qqCheerHop .8s steps(4,end) infinite}',
+  // 打盹时入口鲸鱼也冒 Zz
+  '.dshwv-qqenv-whale .qq-zz{position:absolute;right:2px;top:-6px;font-size:10px;font-weight:700;color:#0f172a;animation:qqSleepZ 2s steps(4,end) infinite;display:none;z-index:3;pointer-events:none}',
+  '.dshwv-qqenv-whale.qq-sleep .qq-zz{display:block}',
+  // 喷心 + 两个水泡（设计稿 pixel-spout-heart / bubble 2 / bubble 3 的三段延迟）
+  '.dshwv-qqenv-spout{position:absolute;top:-10px;right:0;z-index:2;display:flex;flex-direction:column;align-items:center;gap:2px;pointer-events:none}',
+  '.dshwv-qqenv-spout i{display:block;font-style:normal;line-height:1;opacity:0;animation:qqEnvSpout 2.2s steps(6,end) infinite}',
+  '.dshwv-qqenv-spout i:nth-child(1){font-size:11px;font-weight:700;color:#fb7185;text-shadow:1px 1px 0 #fff}',
+  '.dshwv-qqenv-spout i:nth-child(2){width:4px;height:4px;background:#22d3ee;animation-delay:.65s}',
+  '.dshwv-qqenv-spout i:nth-child(3){width:3px;height:3px;background:#bae6fd;animation-delay:1.2s}',
+  '@keyframes qqEnvSpout{0%,58%{opacity:0;transform:translateY(2px) scale(.8)}72%{opacity:1;transform:translateY(-2px) scale(1)}100%{opacity:0;transform:translateY(-9px) scale(.9)}}',
+  '@keyframes qqEnvBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}',
+  // 悬停滑出「待查收」抽屉（设计稿：♥ 头像 + 小鲸鱼·待查收 + !N NEW + 预览 + ▶）
+  '.dshwv-qqenv-drawer{position:absolute;right:calc(100% + 8px);top:50%;display:flex;align-items:center;gap:7px;width:250px;box-sizing:border-box;padding:6px 8px;background:#fff;color:#0f172a;border:2px solid #0f172a;box-shadow:3px 3px 0 0 #0f172a;text-align:left;opacity:0;transform:translate(12px,-50%);pointer-events:none;transition:opacity .2s steps(4,end),transform .24s steps(4,end)}',
+  '.dshwv-qqenv:hover .dshwv-qqenv-drawer{opacity:1;transform:translate(0,-50%)}',
+  '.dshwv-qqenv-drawer-ava{flex:0 0 22px;width:22px;height:22px;display:flex;align-items:center;justify-content:center;background:#fdf2f8;border:2px solid #0f172a;color:#f43f5e;font-size:12px;font-weight:700;line-height:1}',
+  '.dshwv-qqenv-drawer-mid{flex:1 1 auto;min-width:0}',
+  '.dshwv-qqenv-drawer-title{display:flex;align-items:center;gap:4px;font-size:10px;font-weight:700;letter-spacing:.04em;line-height:1.2;color:#0f172a;white-space:nowrap;overflow:hidden}',
+  '.dshwv-qqenv-drawer-dot{flex:0 0 4px;width:4px;height:4px;background:#0ea5e9}',
+  '.dshwv-qqenv-drawer-pv{display:block;margin-top:2px;font-size:10.5px;line-height:1.2;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+  '.dshwv-qqenv-drawer-new{flex:0 0 auto;padding:0 4px;border:1px solid #fda4af;background:#fff1f2;color:#be123c;font-size:9px;font-weight:700;line-height:15px;white-space:nowrap}',
+  '.dshwv-qqenv-drawer-go{flex:0 0 auto;font-size:10px;font-weight:700;color:#0f172a;transition:transform .12s steps(2,end)}',
+  '.dshwv-qqenv:hover .dshwv-qqenv-drawer-go{transform:translateX(2px)}',
+  '.dshwv-qqenv:hover{transform:scale(1.08)}',
+  '.dshwv-qqenv.dshwv-qqenv-on{display:flex;opacity:1;transform:none}',
+  '.dshwv-qqenv:active{transform:scale(.94)}',
+  // 未读角标：设计稿是「! N」像素牌（玫红底 + 2px 黑描边 + 硬投影），1.6s 步进弹跳，尺寸按用户要求放大
+  '.dshwv-qqenv-badge{position:absolute;top:-9px;right:-9px;box-sizing:border-box;display:inline-block;min-width:30px;padding:1px 5px;border:2px solid #0f172a;border-radius:0;background:#f43f5e;color:#fff;font-size:12px;font-weight:700;line-height:19px;text-align:center;box-shadow:2px 2px 0 0 #0f172a;font-family:inherit;transform-origin:50% 100%;animation:qqBadgeBounce 1.6s steps(4,end) infinite}',
+  '.dshwv-qqenv-badge i{font-style:normal;color:#fde047;margin-right:3px}',
+  '@keyframes qqBadgeBounce{0%,100%{transform:translateY(0) scale(1)}25%{transform:translateY(-3px) scale(1.05)}50%{transform:translateY(0) scale(.98)}75%{transform:translateY(-1px) scale(1.02)}}',
+  '@keyframes dshwvQqEnvBump{0%{transform:scale(.55);opacity:0}62%{transform:scale(1.16);opacity:1}100%{transform:scale(1)}}',
+  // 新消息时先「弹一下」，随后继续 1.6s 的常驻步进弹跳（两段动画串联，不能把常驻动画覆盖掉）
+  '.dshwv-qqenv-badge.dshwv-qqenv-bump{animation:dshwvQqEnvBump .32s ease, 1.6s steps(4,end) .32s infinite qqBadgeBounce}',
+  // 深色主题：设计稿深色版是深底 + 霓虹青
+  '.dshwv-qqenv--dark .dshwv-qqenv-drawer{background:#0b1220;border-color:#22d3ee;box-shadow:3px 3px 0 0 #082f49,0 0 12px rgba(56,189,248,.28);color:#e2e8f0}',
+  '.dshwv-qqenv--dark .dshwv-qqenv-drawer-ava{background:#082f49;border-color:#22d3ee;color:#fda4af}',
+  '.dshwv-qqenv--dark .dshwv-qqenv-drawer-title{color:#67e8f9}',
+  '.dshwv-qqenv--dark .dshwv-qqenv-drawer-dot{background:#22d3ee}',
+  '.dshwv-qqenv--dark .dshwv-qqenv-drawer-pv{color:#94a3b8}',
+  '.dshwv-qqenv--dark .dshwv-qqenv-drawer-new{background:#4c0519;border-color:#9f1239;color:#fda4af}',
+  '.dshwv-qqenv--dark .dshwv-qqenv-drawer-go{color:#67e8f9}',
+  '.dshwv-qqenv--dark .dshwv-qqenv-badge{background:#be123c;border-color:#22d3ee;box-shadow:2px 2px 0 0 #082f49}',
+  '.dshwv-qqenv--dark .dshwv-qqenv-whale::before{background:rgba(34,211,238,.35)}',
+  '.dshwv-qqenv--dark .dshwv-qqenv-act{background:#0f172a;color:#fda4af;border-color:#22d3ee;box-shadow:2px 2px 0 0 #082f49}',
+  '.dshwv-qqenv--dark .dshwv-qqenv-act--feed{color:#fcd34d}',
+  '.dshwv-qqenv--dark .dshwv-qqenv-act:hover{background:#082f49}',
+  '.dshwv-qqenv--dark .dshwv-qqenv-toast{background:#0b1220;color:#e2e8f0;border-color:#22d3ee;box-shadow:2px 2px 0 0 #082f49}',
+  // 2026-11：收到新消息时信封本体摇铃一次（原来只有数字跳，图标不动）
+  '@keyframes dshwvQqEnvRing{0%{transform:rotate(0) scale(1)}12%{transform:rotate(-12deg) scale(1.08)}26%{transform:rotate(10deg) scale(1.08)}40%{transform:rotate(-8deg) scale(1.04)}54%{transform:rotate(6deg) scale(1.04)}68%{transform:rotate(-4deg) scale(1.02)}82%{transform:rotate(2deg) scale(1)}100%{transform:rotate(0) scale(1)}}',
+  '.dshwv-qqenv.dshwv-qqenv-ring{animation:dshwvQqEnvRing .62s ease}'
 ].join('\n')
 
 // ===== issue #7-1：深色配色（由 DSH 主题决定，见下方 cssDark / dshwvThemeApply）=====
@@ -2565,6 +2841,17 @@ petChatBtn.addEventListener('click', function (e) {
   try { petChatOpen() } catch (err) {}
 })
 rowPetChat.appendChild(petChatBtn)
+var petQqChatBtn = document.createElement('button')
+petQqChatBtn.type = 'button'
+petQqChatBtn.className = 'dshwv-roleimport'
+petQqChatBtn.style.flex = '1'
+petQqChatBtn.textContent = 'QQ 对话'
+petQqChatBtn.title = '查看 QQ 私聊消息并直接回复（消息由 dsh-Dfy 桥接同步）'
+petQqChatBtn.addEventListener('click', function (e) {
+  try { e.stopPropagation() } catch (err) {}
+  try { petChatOpen('qq') } catch (err) {}
+})
+rowPetChat.appendChild(petQqChatBtn)
 petRowAi.push(rowPetWhisper)
 petRowAi.push(rowPetChat)
 // —— 动作：不再铺「分类 + 具体动作」两级下拉（菜单太大，且旧版会把它当“固定动作”）。
@@ -3145,7 +3432,7 @@ function conBuildFrame() {
   if (conFrame) return
   conFrame = document.createElement('iframe')
   conFrame.className = 'dshwv-console-frame'
-  conFrame.setAttribute('title', '小鲸鱼桌面控制台')
+  conFrame.setAttribute('title', 'dsh-Dfy 桌面控制台')
   conFrame.setAttribute('scrolling', 'no')
   conFrame.src = '/dsh-whale/console.html'
   conFrame.addEventListener('load', function () {
@@ -4871,7 +5158,7 @@ function aboutDiagText(d) {
   var L = []
   try {
     var p = d && d.plugin || {}, b = d && d.build || {}, r = d && d.runtime || {}
-    L.push('小鲸鱼挂件诊断信息')
+    L.push('dsh-Dfy 诊断信息')
     L.push('版本: ' + (p.label || p.version || '?') + '（' + (p.channel === 'dev' ? '开发版' : '正式版') + '）')
     L.push('客户端: ' + aboutClientKind())
     L.push('宿主文件: ' + (b.host && b.host.path || '?') + ' · ' + aboutFmtBytes(b.host && b.host.bytes) + ' · ' + aboutFmtTime(b.host && b.host.mtime))
@@ -4969,7 +5256,7 @@ function aboutRender() {
   var dshVer = aboutDshVersion(r)
   // 顶行：标题 + 刷新图标（v803：挪到「小鲸鱼挂件」**右侧**）+ 版号徽标 + 通道徽标 + 客户端徽标
   var h = aboutEl('div', 'dshwv-about-h')
-  h.appendChild(aboutEl('span', 'dshwv-about-name', '小鲸鱼挂件'))
+  h.appendChild(aboutEl('span', 'dshwv-about-name', 'dsh-Dfy'))
   // v799：刷新按钮是小圆形箭头图标（就是 DSH 那个刷新图标：圆环缺口在右上 + 实心小箭头）。
   //   用内联 SVG 画，比字体符号稳（不受字体影响），颜色跟面板走。
   var refreshBtn = aboutEl('button', 'dshwv-about-refresh')
@@ -16919,7 +17206,22 @@ function dshwvThemeDarkNow() {
   try {
     if (document.body && document.body.hasAttribute('data-ds-dark-theme')) return true
     var de = document.documentElement
-    if (de && de.dataset && de.dataset.dsThemeSource) return false
+    // DSH 的实际写法：<html data-ds-theme-source="light|dark" style="color-scheme:…">。
+    // 旧实现只看「有没有这个属性」就返回 false，深色时也会被判成浅色 → 控制台深色样式不生效。
+    var src = String(de.getAttribute('data-ds-theme-source') || '').toLowerCase()
+    if (src === 'dark') return true
+    if (src === 'light') return false
+    var t = String(de.getAttribute('data-theme') || de.getAttribute('theme') || '').toLowerCase()
+    if (t === 'dark') return true
+    if (t === 'light') return false
+    var cls = String(de.className || '') + ' ' + String(document.body ? document.body.className : '')
+    if (/(^|\s)dark(\s|$)/.test(cls)) return true
+    if (/(^|\s)light(\s|$)/.test(cls)) return false
+    try {
+      var cs = String(getComputedStyle(de).colorScheme || '').toLowerCase()
+      if (cs === 'dark') return true
+      if (cs === 'light') return false
+    } catch (err) {}
   } catch (err) {}
   try { return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) } catch (err) { return false }
 }
@@ -23935,6 +24237,8 @@ function exprInit() {
         // 菜单打开着时点鲸鱼，官方那一下是"收起菜单"（onDocPointerDown 里 menuOpen 分支），
         // 不该算进连点计数，否则关菜单那下会白送一次。
         if (menuOpen) return
+        // 待机小鲸鱼 / PET / FEED 是挂件自身 UI，不算“点角色”
+        if (dshwvQenvUiHit(e.target)) return
         if (e.target && e.target.closest && (e.target.closest('.dshwv-pop') || e.target.closest('.dshwv-menu') ||
             e.target.closest('.dshwv-menu-btn') || e.target.closest('.dshwv-rolelist'))) return
         var on = false
@@ -26323,16 +26627,32 @@ function petAiPost(payload, cb) {
     body: JSON.stringify(payload || {}),
   }).then(function (d) { if (cb) try { cb(d) } catch (err) {}; return d })
 }
-// 气泡里说一句话（复用现有的 custom 泡泡渲染；自动关闭）
-function petAiBubble(text) {
+// 气泡朗读（2026-11）：只在 SurfCore 事件显式带 speak=true 时读（「气泡内容=朗读语音」）。
+// 用浏览器原生 speechSynthesis：零依赖、不联网；不支持的环境静默跳过。
+function petSpeakText(text) {
+  try {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return
+    var body = String(text || '').trim()
+    if (!body) return
+    try { window.speechSynthesis.cancel() } catch (e) {}
+    var u = new SpeechSynthesisUtterance(body)
+    u.lang = 'zh-CN'
+    u.rate = 1
+    window.speechSynthesis.speak(u)
+  } catch (err) {}
+}
+// 气泡里说一句话（复用现有的 custom 泡泡渲染）
+// ttlMs：0 = 常驻，点一下才收（QQ 回复用）；不传则沿用默认 8 秒（碎碎念等）。
+function petAiBubble(text, limit, ttlMs) {
   try {
     if (typeof sceneOpen !== 'function' || !bubbleBox) return
     var body = String(text || '').trim()
     if (!body) return
-    if (body.length > 90) body = body.slice(0, 89) + '…'
+    var max = Math.max(30, Number(limit) || 90)
+    if (body.length > max) body = body.slice(0, max - 1) + '…'
     sceneOpen('custom', function () {
       bubbleRenderModules(bubbleVendorMods([{ type: 'text', text: body }]))
-    }, 8000)
+    }, ttlMs === undefined ? 8000 : (Number(ttlMs) || 0))
   } catch (err) {}
 }
 // 播一段「碎碎念」动画（点播一次，播完回全局随机链）
@@ -26363,6 +26683,7 @@ function petWhisperSchedule() {
       if (!petOn) return
       if (typeof bubbleOn !== 'undefined' && !bubbleOn) return
       if (petChatMask && petChatMask.style.display !== 'none') return
+      if (petQqCardEl && petQqCardEl.classList.contains('dshwv-qqcard-open')) return
       if (petAiBusy) return
       petWhisperNow(false)
     } catch (err) {}
@@ -26385,11 +26706,1538 @@ function petWhisperNow(manual) {
     })
   } catch (err) { petAiBusy = false }
 }
+// ===== QQ 消息同步（桌宠当 QQ 的「通知 + 快捷回复」入口）=====
+// 数据流：桥接把私聊收发消息镜像到 SurfCore pet-api；这里长轮询同源
+// /dsh-whale/qq-sync.json，新消息弹「消息气泡卡」，卡里就能直接回复。
+var petQqTimer = 0
+var petQqCursor = null
+var petQqBusy = false
+var petQqLastSentAt = 0
+var petQqLastSentText = ''
+// —— 气泡卡：白色圆角气泡 + 小尾巴，跟随桌宠头顶；两态切换（消息记录 ⇄ 回复消息）——
+//   刻意不用 scene 泡泡：浮层是独立 DOM，输入框/按钮才能正常聚焦与输入。
+var QQCARD_MAX = 6
+var petQqCardEl = null
+var petQqCardListEl = null
+var petQqCardTitleEl = null
+var petQqCardReplyEl = null
+var petQqCardTimeEl = null
+var petQqCardTabMsgEl = null
+var petQqCardTabReplyEl = null
+var petQqStatUnreadEl = null
+var petQqStatTodayEl = null
+var petQqCardInputEl = null
+var petQqCardCountEl = null
+var petQqCardHintEl = null
+var petQqCardSendEl = null
+var petQqCardCmpTitleEl = null
+var petQqRecent = []
+var petQqLastKey = ''
+var petQqOwnerKey = ''
+var petQqOwnerName = ''
+var petQqMode = 'msg'
+var petQqCardSending = false
+var petQqCardHideTimer = 0
+var petQqCardFollowTimer = 0
+var petQqCardHover = false
+var petQqCardToastEl = null
+var petQqCardToastTimer = 0
+var petQqEnvEl = null
+var petQqEnvDockEl = null
+var petQqEnvBadgeEl = null
+var petQqEnvToastEl = null
+var petQqEnvToastTimer = 0
+var petQqEnvFollowTimer = 0
+var petQqUnread = 0
+var QQCARD_MAXLEN = 150
+function petQqFmtTime(at) {
+  var d = new Date(Number(at) || Date.now())
+  var hh = d.getHours(), mm = d.getMinutes()
+  return (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm
+}
+function petQqCardCanReply() {
+  if (!petQqLastKey) return false
+  // 宿主还没返回 ownerKey（旧版 SurfCore）时先放开：桥接/插件侧仍只允许发主人私聊
+  if (!petQqOwnerKey) return true
+  return petQqOwnerKey === petQqLastKey
+}
+function petQqCardHint(text) {
+  try { if (petQqCardHintEl) petQqCardHintEl.textContent = String(text || '') } catch (err) {}
+}
+function petQqCardToast(text) {
+  try {
+    if (!petQqCardToastEl) return
+    petQqCardToastEl.textContent = String(text || '')
+    petQqCardToastEl.classList.add('dshwv-qqcard-toast-on')
+    try { clearTimeout(petQqCardToastTimer) } catch (err) {}
+    petQqCardToastTimer = setTimeout(function () {
+      petQqCardToastTimer = 0
+      try { petQqCardToastEl.classList.remove('dshwv-qqcard-toast-on') } catch (err) {}
+    }, 2100)
+  } catch (err) {}
+}
+function petQqCardSetCount() {
+  try {
+    if (petQqCardInputEl && petQqCardCountEl) {
+      petQqCardCountEl.textContent = String(petQqCardInputEl.value.length) + '/' + QQCARD_MAXLEN
+    }
+  } catch (err) {}
+}
+// ===== 设计稿移植（JS 部分）=====
+function petQqSelfLabel() { return String(petQqOwnerName || '主人') }
+function petQqCardApplyMode() { qqCardView(petQqView) }
+// 像素鲸鱼（24×24 点阵，来自设计稿 whale-svg-node），尾巴/鳍/眼态/气泡全部保留
+var QQ_WHALE_SVG = ''
+  + '<svg class="dshwv-qqwhale-svg" shape-rendering="crispEdges" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">'
+  + '<g class="qq-tail">'
+  + '<rect fill="#0F172A" x="0" y="8" width="1" height="1"></rect><rect fill="#0284C7" x="1" y="8" width="1" height="1"></rect>'
+  + '<rect fill="#38BDF8" x="0" y="9" width="2" height="2"></rect><rect fill="#0F172A" x="2" y="10" width="1" height="1"></rect>'
+  + '<rect fill="#0284C7" x="3" y="11" width="2" height="2"></rect><rect fill="#0F172A" x="2" y="13" width="1" height="1"></rect>'
+  + '<rect fill="#38BDF8" x="0" y="13" width="2" height="2"></rect><rect fill="#0284C7" x="1" y="15" width="1" height="1"></rect>'
+  + '<rect fill="#0F172A" x="0" y="15" width="1" height="1"></rect></g>'
+  + '<rect fill="#0F172A" x="8" y="5" width="9" height="1"></rect><rect fill="#0F172A" x="6" y="6" width="2" height="1"></rect>'
+  + '<rect fill="#0F172A" x="5" y="7" width="1" height="2"></rect><rect fill="#0F172A" x="19" y="7" width="1" height="2"></rect>'
+  + '<rect fill="#0F172A" x="4" y="9" width="1" height="4"></rect><rect fill="#0F172A" x="20" y="9" width="1" height="4"></rect>'
+  + '<rect fill="#0F172A" x="5" y="13" width="1" height="2"></rect><rect fill="#0F172A" x="19" y="13" width="1" height="2"></rect>'
+  + '<rect fill="#0F172A" x="6" y="15" width="2" height="1"></rect><rect fill="#0F172A" x="17" y="15" width="2" height="1"></rect>'
+  + '<rect fill="#0F172A" x="8" y="16" width="9" height="1"></rect><rect fill="#0F172A" x="17" y="6" width="2" height="1"></rect>'
+  + '<rect fill="#38BDF8" x="8" y="6" width="9" height="1"></rect><rect fill="#0284C7" x="6" y="7" width="13" height="2"></rect>'
+  + '<rect fill="#0EA5E9" x="5" y="9" width="15" height="4"></rect><rect fill="#7DD3FC" x="7" y="7" width="8" height="1"></rect>'
+  + '<rect fill="#BAE6FD" x="11" y="5" width="2" height="1"></rect>'
+  + '<rect fill="#FFFFFF" x="6" y="13" width="13" height="2"></rect><rect fill="#F8FAFC" x="8" y="15" width="9" height="1"></rect>'
+  + '<rect fill="#BAE6FD" x="9" y="14" width="1" height="1"></rect><rect fill="#BAE6FD" x="12" y="14" width="1" height="1"></rect>'
+  + '<rect fill="#BAE6FD" x="15" y="14" width="1" height="1"></rect>'
+  + '<g class="qq-eye-open"><rect fill="#0F172A" x="16" y="9" width="2" height="2"></rect><rect fill="#FFFFFF" x="16" y="9" width="1" height="1"></rect></g>'
+  + '<g class="qq-eye-happy"><rect fill="#0F172A" x="15" y="9" width="1" height="1"></rect><rect fill="#0F172A" x="16" y="10" width="1" height="1"></rect><rect fill="#0F172A" x="17" y="9" width="1" height="1"></rect></g>'
+  + '<g class="qq-eye-sleep"><rect fill="#0F172A" x="15" y="10" width="3" height="1"></rect></g>'
+  + '<rect fill="#FB7185" x="16" y="11" width="2" height="1"></rect>'
+  + '<rect fill="#0F172A" x="19" y="11" width="1" height="1"></rect><rect fill="#0F172A" x="20" y="10" width="1" height="1"></rect>'
+  + '<g class="qq-fin"><rect fill="#0F172A" x="10" y="11" width="3" height="1"></rect><rect fill="#38BDF8" x="10" y="12" width="3" height="2"></rect><rect fill="#0284C7" x="11" y="14" width="2" height="1"></rect></g>'
+  + '</svg>'
+
+// 养成状态（本地持久化，抚摸/投喂会改它，和设计稿一致）
+var QQ_PET_STORE = 'dshwv-qq-pet-v1'
+var qqPet = { hearts: 6, feeds: 12, hunger: 80, joy: 95, mood: 'active' }
+// 卡片音效开关（独立于全局音效设置）：底部条的喇叭按钮切换，存 localStorage
+var QQ_SFX_STORE = 'dshwv-qq-sfx-v1'
+var petQqSfxOn = true
+var petQqSfxBtnEl = null
+try {
+  var rawSfxOn = window.localStorage.getItem(QQ_SFX_STORE)
+  if (rawSfxOn === '0' || rawSfxOn === 'off') petQqSfxOn = false
+} catch (err) {}
+function petQqSfxSet(on) {
+  petQqSfxOn = !!on
+  try { window.localStorage.setItem(QQ_SFX_STORE, petQqSfxOn ? '1' : '0') } catch (err) {}
+  try {
+    if (petQqSfxBtnEl) {
+      petQqSfxBtnEl.textContent = petQqSfxOn ? '🔊' : '🔇'
+      petQqSfxBtnEl.title = petQqSfxOn ? '卡片音效：开' : '卡片音效：关'
+    }
+  } catch (err) {}
+}
+var qqAudioCtx = null
+var petQqView = 'board'
+var petQqStatHungerEl = null
+var petQqStatJoyEl = null
+var petQqWhaleEl = null
+var petQqBoardBodyEl = null
+var petQqBoardNameEl = null
+var petQqBoardTimeEl = null
+var petQqLogListEl = null
+var petQqLogCountEl = null
+var petQqHeartsEl = null
+var petQqFeedsEl = null
+var petQqMoodEl = null
+var petQqTabBoardEl = null
+var petQqTabLogEl = null
+var petQqTabReplyEl = null
+
+function qqPetLoad() {
+  try {
+    var raw = window.localStorage.getItem(QQ_PET_STORE)
+    if (!raw) return
+    var o = JSON.parse(raw)
+    if (o && typeof o === 'object') {
+      if (typeof o.hearts === 'number') qqPet.hearts = o.hearts
+      if (typeof o.feeds === 'number') qqPet.feeds = o.feeds
+      if (typeof o.hunger === 'number') qqPet.hunger = o.hunger
+      if (typeof o.joy === 'number') qqPet.joy = o.joy
+      if (typeof o.mood === 'string') qqPet.mood = o.mood
+    }
+  } catch (err) {}
+}
+function qqPetSave() {
+  try { window.localStorage.setItem(QQ_PET_STORE, JSON.stringify(qqPet)) } catch (err) {}
+}
+
+// 8-bit 音效（和设计稿同一套频率序列；静音时自动跳过）
+function qqChirp(tones, durs, type, gain) {
+  try {
+    // 卡片音效开关（喇叭按钮）与全局音效设置都要尊重；音量 0 也视为静音
+    if (petQqSfxOn === false) return
+    if (dshwvSoundOff()) return
+    if (typeof masterVol === 'number' && masterVol <= 0) return
+    var AC = window.AudioContext || window.webkitAudioContext
+    if (!AC) return
+    if (!qqAudioCtx) qqAudioCtx = new AC()
+    if (qqAudioCtx.state === 'suspended') qqAudioCtx.resume()
+    var t = qqAudioCtx.currentTime
+    for (var i = 0; i < tones.length; i++) {
+      var osc = qqAudioCtx.createOscillator()
+      var g = qqAudioCtx.createGain()
+      var dur = durs[i] || 0.06
+      osc.type = type || 'square'
+      osc.frequency.setValueAtTime(tones[i], t)
+      g.gain.setValueAtTime(gain || 0.04, t)
+      g.gain.exponentialRampToValueAtTime(0.001, t + dur)
+      osc.connect(g)
+      g.connect(qqAudioCtx.destination)
+      osc.start(t)
+      osc.stop(t + dur)
+      t += dur * 0.9
+    }
+  } catch (err) {}
+}
+var QQ_SFX = {
+  pet: function () { qqChirp([587.33, 880, 1174.66], [0.06, 0.06, 0.1], 'square', 0.05) },
+  feed: function () { qqChirp([330, 440, 659.25, 880], [0.05, 0.05, 0.05, 0.12], 'triangle', 0.06) },
+  click: function () { qqChirp([520], [0.03], 'square', 0.03) },
+  expand: function () { qqChirp([349.23, 440, 523.25, 698.46], [0.04, 0.04, 0.04, 0.08], 'square', 0.04) },
+  collapse: function () { qqChirp([698.46, 523.25, 349.23], [0.04, 0.04, 0.08], 'square', 0.04) },
+  send: function () { qqChirp([440, 880, 1320], [0.05, 0.05, 0.12], 'sawtooth', 0.04) },
+  // 卡片里回复文字逐字打出来时的按键音：极轻、极短，频率略随机避免机械感
+  type: function () { qqChirp([760 + Math.random() * 260], [0.018], 'square', 0.012) },
+  sleep: function () { qqChirp([392, 330, 261.6], [0.1, 0.1, 0.2], 'sine', 0.04) }
+}
+
+// 特效：爱心上飘 / 大虾下落 / 屏幕抖动
+function qqFxHeart(x, y, text) {
+  try {
+    var el = document.createElement('div')
+    el.className = 'dshwv-qqfx-heart'
+    el.textContent = text || '♥ +1'
+    el.style.left = String(Math.round(x)) + 'px'
+    el.style.top = String(Math.round(y)) + 'px'
+    document.body.appendChild(el)
+    setTimeout(function () { try { el.remove() } catch (err) {} }, 950)
+  } catch (err) {}
+}
+function qqFxShrimp(anchor) {
+  try {
+    if (!anchor) return
+    var r = anchor.getBoundingClientRect()
+    var el = document.createElement('div')
+    el.className = 'dshwv-qqfx-shrimp'
+    el.textContent = '🍤'
+    el.style.left = String(Math.round(r.left + r.width / 2 - 8)) + 'px'
+    el.style.top = String(Math.round(r.top - 10)) + 'px'
+    document.body.appendChild(el)
+    setTimeout(function () {
+      try { el.remove() } catch (err) {}
+      qqFxHeart(r.left + r.width / 2 - 8, r.top, 'YUM! +HP')
+    }, 750)
+  } catch (err) {}
+}
+function qqShakeCard() {
+  try {
+    if (!petQqCardEl) return
+    petQqCardEl.classList.remove('qq-shake')
+    void petQqCardEl.offsetWidth
+    petQqCardEl.classList.add('qq-shake')
+    setTimeout(function () { try { petQqCardEl.classList.remove('qq-shake') } catch (err) {} }, 320)
+  } catch (err) {}
+}
+
+// 鲸鱼眼态 / 跳跃 / 休眠 Zz
+function qqWhaleEye(state) {
+  try {
+    // 待机入口鲸鱼用同一套 SVG 眼态（卡片没开时抚摸/投喂也要有反馈）
+    var envSvg = petQqEnvEl ? petQqEnvEl.querySelector('.dshwv-qqenv-whale svg') : null
+    if (envSvg) {
+      envSvg.classList.remove('qq-happy')
+      envSvg.classList.remove('qq-sleep')
+      if (state === 'happy') envSvg.classList.add('qq-happy')
+      else if (state === 'sleep') envSvg.classList.add('qq-sleep')
+    }
+    if (!petQqWhaleEl) return
+    petQqWhaleEl.classList.remove('qq-happy')
+    petQqWhaleEl.classList.remove('qq-sleep')
+    if (state === 'happy') petQqWhaleEl.classList.add('qq-happy')
+    else if (state === 'sleep') petQqWhaleEl.classList.add('qq-sleep')
+  } catch (err) {}
+}
+function qqEnvWhaleJump() {
+  try {
+    if (!petQqEnvEl) return
+    var svg = petQqEnvEl.querySelector('.dshwv-qqenv-whale svg')
+    if (!svg) return
+    svg.classList.remove('qq-jump')
+    void svg.getBoundingClientRect().width
+    svg.classList.add('qq-jump')
+    setTimeout(function () { try { svg.classList.remove('qq-jump') } catch (err) {} }, 550)
+  } catch (err) {}
+}
+// 收起消息卡后，小鲸鱼摆尾“游”一下再回到待机（设计稿的游泳动作）
+function qqEnvSwim() {
+  try {
+    if (!petQqEnvEl) return
+    var svg = petQqEnvEl.querySelector('.dshwv-qqenv-whale svg')
+    if (!svg) return
+    svg.classList.remove('qq-swim')
+    void svg.getBoundingClientRect().width
+    svg.classList.add('qq-swim')
+    setTimeout(function () { try { svg.classList.remove('qq-swim') } catch (err) {} }, 1200)
+  } catch (err) {}
+}
+function qqWhaleJump() {
+  try {
+    if (!petQqWhaleEl) return
+    var svg = petQqWhaleEl.querySelector('.dshwv-qqwhale-svg')
+    if (!svg) return
+    svg.classList.remove('qq-jump')
+    void svg.offsetWidth
+    svg.classList.add('qq-jump')
+    setTimeout(function () { try { svg.classList.remove('qq-jump') } catch (err) {} }, 550)
+  } catch (err) {}
+}
+
+// 状态条（饱腹度 / 开心度）：5 段 + 百分比，和设计稿一致
+function petQqStatBuild(kind, label) {
+  var wrap = document.createElement('div')
+  wrap.className = 'dshwv-qqstat dshwv-qqstat--' + kind
+  var head = document.createElement('div')
+  head.className = 'dshwv-qqstat-head'
+  var l = document.createElement('span')
+  l.textContent = label
+  var v = document.createElement('span')
+  v.textContent = '0%'
+  head.appendChild(l)
+  head.appendChild(v)
+  var bar = document.createElement('div')
+  bar.className = 'dshwv-qqstat-bar'
+  var segs = []
+  for (var i = 0; i < 5; i++) {
+    var s = document.createElement('span')
+    s.className = 'dshwv-qqstat-seg'
+    bar.appendChild(s)
+    segs.push(s)
+  }
+  wrap.appendChild(head)
+  wrap.appendChild(bar)
+  return {
+    wrap: wrap,
+    set: function (pct) {
+      var p = Math.max(0, Math.min(100, Number(pct) || 0))
+      v.textContent = String(Math.round(p)) + '%'
+      var active = Math.round(p / 20)
+      for (var k = 0; k < segs.length; k++) {
+        if (k < active) segs[k].classList.add('on')
+        else segs[k].classList.remove('on')
+      }
+    }
+  }
+}
+
+function qqCardView(name) {
+  try {
+    petQqView = name === 'log' || name === 'reply' ? name : 'board'
+    if (!petQqCardEl) return
+    petQqCardEl.classList.remove('dshwv-qqcard-v-board')
+    petQqCardEl.classList.remove('dshwv-qqcard-v-log')
+    petQqCardEl.classList.remove('dshwv-qqcard-v-reply')
+    petQqCardEl.classList.add('dshwv-qqcard-v-' + petQqView)
+    if (petQqTabBoardEl) petQqTabBoardEl.classList[petQqView === 'board' ? 'add' : 'remove']('dshwv-qqtab-on')
+    if (petQqTabLogEl) petQqTabLogEl.classList[petQqView === 'log' ? 'add' : 'remove']('dshwv-qqtab-on')
+    if (petQqTabReplyEl) petQqTabReplyEl.classList[petQqView === 'reply' ? 'add' : 'remove']('dshwv-qqtab-on')
+    if (petQqView === 'reply') {
+      petQqCardHint('Enter 发送 · Shift+Enter 换行')
+      if (petQqCardInputEl) try { petQqCardInputEl.focus() } catch (err) {}
+    } else {
+      petQqCardHint('')
+    }
+  } catch (err) {}
+}
+
+function qqMoodSync() {
+  try {
+    if (petQqMoodEl) {
+      // 标签显示「点一下会变成什么」，与设计稿 togglePetMood 的文案顺序一致
+      petQqMoodEl.textContent = qqPet.mood === 'sleep' ? '⚡ 兴奋' : (qqPet.mood === 'cheer' ? '🌊 待机' : '💤 打盹')
+    }
+    qqWhaleEye(qqPet.mood === 'sleep' ? 'sleep' : (qqPet.mood === 'cheer' ? 'happy' : 'open'))
+    if (petQqWhaleEl) {
+      if (qqPet.mood === 'sleep') petQqWhaleEl.classList.add('qq-sleep')
+      else petQqWhaleEl.classList.remove('qq-sleep')
+      if (qqPet.mood === 'cheer') petQqWhaleEl.classList.add('qq-cheer')
+      else petQqWhaleEl.classList.remove('qq-cheer')
+    }
+    // 待机入口那只鲸鱼同步：打盹变暗+冒 Zz（容器类控 Zz、svg 类控外观），兴奋弹跳
+    var envWhale = petQqEnvEl ? petQqEnvEl.querySelector('.dshwv-qqenv-whale') : null
+    if (envWhale) envWhale.classList.toggle('qq-sleep', qqPet.mood === 'sleep')
+    var envSvg = envWhale ? envWhale.querySelector('svg') : null
+    if (envSvg) {
+      if (qqPet.mood === 'sleep') envSvg.classList.add('qq-sleep')
+      else envSvg.classList.remove('qq-sleep')
+      if (qqPet.mood === 'cheer') envSvg.classList.add('qq-cheer')
+      else envSvg.classList.remove('qq-cheer')
+    }
+  } catch (err) {}
+}
+
+function qqMoodToggle() {
+  try {
+    if (qqPet.mood === 'active') {
+      qqPet.mood = 'sleep'
+      qqWhaleEye('sleep')
+      QQ_SFX.sleep()
+      petQqCardToast('小鲸鱼打盹去了 💤')
+    } else if (qqPet.mood === 'sleep') {
+      qqPet.mood = 'cheer'
+      qqWhaleEye('happy')
+      QQ_SFX.pet()
+      petQqCardToast('小鲸鱼开心地跳了起来 ⚡')
+    } else {
+      qqPet.mood = 'active'
+      qqWhaleEye('open')
+      QQ_SFX.click()
+      petQqCardToast('小鲸鱼回到待机状态 🌊')
+    }
+    qqMoodSync()
+    qqPetSave()
+  } catch (err) {}
+}
+
+function qqPetWhale(e) {
+  try {
+    if (e) e.stopPropagation()
+    QQ_SFX.pet()
+    qqShakeCard()
+    qqWhaleJump()
+    qqWhaleEye('happy')
+    setTimeout(function () { qqWhaleEye(qqPet.mood === 'sleep' ? 'sleep' : (qqPet.mood === 'cheer' ? 'happy' : 'open')) }, 1000)
+    var anchor = petQqWhaleEl || petQqCardEl
+    if (anchor) {
+      var r = anchor.getBoundingClientRect()
+      qqFxHeart(r.left + r.width / 2 + (Math.random() * 12 - 6), r.top - 4, '♥ +1')
+    }
+    qqPet.hearts += 1
+    qqPet.joy = Math.min(100, qqPet.joy + 5)
+    qqPetSave()
+    qqStatRender()
+    petQqCardToast('摸摸小鲸鱼，它很开心 ♥')
+  } catch (err) {}
+}
+
+function qqFeedWhale(e) {
+  try {
+    if (e) e.stopPropagation()
+    QQ_SFX.feed()
+    qqFxShrimp(petQqWhaleEl || petQqCardEl)
+    setTimeout(function () {
+      QQ_SFX.pet()
+      qqWhaleEye('happy')
+      setTimeout(function () { qqWhaleEye(qqPet.mood === 'sleep' ? 'sleep' : (qqPet.mood === 'cheer' ? 'happy' : 'open')) }, 800)
+    }, 700)
+    qqPet.feeds += 1
+    qqPet.hunger = Math.min(100, qqPet.hunger + 10)
+    qqPet.joy = Math.min(100, qqPet.joy + 3)
+    qqPetSave()
+    qqStatRender()
+    petQqCardToast('喂了一只虾，小鲸鱼吃饱了 🍤')
+  } catch (err) {}
+}
+
+function qqStatRender() {
+  try {
+    if (petQqStatHungerEl) petQqStatHungerEl.set(qqPet.hunger)
+    if (petQqStatJoyEl) petQqStatJoyEl.set(qqPet.joy)
+    if (petQqHeartsEl) petQqHeartsEl.textContent = String(qqPet.hearts)
+    if (petQqFeedsEl) petQqFeedsEl.textContent = String(qqPet.feeds)
+  } catch (err) {}
+}
+
+// 设计稿待机舞台下方的快捷按钮：卡片关着也能直接抚摸/投喂（状态与卡片共享）
+function petQqQuickPet() {
+  try {
+    if (!petQqEnvEl) return
+    QQ_SFX.pet()
+    qqEnvWhaleJump()
+    qqWhaleEye('happy')
+    setTimeout(function () { qqWhaleEye(qqPet.mood === 'sleep' ? 'sleep' : (qqPet.mood === 'cheer' ? 'happy' : 'open')) }, 1000)
+    var r = petQqEnvEl.getBoundingClientRect()
+    qqFxHeart(r.left + r.width / 2 + (Math.random() * 10 - 5), r.top - 4, '♥ +1')
+    qqPet.hearts += 1
+    qqPet.joy = Math.min(100, qqPet.joy + 5)
+    qqPetSave()
+    qqStatRender()
+    petQqCardToast('摸摸小鲸鱼，它很开心 ♥')
+    petQqEnvToast('摸摸成功：爱心 +1，开心 +5')
+  } catch (err) {}
+}
+function petQqQuickFeed() {
+  try {
+    if (!petQqEnvEl) return
+    QQ_SFX.feed()
+    qqFxShrimp(petQqEnvEl)
+    setTimeout(function () {
+      QQ_SFX.pet()
+      qqWhaleEye('happy')
+      setTimeout(function () { qqWhaleEye(qqPet.mood === 'sleep' ? 'sleep' : (qqPet.mood === 'cheer' ? 'happy' : 'open')) }, 800)
+    }, 700)
+    qqPet.feeds += 1
+    qqPet.hunger = Math.min(100, qqPet.hunger + 10)
+    qqPet.joy = Math.min(100, qqPet.joy + 3)
+    qqPetSave()
+    qqStatRender()
+    petQqCardToast('喂了一只虾，小鲸鱼吃饱了 🍤')
+    petQqEnvToast('喂食成功：饱腹 +10，投喂 +1 🍤')
+  } catch (err) {}
+}
+
+function petQqCardBuild() {
+  if (petQqCardEl) return petQqCardEl
+  qqPetLoad()
+  var card = document.createElement('div')
+  card.className = 'dshwv-qqcard dshwv-qqcard-v-board'
+  card.addEventListener('pointerdown', function (e) { try { e.stopPropagation() } catch (err) {} })
+  card.addEventListener('click', function (e) { try { e.stopPropagation() } catch (err) {} })
+  card.addEventListener('mouseenter', function () {
+    petQqCardHover = true
+    try { clearTimeout(petQqCardHideTimer) } catch (err) {}
+    petQqCardHideTimer = 0
+  })
+  card.addEventListener('mouseleave', function () {
+    petQqCardHover = false
+    petQqCardScheduleHide()
+  })
+
+  // ① 顶部状态条（饱腹度 / 开心度）
+  petQqStatHungerEl = petQqStatBuild('hunger', '🍙 饱腹度')
+  petQqStatJoyEl = petQqStatBuild('joy', '♥ 开心度')
+  var stats = document.createElement('div')
+  stats.className = 'dshwv-qqcard-stats'
+  stats.appendChild(petQqStatHungerEl.wrap)
+  stats.appendChild(petQqStatJoyEl.wrap)
+  card.appendChild(stats)
+
+  // ② 内屏
+  var screen = document.createElement('div')
+  screen.className = 'dshwv-qqcard-screen'
+
+  var head = document.createElement('div')
+  head.className = 'dshwv-qqcard-head'
+  var idWrap = document.createElement('div')
+  idWrap.className = 'dshwv-qqcard-id'
+  var ava = document.createElement('div')
+  ava.className = 'dshwv-qqcard-ava'
+  ava.innerHTML = QQ_WHALE_SVG
+  ava.title = '轻抚小鲸鱼'
+  ava.addEventListener('click', function (e) { qqPetWhale(e) })
+  petQqWhaleEl = ava.querySelector('.dshwv-qqwhale')
+  // 设计稿的眼态是 SVG 里的三个 g，这里补一个 Zz 角标（休眠时显示）
+  try {
+    var svgNode = ava.querySelector('svg')
+    if (svgNode) {
+      var wrapWhale = document.createElement('div')
+      wrapWhale.className = 'dshwv-qqwhale'
+      ava.textContent = ''
+      wrapWhale.appendChild(svgNode)
+      var zz = document.createElement('span')
+      zz.className = 'qq-zz'
+      zz.textContent = 'Z'
+      wrapWhale.appendChild(zz)
+      ava.appendChild(wrapWhale)
+      petQqWhaleEl = wrapWhale
+    }
+  } catch (err) {}
+  var title = document.createElement('div')
+  title.className = 'dshwv-qqcard-title'
+  title.textContent = '小鲸鱼'
+  petQqCardTitleEl = title
+  idWrap.appendChild(ava)
+  idWrap.appendChild(title)
+
+  var headActs = document.createElement('div')
+  headActs.className = 'dshwv-qqcard-head-acts'
+  var mood = document.createElement('button')
+  mood.type = 'button'
+  mood.className = 'dshwv-qqmood'
+  mood.textContent = '💤 打盹'
+  mood.title = '点击切换心情'
+  mood.addEventListener('click', function (e) { try { e.stopPropagation() } catch (err) {}; qqMoodToggle() })
+  petQqMoodEl = mood
+  try { qqMoodSync() } catch (err) {}
+  var reply = document.createElement('button')
+  reply.type = 'button'
+  reply.className = 'dshwv-qqcard-reply'
+  reply.textContent = '↩ 回复'
+  reply.title = '回复小鲸鱼'
+  reply.addEventListener('click', function (e) {
+    try { e.stopPropagation(); e.preventDefault() } catch (err) {}
+    petQqCardCompose()
+  })
+  petQqCardReplyEl = reply
+  var close = document.createElement('button')
+  close.type = 'button'
+  close.className = 'dshwv-qqcard-x dshwv-qqcard-close'
+  close.textContent = '✕'
+  close.title = '收起'
+  close.setAttribute('aria-label', '收起卡片')
+  close.addEventListener('click', function (e) {
+    try { e.stopPropagation(); e.preventDefault() } catch (err) {}
+    QQ_SFX.collapse()
+    petQqCardHide()
+  })
+  headActs.appendChild(mood)
+  headActs.appendChild(reply)
+  headActs.appendChild(close)
+  head.appendChild(idWrap)
+  head.appendChild(headActs)
+  screen.appendChild(head)
+
+  // ③ 视图 A：留言板（最新一条来电）
+  var board = document.createElement('div')
+  board.className = 'dshwv-qqview dshwv-qqview--board'
+  var dlg = document.createElement('div')
+  dlg.className = 'dshwv-qqdlg'
+  var mark = document.createElement('span')
+  mark.className = 'dshwv-qqdlg-mark'
+  mark.textContent = '✉'
+  var dlgMain = document.createElement('div')
+  dlgMain.className = 'dshwv-qqdlg-main'
+  var dlgHead = document.createElement('div')
+  dlgHead.className = 'dshwv-qqdlg-head'
+  var dlgName = document.createElement('span')
+  dlgName.className = 'dshwv-qqdlg-name'
+  var dlgTime = document.createElement('span')
+  dlgTime.className = 'dshwv-qqdlg-time'
+  dlgHead.appendChild(dlgName)
+  dlgHead.appendChild(dlgTime)
+  var dlgBody = document.createElement('p')
+  dlgBody.className = 'dshwv-qqdlg-body'
+  dlgMain.appendChild(dlgHead)
+  dlgMain.appendChild(dlgBody)
+  dlg.appendChild(mark)
+  dlg.appendChild(dlgMain)
+  petQqBoardNameEl = dlgName
+  petQqBoardTimeEl = dlgTime
+  petQqBoardBodyEl = dlgBody
+  board.appendChild(dlg)
+
+  var react = document.createElement('div')
+  react.className = 'dshwv-qqreact'
+  var reactL = document.createElement('div')
+  reactL.className = 'dshwv-qqreact-l'
+  var heartBtn = document.createElement('button')
+  heartBtn.type = 'button'
+  heartBtn.className = 'dshwv-qqreact-btn dshwv-qqreact-btn--heart'
+  heartBtn.textContent = '♥ 摸摸 '
+  var heartCount = document.createElement('span')
+  heartCount.textContent = '6'
+  heartBtn.appendChild(heartCount)
+  petQqHeartsEl = heartCount
+  heartBtn.addEventListener('click', function (e) { qqPetWhale(e) })
+  var feedBtn = document.createElement('button')
+  feedBtn.type = 'button'
+  feedBtn.className = 'dshwv-qqreact-btn dshwv-qqreact-btn--feed'
+  feedBtn.textContent = '🍤 喂食 '
+  var feedCount = document.createElement('span')
+  feedCount.textContent = '12'
+  feedBtn.appendChild(feedCount)
+  petQqFeedsEl = feedCount
+  feedBtn.addEventListener('click', function (e) { qqFeedWhale(e) })
+  reactL.appendChild(heartBtn)
+  reactL.appendChild(feedBtn)
+  var brand = document.createElement('span')
+  brand.className = 'dshwv-qqbrand'
+  brand.textContent = 'AI'
+  react.appendChild(reactL)
+  react.appendChild(brand)
+  board.appendChild(react)
+
+  // ④ 视图 B：流水日志
+  var logView = document.createElement('div')
+  logView.className = 'dshwv-qqview dshwv-qqview--log'
+  var logHead = document.createElement('div')
+  logHead.className = 'dshwv-qqlog-head'
+  var logBack = document.createElement('span')
+  logBack.className = 'dshwv-qqback'
+  logBack.textContent = '◀ 消息记录'
+  logBack.addEventListener('click', function (e) { try { e.stopPropagation() } catch (err) {}; qqCardView('board') })
+  var logCount = document.createElement('span')
+  logCount.className = 'dshwv-qqlog-count'
+  logCount.textContent = '共 0 条'
+  petQqLogCountEl = logCount
+  logHead.appendChild(logBack)
+  logHead.appendChild(logCount)
+  var logList = document.createElement('div')
+  logList.className = 'dshwv-qqlog-list'
+  petQqLogListEl = logList
+  petQqCardListEl = logList
+  logView.appendChild(logHead)
+  logView.appendChild(logList)
+
+  // ⑤ 视图 C：回复
+  var replyView = document.createElement('div')
+  replyView.className = 'dshwv-qqview dshwv-qqview--reply'
+  var replyHead = document.createElement('div')
+  replyHead.className = 'dshwv-qqreply-head'
+  var replyBack = document.createElement('span')
+  replyBack.className = 'dshwv-qqback'
+  replyBack.textContent = '◀ 返回消息'
+  replyBack.addEventListener('click', function (e) { try { e.stopPropagation() } catch (err) {}; petQqCardBackMsg() })
+  var replyTitle = document.createElement('span')
+  replyTitle.className = 'dshwv-qqreply-title'
+  replyTitle.textContent = '写消息'
+  petQqCardCmpTitleEl = replyTitle
+  replyHead.appendChild(replyBack)
+  replyHead.appendChild(replyTitle)
+
+  var wrap = document.createElement('div')
+  wrap.className = 'dshwv-qqcard-wrap'
+  var input = document.createElement('textarea')
+  input.className = 'dshwv-qqcard-input'
+  input.rows = 3
+  input.maxLength = QQCARD_MAXLEN
+  input.placeholder = '输入要发给小鲸鱼的消息，按 Enter 发送…'
+  petQqCardInputEl = input
+  var count = document.createElement('span')
+  count.className = 'dshwv-qqcard-count'
+  count.textContent = '0/' + QQCARD_MAXLEN
+  petQqCardCountEl = count
+  wrap.appendChild(input)
+  wrap.appendChild(count)
+  input.addEventListener('input', function () {
+    petQqCardSetCount()
+    petQqCardKeySfx()
+  })
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { try { e.preventDefault() } catch (err) {}; petQqCardBackMsg(); return }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      try { e.preventDefault() } catch (err) {}
+      petQqCardSend()
+    }
+  })
+
+  var acts = document.createElement('div')
+  acts.className = 'dshwv-qqreply-acts'
+  var actsL = document.createElement('div')
+  actsL.className = 'dshwv-qqcard-acts-l'
+  var emoji = document.createElement('button')
+  emoji.type = 'button'
+  emoji.className = 'dshwv-qqcard-mini'
+  emoji.title = '加个表情'
+  emoji.textContent = '☺'
+  emoji.addEventListener('click', function (e) {
+    try { e.stopPropagation() } catch (err) {}
+    QT_SFX_CLICK()
+    try {
+      petQqCardInputEl.value = (petQqCardInputEl.value || '') + '😊'
+      petQqCardSetCount()
+      petQqCardInputEl.focus()
+    } catch (err) {}
+  })
+  actsL.appendChild(emoji)
+  var actsR = document.createElement('div')
+  actsR.className = 'dshwv-qqcard-acts-r'
+  var cancel = document.createElement('button')
+  cancel.type = 'button'
+  cancel.className = 'dshwv-qqcard-cancel'
+  cancel.textContent = '取消'
+  cancel.addEventListener('click', function (e) { try { e.stopPropagation() } catch (err) {}; petQqCardBackMsg() })
+  var send = document.createElement('button')
+  send.type = 'button'
+  send.className = 'dshwv-qqcard-send'
+  send.title = '发送 (Enter)'
+  send.textContent = '发送 ▶'
+  send.addEventListener('click', function (e) {
+    try { e.stopPropagation(); e.preventDefault() } catch (err) {}
+    petQqCardSend()
+  })
+  petQqCardSendEl = send
+  actsR.appendChild(cancel)
+  actsR.appendChild(send)
+  acts.appendChild(actsL)
+  acts.appendChild(actsR)
+  var hint = document.createElement('div')
+  hint.className = 'dshwv-qqcard-hint'
+  petQqCardHintEl = hint
+  replyView.appendChild(replyHead)
+  replyView.appendChild(wrap)
+  replyView.appendChild(acts)
+  replyView.appendChild(hint)
+
+  screen.appendChild(board)
+  screen.appendChild(logView)
+  screen.appendChild(replyView)
+  card.appendChild(screen)
+
+  // ⑥ 底部模式切换条（设计稿：MODE: [留言板][流水][回复] | [▲ 收起]）
+  var tabs = document.createElement('div')
+  tabs.className = 'dshwv-qqtabs'
+  var tabsL = document.createElement('div')
+  tabsL.className = 'dshwv-qqtabs-l'
+  var tabsLabel = document.createElement('span')
+  tabsLabel.className = 'dshwv-qqmode-label'
+  tabsLabel.textContent = '视图:'
+  var tabBoard = document.createElement('button')
+  tabBoard.type = 'button'
+  tabBoard.className = 'dshwv-qqtab dshwv-qqtab-on'
+  tabBoard.textContent = '消息'
+  tabBoard.addEventListener('click', function (e) { try { e.stopPropagation() } catch (err) {}; QT_SFX_CLICK(); qqCardView('board') })
+  var tabLog = document.createElement('button')
+  tabLog.type = 'button'
+  tabLog.className = 'dshwv-qqtab'
+  tabLog.textContent = '记录'
+  tabLog.addEventListener('click', function (e) { try { e.stopPropagation() } catch (err) {}; QT_SFX_CLICK(); qqCardView('log') })
+  var tabReply = document.createElement('button')
+  tabReply.type = 'button'
+  tabReply.className = 'dshwv-qqtab'
+  tabReply.textContent = '写消息'
+  tabReply.addEventListener('click', function (e) { try { e.stopPropagation() } catch (err) {}; petQqCardCompose() })
+  petQqTabBoardEl = tabBoard
+  petQqTabLogEl = tabLog
+  petQqTabReplyEl = tabReply
+  tabsL.appendChild(tabsLabel)
+  tabsL.appendChild(tabBoard)
+  tabsL.appendChild(tabLog)
+  tabsL.appendChild(tabReply)
+  var collapse = document.createElement('button')
+  collapse.type = 'button'
+  collapse.className = 'dshwv-qqtab'
+  collapse.textContent = '▲ 收起'
+  collapse.addEventListener('click', function (e) {
+    try { e.stopPropagation() } catch (err) {}
+    QQ_SFX.collapse()
+    petQqCardHide()
+  })
+  var divider = document.createElement('span')
+  divider.className = 'dshwv-qqtabs-div'
+  // 音效开关：卡片专属，独立于全局音效设置（存 localStorage）
+  var sfxBtn = document.createElement('button')
+  sfxBtn.type = 'button'
+  sfxBtn.className = 'dshwv-qqtab dshwv-qqsfx'
+  sfxBtn.textContent = petQqSfxOn ? '🔊' : '🔇'
+  sfxBtn.title = petQqSfxOn ? '卡片音效：开' : '卡片音效：关'
+  sfxBtn.addEventListener('click', function (e) {
+    try { e.stopPropagation() } catch (err) {}
+    var next = !petQqSfxOn
+    petQqSfxSet(next)
+    if (next) { try { QQ_SFX.click() } catch (err) {} }
+  })
+  petQqSfxBtnEl = sfxBtn
+  var tabsR = document.createElement('div')
+  tabsR.className = 'dshwv-qqtabs-r'
+  tabsR.appendChild(sfxBtn)
+  tabsR.appendChild(collapse)
+  tabs.appendChild(tabsL)
+  tabs.appendChild(divider)
+  tabs.appendChild(tabsR)
+  card.appendChild(tabs)
+
+  var toast = document.createElement('div')
+  toast.className = 'dshwv-qqcard-toast'
+  toast.textContent = '✓ 已发送'
+  petQqCardToastEl = toast
+  card.appendChild(toast)
+
+  dshwBodyAppend(card)
+  petQqCardEl = card
+  qqMoodSync()
+  qqStatRender()
+  return card
+}
+
+function QT_SFX_CLICK() { try { QQ_SFX.click() } catch (err) {} }
+
+// ===== 卡片回复「打字机」：AI 回复逐字打出来，配轻按键音（2026-11 补做） =====
+// - 只有**新到达**的 AI 回复才打字；打开卡片看历史时一次性显示，不重复打。
+// - 打在留言板（board）主体上；「记录」列表仍一次性渲染，避免一屏几十条同时哒哒响。
+var petQqTypeTimer = 0
+var petQqTypedMsgId = null
+function petQqMsgKeyOf(m) {
+  if (!m) return null
+  if (m.id != null && String(m.id)) return String(m.id)
+  return String(m.at || '') + '|' + String(m.text || '').slice(0, 16)
+}
+function petQqCardLatestKey() {
+  var arr = petQqRecent.slice(-12)
+  return arr.length ? petQqMsgKeyOf(arr[arr.length - 1]) : null
+}
+// 打开卡片时把「当前最新一条」记为已打，后续只有 id 变化的新消息才播打字
+function petQqCardMarkLatestTyped() { petQqTypedMsgId = petQqCardLatestKey() }
+function petQqCardTypewriterCancel() {
+  try { clearTimeout(petQqTypeTimer) } catch (err) {}
+  petQqTypeTimer = 0
+}
+// 每 2 个字符推进一次（中文按字），每 6 字响一声，避免太吵；完成时落全文
+function petQqCardTypewriter(el, full) {
+  petQqCardTypewriterCancel()
+  if (!el) return
+  var text = String(full || '')
+  if (!text) { el.textContent = ''; return }
+  var n = 0
+  var len = text.length
+  el.textContent = ''
+  function step() {
+    try {
+      if (!el || !el.parentNode) return
+      n += 2
+      if (n >= len) { el.textContent = text; petQqTypeTimer = 0; return }
+      el.textContent = text.slice(0, n)
+      if (n <= 6 || n % 6 === 0) { try { QQ_SFX.type() } catch (err) {} }
+      petQqTypeTimer = setTimeout(step, 26)
+    } catch (err) {}
+  }
+  step()
+}
+
+// ===== 输入框按键音：对齐设计稿 =====
+// 设计稿（深色 code.html:1174）就是 replyInput 的 input 事件里调 SoundFx.click()。
+// 唯一增强：中文输入法组字期间不响（设计稿没考虑 IME，真机上会"敲一个键响一串"）。
+function petQqCardKeySfx() {
+  try {
+    if (typeof dshwvComposingNow === 'function' && dshwvComposingNow()) return
+    QQ_SFX.click()
+  } catch (err) {}
+}
+
+function petQqCardRender() {
+  try {
+    var arr = petQqRecent.slice(-12)
+    var latest = arr.length ? arr[arr.length - 1] : null
+    // 留言板：只显示最新一条（设计稿的「来电对话框」）
+    if (petQqBoardBodyEl) {
+      if (latest) {
+        var isAi = latest.role === 'assistant'
+        petQqBoardNameEl.textContent = (isAi ? String(latest.sender || '小鲸鱼') : petQqSelfLabel()) + '：'
+        petQqBoardTimeEl.textContent = latest.at ? petQqFmtTime(latest.at) : '—'
+        var bodyText = '“' + String(latest.text || '') + '”'
+        // 新到的 AI 回复逐字打出来 + 按键音；同一条已打过 / 用户自己发的 → 一次性显示
+        var msgKey = petQqMsgKeyOf(latest)
+        if (isAi && msgKey && msgKey !== petQqTypedMsgId) {
+          petQqTypedMsgId = msgKey
+          petQqCardTypewriter(petQqBoardBodyEl, bodyText)
+        } else if (!(petQqTypeTimer && msgKey === petQqTypedMsgId)) {
+          // 同一条正在打字时被别处 render 触发：不要打断，让它打完
+          petQqCardTypewriterCancel()
+          petQqBoardBodyEl.textContent = bodyText
+        }
+        petQqBoardBodyEl.parentNode.parentNode.classList.remove('dshwv-qqdlg--empty')
+      } else {
+        petQqBoardNameEl.textContent = '小鲸鱼：'
+        petQqBoardTimeEl.textContent = '—'
+        petQqBoardBodyEl.textContent = '还没有消息，去「记录」看看历史吧'
+      }
+    }
+    // 流水：倒序，最新在最上面
+    if (petQqLogListEl) {
+      petQqLogListEl.textContent = ''
+      var list = arr.slice().reverse()
+      if (!list.length) {
+        var empty = document.createElement('div')
+        empty.className = 'dshwv-qqlog'
+        empty.style.textAlign = 'center'
+        empty.style.color = '#94a3b8'
+        empty.textContent = '还没有消息记录'
+        petQqLogListEl.appendChild(empty)
+      }
+      for (var i = 0; i < list.length; i++) {
+        var m = list[i]
+        var row = document.createElement('div')
+        row.className = 'dshwv-qqlog'
+        var top = document.createElement('div')
+        top.className = 'dshwv-qqlog-top'
+        var sender = document.createElement('span')
+        sender.className = 'dshwv-qqlog-sender'
+        sender.textContent = (m.role === 'assistant' ? '小鲸鱼' : petQqSelfLabel())
+        var badge = document.createElement('span')
+        badge.className = 'dshwv-qqlog-badge ' + (m.role === 'assistant' ? 'dshwv-qqlog-badge--ai' : 'dshwv-qqlog-badge--user')
+        badge.textContent = m.role === 'assistant' ? '回复' : '发出'
+        top.appendChild(sender)
+        top.appendChild(badge)
+        var body = document.createElement('p')
+        body.className = 'dshwv-qqlog-body'
+        body.textContent = String(m.text || '')
+        var time = document.createElement('span')
+        time.className = 'dshwv-qqlog-time'
+        time.textContent = '[' + petQqFmtTime(m.at) + ']'
+        row.appendChild(top)
+        row.appendChild(body)
+        row.appendChild(time)
+        petQqLogListEl.appendChild(row)
+      }
+      if (petQqLogCountEl) petQqLogCountEl.textContent = '共 ' + String(list.length) + ' 条'
+    }
+    if (petQqCardTitleEl) petQqCardTitleEl.textContent = '小鲸鱼'
+    if (petQqCardCmpTitleEl) petQqCardCmpTitleEl.textContent = '写消息'
+    if (petQqCardReplyEl) petQqCardReplyEl.style.display = petQqCardCanReply() ? '' : 'none'
+    qqStatRender()
+  } catch (err) {}
+}
+
+function petQqCardPosition() {
+  try {
+    var card = petQqCardEl
+    if (!card) return
+    var vp = viewport()
+    var r = dshwvMenuAnchorRect()
+    var cw = card.offsetWidth || 340
+    var ch = card.offsetHeight || 180
+    var gap = 12
+    var left = Math.round(r.left + r.width / 2 - cw / 2)
+    left = Math.max(8, Math.min(Math.max(8, vp.w - cw - 8), left))
+    var topAbove = r.top - ch - gap
+    var topBelow = r.bottom + gap
+    var top
+    if (topAbove >= 8) {
+      top = topAbove
+      card.classList.remove('dshwv-qqcard-below')
+    } else if (topBelow + ch <= vp.h - 8) {
+      top = topBelow
+      card.classList.add('dshwv-qqcard-below')
+    } else {
+      top = Math.max(8, vp.h - ch - 8)
+      card.classList.add('dshwv-qqcard-below')
+    }
+    card.style.left = left + 'px'
+    card.style.top = Math.round(top) + 'px'
+    // 尾巴对准桌宠头顶：卡片左边缘到桌宠中心水平线的距离（夹在卡片内）
+    var tail = Math.round(Math.min(cw - 26, Math.max(18, r.left + r.width / 2 - left - 6)))
+    card.style.setProperty('--dshwv-qq-tail', tail + 'px')
+  } catch (err) {}
+}
+function petQqCardScheduleHide() {
+  try { clearTimeout(petQqCardHideTimer) } catch (err) {}
+  petQqCardHideTimer = 0
+  // 2026-11：不再定时自动收卡片。用户正在里面翻记录/写回复，22 秒后自己消失会让人
+  // 「回过神就没了，也找不到入口再打开」。关闭改由卡片右上角 × 触发。
+}
+function petQqCardFollow() {
+  try { clearInterval(petQqCardFollowTimer) } catch (err) {}
+  petQqCardFollowTimer = setInterval(function () {
+    try {
+      if (!petQqCardEl || !petQqCardEl.classList.contains('dshwv-qqcard-open')) {
+        clearInterval(petQqCardFollowTimer)
+        petQqCardFollowTimer = 0
+        return
+      }
+      // 2026-11：不再要求 petOn —— 小鲸鱼形态下这条判定会每 300ms 把卡片强制关掉
+      petQqCardPosition()
+    } catch (err) {}
+  }, 300)
+}
+// 设计稿给了浅色 / 深色两套：跟随宿主主题
+// 2026-11 修正：DSH 不发 data-theme/dark class，而是 <html data-ds-theme-source="light|dark" style="color-scheme:…">。
+// 之前只认 data-theme，系统偏好是深色时会渲染成「浅色页面 + 深色卡片」，和宿主主题对不上。
+function petQqCardIsDark() {
+  try {
+    var de = document.documentElement
+    var src = String(de.getAttribute('data-ds-theme-source') || '').toLowerCase()
+    if (src === 'dark') return true
+    if (src === 'light') return false
+    var t = String(de.getAttribute('data-theme') || de.getAttribute('theme') || '').toLowerCase()
+    if (t === 'dark') return true
+    if (t === 'light') return false
+    // 宿主 style 里的 color-scheme 是最终生效值（auto/system 时可能是 "light dark"，此时继续往下判断）
+    try {
+      var cs = String(getComputedStyle(de).colorScheme || '').toLowerCase()
+      if (cs === 'dark') return true
+      if (cs === 'light') return false
+    } catch (err) {}
+    var cls = String(de.className || '') + ' ' + (document.body ? String(document.body.className || '') : '')
+    if (/(^|\s)dark(\s|$)/.test(cls)) return true
+    if (/(^|\s)light(\s|$)/.test(cls)) return false
+    return Boolean(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
+  } catch (err) { return false }
+}
+function petQqCardApplyTheme() {
+  try {
+    if (!petQqCardEl) return
+    if (petQqCardIsDark()) petQqCardEl.classList.add('dshwv-qqcard--dark')
+    else petQqCardEl.classList.remove('dshwv-qqcard--dark')
+  } catch (err) {}
+}
+try {
+  if (typeof window !== 'undefined' && window.matchMedia) {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', petQqCardApplyTheme)
+  }
+} catch (err) {}
+// 卡片开着时宿主切主题（浅色⇄深色）要立刻跟着换，而不是等下次打开卡片
+try {
+  if (typeof MutationObserver !== 'undefined' && document.documentElement) {
+    new MutationObserver(function () { petQqCardApplyTheme(); petQqEnvApplyTheme() }).observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-ds-theme-source', 'data-theme', 'theme', 'style', 'class'],
+    })
+  }
+} catch (err) {}
+function petQqCardShow() {
+  try {
+    // 2026-11 用户反馈：气泡和消息卡叠在一起挡屏。卡片一出来就把桌宠气泡收起。
+    // 余额模块会周期性重绘气泡，所以不能只 hideBubble 一次，要把元素本身压住（关闭面板时再恢复）。
+    try { if (typeof hideBubble === 'function') hideBubble() } catch (err) {}
+    try { if (bubbleBox) bubbleBox.style.display = 'none' } catch (err) {}
+    petQqCardBuild()
+    petQqCardApplyTheme()
+    petQqCardApplyMode()
+    petQqCardRender()
+    petQqCardPosition()
+    petQqCardEl.classList.add('dshwv-qqcard-open')
+    petQqCardFollow()
+    petQqCardScheduleHide()
+  } catch (err) {
+    // 卡片建不起来时以前是静默的，排查只能靠猜；留一条带栈的日志。
+    try { console.error('[qqcard-show]', err && (err.stack || err.message || err)) } catch (e) {}
+  }
+}
+function petQqCardHide() {
+  try { clearTimeout(petQqCardHideTimer) } catch (err) {}
+  try { clearInterval(petQqCardFollowTimer) } catch (err) {}
+  try { petQqCardTypewriterCancel() } catch (err) {}
+  petQqCardHideTimer = 0
+  petQqCardFollowTimer = 0
+  qqCardView('board')
+  petQqCardHover = false
+  try {
+    if (petQqCardEl) petQqCardEl.classList.remove('dshwv-qqcard-open')
+    if (petQqCardInputEl) petQqCardInputEl.blur()
+  } catch (err) {}
+  // 2026-11：卡片关掉后把待机小鲸鱼放回来当常驻入口，否则「卡片一关就再也找不到消息」。
+  try { petQqEnvShow() } catch (err) {}
+  // 收起卡片 → 小鲸鱼摆尾游一下（设计稿的游泳动作）
+  try { qqEnvSwim() } catch (err) {}
+  // 恢复被卡片压制的气泡
+  try { if (bubbleBox) bubbleBox.style.display = '' } catch (err) {}
+}
+function petQqCardBackMsg() {
+  qqCardView('board')
+  petQqCardRender()
+  petQqCardPosition()
+  petQqCardScheduleHide()
+}
+function petQqCardCompose() {
+  try {
+    petQqCardBuild()
+    if (!petQqCardCanReply()) {
+      petQqCardHint(petQqOwnerKey ? '当前会话只能查看，不能从桌宠发送到 QQ' : '还没有拿到主人的 QQ 会话，暂时不能发送')
+      return
+    }
+    try { clearTimeout(petQqCardHideTimer) } catch (err) {}
+    petQqCardHideTimer = 0
+    if (petQqCardEl) petQqCardEl.classList.add('dshwv-qqcard-open')
+    qqCardView('reply')
+    petQqCardFollow()
+    petQqCardPosition()
+    petQqCardSetCount()
+    try { petQqCardInputEl.focus() } catch (err) {}
+  } catch (err) {}
+}
+function petQqCardRemember(ev) {
+  try {
+    var text = String((ev && ev.text) || '').trim()
+    if (!text) return null
+    var id = ev.id != null ? 'f' + ev.id : (ev.messageId != null ? 'm' + ev.messageId : '')
+    if (id) {
+      for (var i = 0; i < petQqRecent.length; i++) if (petQqRecent[i].id === id) return petQqRecent[i]
+    }
+    var role = ev.role === 'assistant' ? 'assistant' : 'user'
+    var at = Number(ev.at) || Date.now()
+    // 刚从卡片发出去的那条：桥接不会再镜像回来，但服务端历史里有；按"同文近时"去重
+    var tail = petQqRecent[petQqRecent.length - 1]
+    if (tail && tail.role === role && tail.text === text && Math.abs(at - tail.at) < 8000) return tail
+    var entry = {
+      id: id || 't' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+      role: role,
+      sender: String(ev.sender || '').slice(0, 24),
+      text: text.slice(0, 500),
+      at: at,
+      key: String(ev.key || ''),
+    }
+    petQqRecent.push(entry)
+    if (petQqRecent.length > 12) petQqRecent.splice(0, petQqRecent.length - 12)
+    if (entry.key) petQqLastKey = entry.key
+    return entry
+  } catch (err) { return null }
+}
+function petQqCardFeed(ev) {
+  var entry = petQqCardRemember(ev)
+  if (!entry) return
+  if (!petQqOwnerKey) petQqCardFetchHistory()
+  // 卡片开着就直接把新消息补进列表；关着只加信封角标，不打断当前操作
+  if (petQqCardEl && petQqCardEl.classList.contains('dshwv-qqcard-open')) {
+    petQqCardShow()
+    return
+  }
+  petQqUnread += 1
+  petQqEnvShow()
+}
+function petQqCardFetchHistory() {
+  petAiFetch('/dsh-whale/qq-sync.json?history=1&limit=12', { cache: 'no-store' }).then(function (d) {
+    try {
+      if (!d || !d.ok) return
+      if (d.ownerKey) petQqOwnerKey = String(d.ownerKey)
+      if (d.owner && d.owner.name) petQqOwnerName = String(d.owner.name)
+      var msgs = Array.isArray(d.messages) ? d.messages : []
+      // 2026-11：不能再整体覆盖 —— 刚留档的 QQ 回复（或演示）可能不在服务端历史里，
+      // 一律冲掉就会出现「信封有未读、点开却空」。改成合并：服务端为准，本地缺的补进去，按 key/近文去重。
+      var local = petQqRecent
+      petQqRecent = []
+      for (var i = 0; i < msgs.length; i++) {
+        var m = msgs[i]
+        petQqRecent.push({
+          id: 'f' + (m.id != null ? m.id : i),
+          role: m.role === 'assistant' ? 'assistant' : 'user',
+          sender: String(m.sender || ''),
+          text: String(m.text || ''),
+          at: Number(m.at) || 0,
+          key: String(m.key || ''),
+        })
+      }
+      for (var j = 0; j < local.length; j++) {
+        var lv = local[j]
+        if (!lv) continue
+        var dup = false
+        for (var k2 = 0; k2 < petQqRecent.length; k2++) {
+          var sv = petQqRecent[k2]
+          if ((lv.key && sv.key && lv.key === sv.key) || (sv.text === lv.text && Math.abs((lv.at || 0) - (sv.at || 0)) < 20000)) { dup = true; break }
+        }
+        if (!dup) petQqRecent.push(lv)
+      }
+      petQqRecent.sort(function (a, b) { return (a.at || 0) - (b.at || 0) })
+      if (petQqRecent.length > 12) petQqRecent.splice(0, petQqRecent.length - 12)
+      for (var k = 0; k < petQqRecent.length; k++) if (petQqRecent[k].key) petQqLastKey = petQqRecent[k].key
+      petQqCardRender()
+      petQqCardPosition()
+    } catch (err) {}
+  })
+}
+function petQqCardSend() {
+  try {
+    if (petQqCardSending || !petQqCardInputEl) return
+    var text = String(petQqCardInputEl.value || '').trim()
+    if (!text) { petQqCardHint('先写点内容再发送'); return }
+    petQqCardSending = true
+    petQqLastSentAt = Date.now()
+    petQqLastSentText = text
+    try { QQ_SFX.send() } catch (err) {}
+    if (petQqCardSendEl) {
+      petQqCardSendEl.disabled = true
+      petQqCardSendEl.textContent = '✓'
+      petQqCardSendEl.classList.add('dshwv-qqcard-ok')
+    }
+    petQqCardHint('正在发送…')
+    petAiFetch('/dsh-whale/qq-sync.json', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: text }),
+    }).then(function (d) {
+      petQqCardSending = false
+      if (petQqCardSendEl) {
+        petQqCardSendEl.disabled = false
+        petQqCardSendEl.textContent = '发送 ▶'
+        petQqCardSendEl.classList.remove('dshwv-qqcard-ok')
+      }
+      if (d && d.ok) {
+        petQqCardRemember({ role: 'user', sender: petQqSelfLabel(), text: text, at: Date.now(), key: petQqLastKey })
+        if (petQqCardInputEl) petQqCardInputEl.value = ''
+        petQqCardSetCount()
+        petQqCardBackMsg()
+        // 发送成功用卡片底部的 toast 提示；hint 在「消息记录」视图里是隐藏的，写进去等于没人看得见。
+        petQqCardToast('✓ 已发送')
+        petQqCardFetchHistory()
+        return
+      }
+      petQqCardHint('发送失败：' + String((d && d.error) || 'dsh-Dfy/桥接不可达'))
+    })
+  } catch (err) { petQqCardSending = false }
+}
+// —— 信封角标：角色左下角的小入口，未读数 + 点击弹卡 ——
+// 入口自身跟随宿主主题（设计稿浅色/深色两套抽屉）
+function petQqEnvApplyTheme() {
+  try {
+    if (!petQqEnvEl) return
+    if (petQqCardIsDark()) petQqEnvEl.classList.add('dshwv-qqenv--dark')
+    else petQqEnvEl.classList.remove('dshwv-qqenv--dark')
+  } catch (err) {}
+}
+// 待机态提示条：卡片收起时，PET/FEED 的结果也要能看到（原来只写在卡片内 toast 里，关着就看不见）
+function petQqEnvToast(text) {
+  try {
+    if (!petQqEnvDockEl) return
+    if (!petQqEnvToastEl) {
+      petQqEnvToastEl = document.createElement('div')
+      petQqEnvToastEl.className = 'dshwv-qqenv-toast'
+      petQqEnvDockEl.appendChild(petQqEnvToastEl)
+    }
+    petQqEnvToastEl.textContent = String(text || '')
+    petQqEnvToastEl.classList.add('dshwv-qqenv-toast-on')
+    try { clearTimeout(petQqEnvToastTimer) } catch (err) {}
+    petQqEnvToastTimer = setTimeout(function () {
+      petQqEnvToastTimer = 0
+      try { petQqEnvToastEl.classList.remove('dshwv-qqenv-toast-on') } catch (err) {}
+    }, 1900)
+  } catch (err) {}
+}
+function petQqEnvBuild() {
+  if (petQqEnvEl) return petQqEnvEl
+  try { qqPetLoad() } catch (err) {}
+  // 设计稿的待机舞台：鲸鱼下面还有 ♥ PET / 🍤 FEED 两个快捷按钮。
+  // <button> 里不能嵌 <button>，所以用一个 fixed 容器 dock 把两者竖排。
+  var dock = document.createElement('div')
+  dock.className = 'dshwv-qqenv-dock'
+  var btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = 'dshwv-qqenv'
+  btn.title = 'QQ 消息记录'
+  btn.setAttribute('aria-label', 'QQ 消息记录')
+  btn.innerHTML = '<span class="dshwv-qqenv-whale">' + QQ_WHALE_SVG + '<span class="dshwv-qqenv-spout"><i>♥</i><i></i><i></i></span><span class="qq-zz">Z</span></span>'
+    + '<span class="dshwv-qqenv-badge"><i>!</i>0</span>'
+    + '<span class="dshwv-qqenv-drawer">'
+    + '<span class="dshwv-qqenv-drawer-ava">♥</span>'
+    + '<span class="dshwv-qqenv-drawer-mid">'
+    + '<span class="dshwv-qqenv-drawer-title"><i class="dshwv-qqenv-drawer-dot"></i>小鲸鱼 · 新消息</span>'
+    + '<span class="dshwv-qqenv-drawer-pv">点我查看消息</span>'
+    + '</span>'
+    + '<span class="dshwv-qqenv-drawer-new" style="display:none">!0 新消息</span>'
+    + '<span class="dshwv-qqenv-drawer-go">▶</span>'
+    + '</span>'
+  btn.addEventListener('pointerdown', function (e) { try { e.stopPropagation() } catch (err) {} })
+  btn.addEventListener('click', function (e) {
+    try { e.stopPropagation(); e.preventDefault() } catch (err) {}
+    petQqEnvOpen()
+  })
+  var actions = document.createElement('div')
+  actions.className = 'dshwv-qqenv-actions'
+  var petAct = document.createElement('button')
+  petAct.type = 'button'
+  petAct.className = 'dshwv-qqenv-act dshwv-qqenv-act--pet'
+  petAct.textContent = '♥ PET'
+  petAct.title = '抚摸小鲸鱼'
+  petAct.addEventListener('pointerdown', function (e) { try { e.stopPropagation() } catch (err) {} })
+  petAct.addEventListener('click', function (e) {
+    try { e.stopPropagation(); e.preventDefault() } catch (err) {}
+    petQqQuickPet()
+  })
+  var feedAct = document.createElement('button')
+  feedAct.type = 'button'
+  feedAct.className = 'dshwv-qqenv-act dshwv-qqenv-act--feed'
+  feedAct.textContent = '🍤 FEED'
+  feedAct.title = '喂食小虾米'
+  feedAct.addEventListener('pointerdown', function (e) { try { e.stopPropagation() } catch (err) {} })
+  feedAct.addEventListener('click', function (e) {
+    try { e.stopPropagation(); e.preventDefault() } catch (err) {}
+    petQqQuickFeed()
+  })
+  actions.appendChild(petAct)
+  actions.appendChild(feedAct)
+  dock.appendChild(btn)
+  dock.appendChild(actions)
+  petQqEnvBadgeEl = btn.querySelector('.dshwv-qqenv-badge')
+  dshwBodyAppend(dock)
+  petQqEnvEl = btn
+  petQqEnvDockEl = dock
+  // 入口建好后立刻回显已保存的心情（打盹/兴奋），否则刷新后卡片和入口会不同步
+  try { qqMoodSync() } catch (err) {}
+  return btn
+}
+function petQqEnvPosition() {
+  try {
+    if (!petQqEnvEl) return
+    var vp = viewport()
+    var r = dshwvMenuAnchorRect()
+    // dock = 鲸鱼 + 下方 PET/FEED，整体一起定位，避免快捷按钮被视口底边裁掉
+    var target = petQqEnvDockEl || petQqEnvEl
+    var w = target.offsetWidth || 140
+    var h = target.offsetHeight || 88
+    // 2026-11 用户反馈：原来贴在角色身体上，点按钮/鲸鱼会点到桌宠。
+    // 改成放在桌宠头顶正上方；dock 内部 align-items:center，鲸鱼正好落在 PET/FEED 中间上方。
+    var left = Math.round(r.left + (r.width - w) / 2)
+    var top = Math.round(r.top - h - 8)
+    // 头顶空间不够（角色贴近视口顶部）时，退回到头顶内侧，至少别跑出画面
+    if (top < 6) top = Math.max(6, Math.round(r.top + 6))
+    left = Math.max(6, Math.min(vp.w - w - 6, left))
+    top = Math.max(6, Math.min(vp.h - h - 6, top))
+    target.style.left = left + 'px'
+    target.style.top = top + 'px'
+  } catch (err) {}
+}
+function petQqEnvFollow() {
+  try { clearInterval(petQqEnvFollowTimer) } catch (err) {}
+  petQqEnvFollowTimer = setInterval(function () {
+    try {
+      if (!petQqEnvEl) {
+        clearInterval(petQqEnvFollowTimer)
+        petQqEnvFollowTimer = 0
+        return
+      }
+      // 2026-11：自愈 —— 若还有未读但 on 被误清（形态切换/其它流程）,这里重新展开，
+      // 否则会出现「未读数停在 1、信封却看不见」的死状态。
+      if (!petQqEnvEl.classList.contains('dshwv-qqenv-on')) {
+        if (petQqUnread > 0) { petQqEnvShow(); return }
+        clearInterval(petQqEnvFollowTimer)
+        petQqEnvFollowTimer = 0
+        return
+      }
+      // 2026-11：不再要求 petOn —— 小鲸鱼形态也要能显示信封角标（否则未读永远看不见）
+      petQqEnvPosition()
+    } catch (err) {}
+  }, 300)
+}
+function petQqEnvShow() {
+  try {
+    petQqEnvBuild()
+    petQqEnvApplyTheme()
+    // 入口鲸鱼也要显示养成进度（抚摸/投喂后眼态跟着变；卡片没开时也能看到）
+    qqPetLoad()
+    qqWhaleEye(qqPet.mood === 'sleep' ? 'sleep' : (qqPet.mood === 'cheer' ? 'happy' : 'open'))
+    if (petQqEnvBadgeEl) {
+      // 设计稿角标是「! N」像素牌
+      petQqEnvBadgeEl.innerHTML = '<i>!</i>' + (petQqUnread > 99 ? '99+' : String(petQqUnread))
+      // 未读为 0 时只留小鲸鱼入口，不显示红色 0
+      petQqEnvBadgeEl.style.display = petQqUnread > 0 ? '' : 'none'
+      petQqEnvBadgeEl.classList.remove('dshwv-qqenv-bump')
+      void petQqEnvBadgeEl.offsetWidth
+      petQqEnvBadgeEl.classList.add('dshwv-qqenv-bump')
+    }
+    // 待机小鲸鱼既是「新消息提醒」也是「留言板入口」，所以提示跟着未读数走
+    if (petQqEnvEl) {
+      var envLabel = petQqUnread > 0 ? '有 ' + petQqUnread + ' 条新消息（点我查看）' : '小鲸鱼待机中 · 点我查看消息'
+      petQqEnvEl.title = envLabel
+      petQqEnvEl.setAttribute('aria-label', envLabel)
+      var drawer = petQqEnvEl.querySelector('.dshwv-qqenv-drawer')
+      if (drawer) {
+        var pv = drawer.querySelector('.dshwv-qqenv-drawer-pv')
+        var newEl = drawer.querySelector('.dshwv-qqenv-drawer-new')
+        var latest = petQqRecent.length ? petQqRecent[petQqRecent.length - 1] : null
+        if (pv) pv.textContent = latest ? '“' + String(latest.text || '').replace(/\s+/g, ' ').slice(0, 26) + '”' : '点我查看消息'
+        if (newEl) {
+          newEl.textContent = '!' + (petQqUnread > 99 ? '99+' : String(petQqUnread)) + ' 新消息'
+          newEl.style.display = petQqUnread > 0 ? '' : 'none'
+        }
+      }
+    }
+    petQqEnvEl.classList.add('dshwv-qqenv-on')
+    // 兜底：即使 on 类被别的流程清掉，也保持可见（改形态/重排不会让信封凭空消失）
+    petQqEnvEl.style.display = 'flex'
+    petQqEnvEl.style.opacity = '1'
+    if (petQqEnvDockEl) {
+      petQqEnvDockEl.classList.add('dshwv-qqenv-dock-on')
+      petQqEnvDockEl.style.display = 'flex'
+    }
+    // 先显示再定位：dock 的 offsetHeight 要包含 PET/FEED 那一行，否则首帧会偏 4px
+    petQqEnvPosition()
+    // 每条新消息让信封本体摇铃一次（重启动画，连续来消息也能每次看到）
+    petQqEnvEl.classList.remove('dshwv-qqenv-ring')
+    void petQqEnvEl.offsetWidth
+    petQqEnvEl.classList.add('dshwv-qqenv-ring')
+    petQqEnvFollow()
+  } catch (err) {}
+}
+function petQqEnvHide() {
+  try { clearInterval(petQqEnvFollowTimer) } catch (err) {}
+  petQqEnvFollowTimer = 0
+  petQqUnread = 0
+  try { if (petQqEnvEl) petQqEnvEl.classList.remove('dshwv-qqenv-on', 'dshwv-qqenv-ring') } catch (err) {}
+  try { if (petQqEnvEl) { petQqEnvEl.style.display = ''; petQqEnvEl.style.opacity = '' } } catch (err) {}
+  try { if (petQqEnvDockEl) { petQqEnvDockEl.classList.remove('dshwv-qqenv-dock-on'); petQqEnvDockEl.style.display = '' } } catch (err) {}
+}
+function petQqEnvOpen() {
+  // 有未读 = 刚收到的新回复：打开卡片时逐字打出来（配按键音）。
+  // 纯回看历史（没有未读）则一次性显示，不重放，免得每次打开都哒哒一遍。
+  var hadUnread = petQqUnread
+  petQqEnvHide()
+  QQ_SFX.expand()
+  if (!hadUnread) { try { petQqCardMarkLatestTyped() } catch (err) {} }
+  petQqCardFetchHistory()
+  petQqCardShow()
+}
+function petQqHandle(ev) {
+  try {
+    if (!ev || typeof ev.text !== 'string' || !ev.text) return
+    // 2026-11 用户反馈：QQ 回复同时弹气泡 + 弹卡片，两层浮窗叠在一起挡屏。
+    // 现在 QQ 回复只进卡片：有未读就摇信封，点信封在里面看完整记录并回复。
+    if (ev.type === 'reply') {
+      if (ev.speak === true) petSpeakText(ev.text)
+      petQqCardFeed(Object.assign({}, ev, { role: 'assistant' }))
+      if (petOn) petPlayWhisperAnim()
+      return
+    }
+    // 主动搭话（她自己在桌面上说的话）仍用气泡，不进 QQ 记录
+    if (ev.type === 'proactive') {
+      petAiBubble(ev.text, 140, 0)
+      if (ev.speak === true) petSpeakText(ev.text)
+      if (petOn) petPlayWhisperAnim()
+      return
+    }
+    var isSelf = ev.role === 'assistant'
+    // 自己刚从挂件发出去的消息：别重复弹自己的气泡
+    if (!isSelf && Date.now() - petQqLastSentAt < 6000 && ev.text === petQqLastSentText) return
+    if (petChatMode === 'qq' && petChatMask && petChatMask.style.display !== 'none') {
+      petQqRefresh()
+      return
+    }
+    if (!petOn) return
+    // 页面在后台也记账：回来就能看到信封上的未读数，但不弹卡
+    petQqCardFeed(ev)
+    if (isSelf) petPlayWhisperAnim()
+  } catch (err) {}
+}
+function petQqPoll() {
+  try { clearTimeout(petQqTimer) } catch (err) {}
+  petQqTimer = 0
+  if (petQqBusy) return
+  petQqBusy = true
+  var url = '/dsh-whale/qq-sync.json?wait=20000'
+  if (petQqCursor !== null) url += '&since=' + encodeURIComponent(String(petQqCursor))
+  petAiFetch(url, { cache: 'no-store' }).then(function (d) {
+    petQqBusy = false
+    try {
+      if (d && d.ok) {
+        if (Number.isFinite(Number(d.cursor))) petQqCursor = Number(d.cursor)
+        var list = Array.isArray(d.events) ? d.events : []
+        for (var i = 0; i < list.length; i++) petQqHandle(list[i])
+        // 首次连接只拿到水位（没有事件），第二轮开始才有增量
+      }
+    } catch (err) {}
+    // 宿主没装 SurfCore / 路由 404 时拉长间隔，别把日志刷爆
+    var delay = (d && d.ok) ? 800 : 15000
+    petQqTimer = setTimeout(petQqPoll, delay)
+  }).catch(function () {
+    petQqBusy = false
+    petQqTimer = setTimeout(petQqPoll, 15000)
+  })
+}
+function petQqStart() {
+  if (petQqTimer || petQqBusy) return
+  petQqPoll()
+}
+function petQqHistory(limit) {
+  return petAiFetch('/dsh-whale/qq-sync.json?history=1&limit=' + (limit || 40), { cache: 'no-store' })
+}
+function petQqRefresh() {
+  if (!petChatListEl) return
+  petQqHistory(50).then(function (d) {
+    try {
+      if (!d || !d.ok) return
+      var msgs = Array.isArray(d.messages) ? d.messages : []
+      // 统一成对话窗的最小结构：{role, content}
+      petChatRender(msgs.map(function (m) {
+        return { role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.text || '') }
+      }))
+      // 提示文案由 petChatOpen 统一设置（'QQ 私聊 · 直接回复会发到 QQ'）。
+      // 旧代码在这里覆盖成「QQ 私聊 · 点击气泡打开的；直接回复会发到 QQ」—— 语病且与统一文案冲突。
+    } catch (err) {}
+  })
+}
 // —— 对话窗口（历史从宿主读，回复由当前对话模型生成）——
+var petChatMode = 'pet'
 var petChatMask = null
 var petChatListEl = null
 var petChatInputEl = null
 var petChatHintEl = null
+var petChatTitleEl = null
 var petChatSending = false
 function petChatRender(history) {
   try {
@@ -26442,7 +28290,8 @@ function petChatBuild() {
   var title = document.createElement('div')
   title.className = 'dshwv-bubtitle'
   title.style.margin = '0'
-  title.textContent = '和桌宠聊聊'
+  title.textContent = petChatMode === 'qq' ? 'QQ 对话' : '和桌宠聊聊'
+  petChatTitleEl = title
   var close = document.createElement('button')
   close.type = 'button'
   close.className = 'dshwv-roleimport'
@@ -26457,7 +28306,7 @@ function petChatBuild() {
   card.appendChild(list)
   var hint = document.createElement('div')
   hint.style.cssText = 'font-size:10.5px;color:#94a3b8;padding:0 2px 6px'
-  hint.textContent = '模型跟随当前对话；历史保存在本机'
+  hint.textContent = petChatMode === 'qq' ? 'QQ 私聊 · 直接回复会发到 QQ' : '模型跟随当前对话；历史保存在本机'
   card.appendChild(hint)
   var inputRow = document.createElement('div')
   inputRow.style.cssText = 'display:flex;gap:6px;align-items:flex-end'
@@ -26479,6 +28328,8 @@ function petChatBuild() {
   clear.type = 'button'
   clear.className = 'dshwv-roleimport'
   clear.textContent = '清空记忆'
+  // QQ 模式下这个按钮清的是桌宠对话记忆，会误导；直接隐藏
+  if (petChatMode === 'qq') clear.style.display = 'none'
   clear.addEventListener('click', function (e) {
     try { e.stopPropagation() } catch (err) {}
     petAiPost({ action: 'clear' }, function (d) {
@@ -26517,6 +28368,26 @@ function petChatSend() {
     if (!text) return
     petChatSending = true
     petChatInputEl.value = ''
+    if (petChatMode === 'qq') {
+      // QQ 模式：直接以主人身份发到 QQ，而不是喂给桌宠模型
+      petQqLastSentAt = Date.now()
+      petQqLastSentText = text
+      if (petChatHintEl) petChatHintEl.textContent = '正在发送…'
+      petAiFetch('/dsh-whale/qq-sync.json', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: text }),
+      }).then(function (d) {
+        petChatSending = false
+        if (d && d.ok) {
+          if (petChatHintEl) petChatHintEl.textContent = 'QQ 私聊 · 直接回复会发到 QQ'
+          petQqRefresh()
+          return
+        }
+        if (petChatHintEl) petChatHintEl.textContent = '发送失败：' + String((d && d.error) || 'dsh-Dfy/桥接不可达')
+      })
+      return
+    }
     if (petChatHintEl) petChatHintEl.textContent = '正在想…'
     petAiPost({ action: 'chat', text: text }, function (d) {
       petChatSending = false
@@ -26530,11 +28401,21 @@ function petChatSend() {
     })
   } catch (err) { petChatSending = false }
 }
-function petChatOpen() {
+function petChatOpen(mode) {
   try {
     try { closeMenu() } catch (err) {}
+    try { petQqCardHide() } catch (err) {}
+    try { petQqEnvHide() } catch (err) {}
+    petChatMode = mode === 'qq' ? 'qq' : 'pet'
     petChatBuild()
     petChatMask.style.display = 'flex'
+    if (petChatTitleEl) petChatTitleEl.textContent = petChatMode === 'qq' ? 'QQ 对话' : '和桌宠聊聊'
+    if (petChatHintEl) petChatHintEl.textContent = petChatMode === 'qq' ? 'QQ 私聊 · 直接回复会发到 QQ' : '模型跟随当前对话；历史保存在本机'
+    if (petChatMode === 'qq') {
+      petQqRefresh()
+      try { petChatInputEl.focus() } catch (err) {}
+      return
+    }
     petAiLoad(function () {
       petAiFetch('/dsh-whale/pet-ai.json', { cache: 'no-store' }).then(function (d) {
         try {
@@ -26845,7 +28726,7 @@ function petEnable(byUser) {
     if (!ok) {
       // issue #6：不要只弹「已回退默认角色」——要告诉用户缺什么、放哪里、怎么修。
       var tip = petAnimsMissingHint || ('桌宠素材缺失：assets/pet-video/ 不存在或为空。' +
-        '请重装最新版（github:louke6572/dsh-whale-widget-plus），或把 106 段 .webm 放进 ' +
+        '请重装最新版 dsh-Dfy（插件市场更新，或 github:louke6572/surfcore），或把 106 段 .webm 放进 ' +
         (petAnimsMissingDir || '插件目录/assets/pet-video/') + ' 后刷新页面。')
       try { dshwvToast(tip) } catch (err) {}
       return
@@ -26858,6 +28739,8 @@ function petEnable(byUser) {
     petFirstFrame = false
     // 碎碎念：进入桌宠后读取配置并开始按间隔自动说（配置读失败就静默跳过）
     try { petAiLoad() } catch (err) {}
+    // QQ 同步：进入桌宠形态后开始长轮询，新消息弹气泡、点气泡可回复
+    try { petQqStart() } catch (err) {}
     bubbleAvoidHead = null // 换成桌宠 ⇒ 头顶缓存作废
     currentRole = { id: PET_ROLE_ID, name: '桌宠', url: '' }
     setRoleBtnText('桌宠')
@@ -26925,6 +28808,8 @@ function petEnable(byUser) {
 function petDisable() {
   if (!petOn) return
   petOn = false
+  try { petQqCardHide() } catch (err) {}
+  try { petQqEnvHide() } catch (err) {}
   petEnableTok++ // 作废还在等在途素材请求的启用回调
   clearTimeout(petWhisperTimer)
   petWhisperTimer = 0
@@ -28882,6 +30767,8 @@ function isWhaleHit(e) {
   }
 }
 function onDocPointerDown(e) {
+  // 待机小鲸鱼 + PET/FEED 是挂件自身 UI，直接放行，别当桌宠按压/拖拽
+  if (dshwvQenvUiHit(e.target)) return
   if (e.target && e.target.closest) {
     if (e.target.closest('.dshwv-pop') || e.target.closest('.dshwv-menu-btn')) return
     // 点击在面板/弹窗内部：交给面板自身逻辑处理
@@ -28889,7 +30776,7 @@ function onDocPointerDown(e) {
         e.target.closest('.dshwv-cropmask') || e.target.closest('.dshwv-confirmmask') ||
         e.target.closest('.dshwv-audiomask') || e.target.closest('.dshwv-snapmask') ||
         e.target.closest('.dshwv-bubmask') || e.target.closest('.dshwv-framemask') || e.target.closest('.dshwv-qedit') || e.target.closest('.dshwv-usagepanel') || e.target.closest('.dshwv-usage-mask') ||
-        e.target.closest('.dshwv-resmask') ||
+        e.target.closest('.dshwv-resmask') || e.target.closest('.dshwv-qqcard') || e.target.closest('.dshwv-qqenv') ||
         e.target.closest('.dshwv-custmenu') || e.target.closest('.dshwv-custbtn')) return
     // 菜单内的下拉切换按钮/导入按钮：它们自己的 click 负责开合，pointerdown 不干预
     if (e.target.closest('.dshwv-rolebtn') || e.target.closest('.dshwv-audiobtn') ||
@@ -28991,9 +30878,14 @@ function onDocPointerMove(e) {
   state.top = clampWidgetTop(drag.origTop + dy, Math.max(0, drag.vp.h - drag.h))
   express()
 }
+// 2026-11：待机小鲸鱼 + 下方 PET/FEED（.dshwv-qqenv-dock）是挂件自身 UI，
+// 不能算“点到鲸鱼/桌宠”，否则切到桌宠形态后 document 捕获阶段会把它当成按压/拖拽。
+function dshwvQenvUiHit(target) {
+  try { return !!(target && target.closest && target.closest('.dshwv-qqenv-dock')) } catch (err) { return false }
+}
 function onDocPointerUp(e) {
   // 拦截鲸鱼区域内的 pointerup：防止下方元素（如文件行）监听 pointerup 穿透误触发
-  try { if (isWhaleHit(e)) { e.preventDefault(); e.stopPropagation() } } catch (err) {}
+  try { if (!dshwvQenvUiHit(e.target) && isWhaleHit(e)) { e.preventDefault(); e.stopPropagation() } } catch (err) {}
   endDrag(e, true)
 }
 function onDocPointerCancel(e) { endDrag(e, false, true) }
@@ -29004,12 +30896,13 @@ function onDocClickStopper(e) {
   // 必须豁免挂件自身 UI：按钮/菜单/气泡/角色面板/裁剪/确认弹窗——
   // 自定义角色是不透明正方形图时，这些元素位于非透明像素上，
   // 若不豁免会被 isWhaleHit 判定命中而吞掉 click，导致点不动按钮/气泡。
+  if (dshwvQenvUiHit(e.target)) return
   if (e.target && e.target.closest) {
     if (e.target.closest('.dshwv-pop') || e.target.closest('.dshwv-menu') || e.target.closest('.dshwv-menu-btn') ||
         e.target.closest('.dshwv-rolelist') || e.target.closest('.dshwv-cropmask') || e.target.closest('.dshwv-confirmmask') ||
         e.target.closest('.dshwv-audiolist') || e.target.closest('.dshwv-audiomask') ||
         e.target.closest('.dshwv-snapmask') || e.target.closest('.dshwv-bubmask') || e.target.closest('.dshwv-framemask') || e.target.closest('.dshwv-qedit') || e.target.closest('.dshwv-usagepanel') || e.target.closest('.dshwv-usage-mask') ||
-        e.target.closest('.dshwv-resmask') ||
+        e.target.closest('.dshwv-resmask') || e.target.closest('.dshwv-qqcard') || e.target.closest('.dshwv-qqenv') ||
         e.target.closest('.dshwv-custmenu') || e.target.closest('.dshwv-custbtn')) return
   }
   if (petStandHitAt(e.clientX, e.clientY)) {
@@ -29061,7 +30954,7 @@ function onDocContextMenu(e) {
           e.target.closest('.dshwv-rolelist') || e.target.closest('.dshwv-audiolist') || e.target.closest('.dshwv-cropmask') ||
           e.target.closest('.dshwv-confirmmask') || e.target.closest('.dshwv-audiomask') || e.target.closest('.dshwv-snapmask') ||
           e.target.closest('.dshwv-bubmask') || e.target.closest('.dshwv-framemask') || e.target.closest('.dshwv-qedit') || e.target.closest('.dshwv-usagepanel') || e.target.closest('.dshwv-usage-mask') ||
-          e.target.closest('.dshwv-resmask') ||
+          e.target.closest('.dshwv-resmask') || e.target.closest('.dshwv-qqcard') || e.target.closest('.dshwv-qqenv') ||
           e.target.closest('.dshwv-custmenu') || e.target.closest('.dshwv-custbtn')) return
     }
     if (!isWhaleHit(e)) return
@@ -29080,11 +30973,13 @@ document.addEventListener('contextmenu', onDocContextMenu, true)
 // 桌面鼠标不产生 touch 事件,原有 pointerdown/move/up 逻辑与透明区穿透完全不受影响。
 function widgetUiHit(target) {
   if (!target || !target.closest) return false
+  if (dshwvQenvUiHit(target)) return true
   return !!(target.closest('.dshwv-pop') || target.closest('.dshwv-menu') || target.closest('.dshwv-menu-btn') ||
     target.closest('.dshwv-rolelist') || target.closest('.dshwv-audiolist') || target.closest('.dshwv-cropmask') ||
     target.closest('.dshwv-confirmmask') || target.closest('.dshwv-audiomask') || target.closest('.dshwv-snapmask') ||
     target.closest('.dshwv-bubmask') || target.closest('.dshwv-framemask') || target.closest('.dshwv-qedit') || target.closest('.dshwv-usagepanel') ||
     target.closest('.dshwv-usage-mask') || target.closest('.dshwv-resmask') || target.closest('.dshwv-custmenu') ||
+    target.closest('.dshwv-qqcard') || target.closest('.dshwv-qqenv') ||
     target.closest('.dshwv-custbtn') || target.closest('.dshwv-rolebtn') || target.closest('.dshwv-audiobtn') ||
     target.closest('.dshwv-roleimport') || target.closest('.dshwv-audioimport'))
 }
@@ -29458,6 +31353,12 @@ applySoundSet()
 setupHitTest(initRoleUrl)
 loadRoles()
 loadAudio()
+// 2026-11：QQ 同步长轮询在页面就绪时就开始 —— 不再依赖「已切到桌宠形态」。
+// （之前只有 petEnable 里才 petQqStart，没切形态就永远收不到消息，气泡自然不弹。）
+try { petQqStart() } catch (err) {}
+// 2026-11：信封从挂件启动就在（没未读只藏红点）——它是进入消息记录的常驻入口，
+// 不该等到「来了第一条消息」才凭空出现。
+try { petQqEnvShow() } catch (err) {}
 // 表情素材层：绑定连点/悬停/空闲与图片错误降级，并按配置决定是否启用（实现见 exprInit）
 try { exprInit() } catch (err) {}
 try { petBindVideos() } catch (err) {}

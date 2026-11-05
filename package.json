@@ -1,7 +1,8 @@
 {
-  "name": "dsh-whale-widget-plus",
-  "version": "0.7.2",
-  "description": "DSH Web 界面右下角的 DeepSeek 余额小鲸鱼挂件（基于官方 v0.4.2）：余额/今日已用/峰谷定价（峰谷时段外置常驻徽标）、34 套额度/用量模板、自定义泡泡框、多版本表情素材包、台词自定义与表情/台词手动切换、106 段透明动画桌宠、火山 coding plan 额度查询、音效与每轮消耗统计",
+  "name": "dsh-dfy",
+  "version": "0.7.3",
+  "displayName": "dsh-Dfy",
+  "description": "dsh-Dfy 的桌宠/挂件核心：小鲸鱼与桌宠形态、余额/今日已用/峰谷定价、额度/用量模板、自定义泡泡框、表情与台词、透明动画桌宠、火山 coding plan 额度、音效与每轮消耗统计（已并入 dsh-Dfy 插件，不再单独挂载）。",
   "keywords": [
     "dsh",
     "dsh-plugin",
@@ -28,12 +29,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/louke6572/dsh-whale-widget-plus.git"
+    "url": "git+https://github.com/louke6572/dsh-dfy.git"
   },
   "bugs": {
-    "url": "https://github.com/louke6572/dsh-whale-widget-plus/issues"
+    "url": "https://github.com/louke6572/dsh-dfy/issues"
   },
-  "homepage": "https://github.com/louke6572/dsh-whale-widget-plus#readme",
+  "homepage": "https://github.com/louke6572/dsh-dfy#readme",
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"

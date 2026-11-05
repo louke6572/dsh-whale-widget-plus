@@ -7,3 +7,9 @@ __pycache__/
 # 系统
 Thumbs.db
 .DS_Store
+
+# 文档里的历史素材备份（与 assets/v1~v4 完全重复，77MB）
+docs/assets-第一版/
+docs/assets-第二版/
+docs/assets-第三版/
+docs/assets-第四版/

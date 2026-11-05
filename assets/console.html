@@ -1,7 +1,7 @@
 <!DOCTYPE html><html lang="zh-CN" style=""><head>
 <meta charset="utf-8">
 <meta content="width=device-width, initial-scale=1.0" name="viewport">
-<title>小鲸鱼桌宠 · 触感工作台 HUD 控制台</title>
+<title>dsh-Dfy · 触感工作台 HUD 控制台</title>
 <!-- Tailwind CSS CDN -->
 <!-- Google Fonts: Inter, Manrope, & JetBrains Mono -->
 <link href="https://fonts.googleapis.com" rel="preconnect">
@@ -186,6 +186,9 @@ main>div.dshwv-body>:not([hidden]){flex:0 0 auto}
       html { color-scheme: dark; }
       body { color: #cbd5e1; }
       main { background: rgba(15, 23, 42, .96) !important; border-color: rgba(148, 163, 184, .18) !important; color: #cbd5e1 !important; }
+      /* 主面板用的是 Tailwind 任意值 bg-[#f8fafc]/95，不在下面 .bg-white/.bg-slate-50 的覆盖里；
+         显式加一条更高优先级的规则，否则深色时只有卡片变黑、主面板还是浅色 */
+      main[data-purpose="popover-container"] { background-color: rgba(15, 23, 42, .96) !important; }
       .bg-white, .bg-white\/75, .bg-white\/90, .bg-white\/95, .bg-white\/80 {
         background-color: rgba(30, 41, 59, .92);
       }
@@ -256,7 +259,7 @@ main>div.dshwv-body>:not([hidden]){flex:0 0 auto}
 <!-- 顶部标题栏：身份 + 形态切换胶囊 + 窗口控制 -->
 <header class="relative px-3 py-2 flex items-center justify-between border-b border-slate-100 bg-white/75 backdrop-blur-md flex-shrink-0">
 <div class="flex items-center space-x-1.5 min-w-0 flex-shrink-0">
-<span class="text-[12px] font-bold tracking-tight text-slate-900 leading-none whitespace-nowrap">小鲸鱼</span>
+<span class="text-[12px] font-bold tracking-tight text-slate-900 leading-none whitespace-nowrap">dsh-Dfy</span>
 </div>
 <div class="flex items-center space-x-1.5 flex-shrink-0">
 <div class="p-0.5 rounded-lg bg-slate-100 border border-slate-200/70 flex items-center flex-shrink-0" id="form-morph-tabs">
@@ -750,57 +753,11 @@ main>div.dshwv-body>:not([hidden]){flex:0 0 auto}
 <span class="truncate">资源管理</span>
 </button>
 </section>
-<!-- 8. 碎碎念与对话（仅桌宠，默认收起） -->
-<section class="p-2 rounded-xl bg-slate-50/60 border border-slate-200/70 shadow-tactile-card space-y-1.5" id="pet-ai-card" style="order:10">
-<button class="w-full flex items-center justify-between cursor-pointer text-left focus:outline-none" id="ai-accordion-header" type="button">
-<span class="text-[10px] font-bold text-slate-800 tracking-tight">碎碎念与对话</span>
-<span class="material-symbols-outlined text-[13px] text-slate-400 transition-transform duration-200 -rotate-90" id="ai-chevron">expand_more</span>
-</button>
-<div class="space-y-1.5 pt-0.5 hidden" id="ai-accordion-body">
-<div class="p-2 rounded-lg bg-white border border-slate-200/70 shadow-tactile-card space-y-1.5">
-<div class="flex items-center justify-between">
-<span class="text-[9.5px] font-semibold text-slate-700">人设</span>
-<button class="flex items-center space-x-0.5 text-[9px] font-medium text-slate-500 hover:text-[#1e3a8a] transition-colors active:scale-[0.98]" id="con-ai-reset" type="button">
-<span class="material-symbols-outlined text-[11px] leading-none">restart_alt</span>
-<span>恢复默认</span>
-</button>
-</div>
-<textarea class="w-full box-border bg-slate-50/80 border border-slate-200/90 rounded-md px-2 py-1.5 text-[10px] leading-relaxed text-slate-800 focus:outline-none focus:border-[#1e3a8a]/40 resize-y min-h-[56px] sonoma-scrollbar" id="con-ai-persona" rows="2" placeholder="你是一只住在桌面上的小鲸鱼……"></textarea>
-<div class="text-[9px] text-slate-400 leading-relaxed" id="con-ai-hint">碎碎念与对话共用这一段人设；模型跟随当前对话。</div>
-</div>
-<div class="p-2 rounded-lg bg-white border border-slate-200/70 shadow-tactile-card space-y-1.5">
-<div class="flex items-center justify-between">
-<span class="text-[9.5px] font-medium text-slate-700">自动碎碎念</span>
-<button aria-checked="false" class="w-5 h-3 bg-slate-300 rounded-full relative p-0.5 flex items-center transition-colors shadow-inner" id="con-ai-sw" role="switch" type="button">
-<span class="w-2 h-2 bg-white rounded-full shadow-switch-thumb"></span>
-</button>
-</div>
-<div class="custom-dropdown-wrap relative py-1 px-2 rounded-lg bg-slate-50/80 border border-slate-200/70 flex items-center justify-between min-w-0">
-<span class="text-[9px] font-medium text-slate-500 flex-shrink-0 mr-1.5 pointer-events-none">间隔</span>
-<div class="flex items-center justify-end min-w-0 flex-1 pointer-events-none">
-<span class="dropdown-label text-[9.5px] text-slate-700 font-semibold truncate leading-none">30 分钟</span>
-<span class="material-symbols-outlined text-[10px] text-slate-400 dropdown-arrow pointer-events-none">expand_more</span>
-</div>
-<select class="absolute inset-0 opacity-0 cursor-pointer w-full h-full" id="con-ai-every">
-<option value="10">10 分钟</option>
-<option value="30">30 分钟</option>
-<option value="60">60 分钟</option>
-<option value="120">120 分钟</option>
-</select>
-</div>
-<div class="flex items-center space-x-1.5 pt-0.5">
-<button class="flex-1 py-1 rounded-md bg-[#1e3a8a] hover:bg-[#172554] text-white text-[9.5px] font-semibold shadow-tactile-button transition-all active:scale-[0.98]" id="con-ai-say" type="button">说一句</button>
-<button class="flex-1 py-1 rounded-md bg-white border border-slate-200/90 hover:bg-slate-50 text-slate-700 text-[9.5px] font-semibold shadow-tactile-button transition-all active:scale-[0.98]" id="con-ai-chat" type="button">打开对话</button>
-<button class="flex-shrink-0 px-1.5 py-1 rounded-md text-[9px] font-medium text-slate-500 hover:text-[#1e3a8a] hover:bg-blue-50 transition-colors" id="con-ai-clear" type="button">清空记忆</button>
-</div>
-</div>
-</div>
-</section>
 </div>
 <!-- 底部：恢复默认 + 完成 -->
 <footer class="p-2 px-3 bg-white/90 border-t border-slate-200/70 backdrop-blur-md flex items-center justify-between flex-shrink-0">
 <button class="py-1 px-2.5 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-800 text-[9.5px] font-medium transition-all active:scale-[0.98]" id="reset-default-btn" type="button">恢复默认</button>
-<span class="font-mono text-[9px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-semibold border border-slate-200/70 leading-none cursor-pointer hover:text-slate-700 transition-colors flex-shrink-0" id="dshwv-con-ver" title="关于 / 自检">v0.7.2</span>
+<span class="font-mono text-[9px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-semibold border border-slate-200/70 leading-none cursor-pointer hover:text-slate-700 transition-colors flex-shrink-0" id="dshwv-con-ver" title="关于 / 自检">v0.7.3</span>
 <button class="py-1 px-3 rounded-lg bg-[#1e3a8a] hover:bg-[#172554] text-white text-[9.5px] font-medium shadow-tactile-button active:scale-[0.98] transition-all flex items-center space-x-1" id="save-config-btn" type="button">
 <span class="material-symbols-outlined text-[11px] leading-none" id="save-icon">check</span>
 <span id="save-text">保存配置</span>
@@ -928,17 +885,6 @@ main>div.dshwv-body>:not([hidden]){flex:0 0 auto}
       chip.classList.remove('bg-white', 'text-slate-500', 'border-slate-200');
     });
   });
-
-  var aiHeader = document.getElementById('ai-accordion-header');
-  var aiBody = document.getElementById('ai-accordion-body');
-  var aiChevron = document.getElementById('ai-chevron');
-  if (aiHeader && aiBody && aiChevron) {
-    aiHeader.addEventListener('click', function () {
-      var collapsed = aiBody.classList.toggle('hidden');
-      aiChevron.classList.toggle('-rotate-90', collapsed);
-      aiChevron.classList.toggle('rotate-0', !collapsed);
-    });
-  }
 
   var actionHeader = document.getElementById('action-accordion-header');
   var actionBody = document.getElementById('action-accordion-body');

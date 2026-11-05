@@ -122,7 +122,7 @@ jobs:
         id: check
         run: |
           # 包名必须从 package.json 读取：此前这里写死了上游包名 dsh-whale-widget，
-          # 而本仓库发布的是 dsh-whale-widget-plus —— 一旦两边版本号相同就会误判“已发布”并跳过发版。
+          # 而本仓库发布的是 dsh-dfy —— 一旦两边版本号相同就会误判“已发布”并跳过发版。
           NAME=$(node -p "require('./package.json').name")
           VERSION=$(node -p "require('./package.json').version")
           CODE=$(curl -s -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/${NAME}/${VERSION}")

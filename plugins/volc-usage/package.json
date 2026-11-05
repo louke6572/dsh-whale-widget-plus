@@ -1,7 +1,7 @@
 {
   "name": "dsh-volc-usage",
-  "version": "1.0.0",
-  "description": "火山引擎方舟 Coding Plan 用量查询 + 多账号轮询插件（dsh-whale-widget-plus 的火山数据源）",
+  "version": "0.7.3",
+  "description": "火山引擎方舟 Coding Plan 用量查询 + 多账号轮询插件（dsh-dfy 的火山数据源）",
   "type": "module",
   "main": "./lib/index.js",
   "exports": {
