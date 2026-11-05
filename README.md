@@ -63,6 +63,12 @@ DSH「插件」页 → **发现**（插件市场）搜索 **dsh-Dfy**，点安�
 dsh plugin --profile <profile> add github:louke6572/dsh-Dfy
 ```
 
+> **发现页搜不到？** 那是市场索引还没收录。本仓库自带一份索引，可以直接添加：
+> 插件 → 发现 → **添加索引源**，粘贴
+> `https://cdn.jsdelivr.net/gh/louke6572/dsh-Dfy@main/market/dsh-index.json`
+> 之后搜索 **dsh-Dfy** 即可安装（来源是 GitHub 仓库 + 固定 commit）。
+> 也可以不添加索引，直接在「添加插件」输入 `github:louke6572/dsh-Dfy`。
+
 > 命令行装包后**还要在 DSH「插件」页把 dsh-Dfy 启用**：命令行只装包，不会登记到 profile 的
 > `dsh.profile.bundles`；插件页安装会自动登记。若页面提示「构建脚本待批准」，点允许即可
 > （Git 安装要跑一次 `postinstall`，修 `@snowluma/sdk` 的 ESM 打包 bug）。

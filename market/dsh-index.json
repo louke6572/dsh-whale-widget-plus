@@ -1,0 +1,52 @@
+{
+  "format": 1,
+  "title": {
+    "en": "dsh-Dfy",
+    "zh": "dsh-Dfy"
+  },
+  "description": {
+    "en": "Self-hosted index for dsh-Dfy, installable directly from GitHub.",
+    "zh": "dsh-Dfy 的自托管索引，直接从 GitHub 安装。"
+  },
+  "metadata": {
+    "categories": {
+      "fun": { "title": { "en": "Fun", "zh": "趣味" } },
+      "ui": { "title": { "en": "UI", "zh": "界面" } }
+    },
+    "labels": {},
+    "sortKeys": {
+      "stars": { "title": { "en": "Stars", "zh": "星标" }, "order": "desc" }
+    }
+  },
+  "plugins": [
+    {
+      "name": "dsh-dfy",
+      "title": "dsh-Dfy",
+      "description": {
+        "en": "All-in-one companion for the DSH web GUI: balance whale widget with usage and per-turn cost, a 106-clip transparent desktop pet, a QQ message card bridged through SnowLuma, Bilibili dynamics/comments with a fish guard, and local redacted memory. One plugin; data stays on this machine.",
+        "zh": "一体化的 DSH 桌面伴侣：小鲸鱼余额挂件（含今日已用与每轮消耗）、106 段透明动画桌宠、经 SnowLuma 桥接的 QQ 消息卡、B站动态与评论互动（鱼群保护），以及本机双向脱敏记忆。单个插件，数据只存本机。"
+      },
+      "icon": "https://cdn.jsdelivr.net/gh/louke6572/dsh-Dfy@main/icon.png",
+      "author": "louke6572",
+      "homepage": "https://github.com/louke6572/dsh-Dfy",
+      "repository": { "url": "https://github.com/louke6572/dsh-Dfy" },
+      "metadata": {
+        "category": "fun",
+        "keywords": ["desktop-pet", "qq", "bilibili", "balance", "widget"],
+        "labels": [],
+        "sortKeys": { "stars": 0 }
+      },
+      "versions": [
+        {
+          "version": "0.7.3",
+          "publishTimestamp": 1793896800,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/louke6572/dsh-Dfy",
+            "commit": "d641a0444cd4d6c1981b6c99c38bbea3a046bd13"
+          }
+        }
+      ]
+    }
+  ]
+}
