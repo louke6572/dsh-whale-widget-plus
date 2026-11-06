@@ -802,6 +802,9 @@ export function apply(ctx) {
       Promise.resolve(biliToQqStatus()),
       Promise.resolve(memoryStatus()),
     ]);
+    // 贴吧 / 抖音的运行状态也带回概览，避免只有 QQ / B站 两张卡。
+    const tiebaOverview = (() => { try { return tiebaStatus(); } catch (error) { return { ok: false, error: String(error?.message ?? error) }; } })();
+    const douyinOverview = await douyinStatus().catch((error) => ({ ok: false, error: String(error?.message ?? error) }));
     // SnowLuma 只报「未连接」没用：这里给出可执行的诊断（没启动 / 在登录页 / token 不对）。
     const snowDiag = await diagnoseSnowLuma(bridge?.snowluma ?? {}).catch(() => ({ state: 'unknown', hint: '' }));
     const personaText = readTextFile(resolvePersonaFile());
@@ -824,6 +827,8 @@ export function apply(ctx) {
       bridge,
       bili,
       memory,
+      tieba: tiebaOverview,
+      douyin: douyinOverview,
       memoryCard: memoryCardStatusNow(),
       admin: adminSummary(all.unified?.admin),
       alignment: alignStats(),
