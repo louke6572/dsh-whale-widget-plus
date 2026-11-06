@@ -16,7 +16,12 @@
 }
 ```
 
-内置：`qq`、`bili`。预留：`tieba`（`status: planned`，设置页可见但不可用）。
+内置：`qq`、`bili`、`tieba`（tieba 使用 `BDUSS` 登录，网络层走 curl + 手机版/app 接口）。
+
+> 贴吧的浏览 / 发帖 / 评论 / 点赞工具链在 `backend/tools/tieba.mjs`；
+> 同时以 MCP 工具暴露（`tieba_feed` / `tieba_thread` / `tieba_reply` / `tieba_like` / `tieba_sign` …，
+> 见 `src/mcp-host-server.js`），QQ / 网页会话可直接调用，走已登录的 BDUSS。
+> 设置页在「平台 → 贴吧」，配置写在合体层 `config.json` 的 `tieba` 字段。
 
 > 2026-10-23 用户明确：微博不做，`weibo` 占位连同 `platforms/weibo/manifest.json` 一起移除（备份 `_backups/weibo-platform-removed-20261023/`）。
 

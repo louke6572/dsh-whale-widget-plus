@@ -18,6 +18,7 @@ import {
 } from './paths.js';
 import { DEFAULT_BILI_FISH_GUARD, normalizeBiliFishGuard } from '../tools/lib/fish-guard.mjs';
 import { DEFAULT_LIMITS, normalizeLimits } from '../tools/lib/limits.mjs';
+import { DEFAULT_DOUYIN, normalizeDouyinConfig } from './douyin-config.mjs';
 import { dynamicDefaults, normalizeDynamics } from '../tools/lib/kinds.mjs';
 import { DEFAULT_QQ_FISH_GUARD, normalizeQqFishGuard } from '../../src/fish-guard.js';
 import { adminFromSources, normalizeAdmin } from '../../src/admin-identity.js';
@@ -127,8 +128,11 @@ export const DEFAULT_UNIFIED = {
     ...DEFAULT_MEMORY_CARD_CONFIG,
     injectMaxChars: { ...DEFAULT_MEMORY_CARD_CONFIG.injectMaxChars },
   },
+  // 全局模型（2026-11）：对话页可指定；空 = 跟随 DSH 默认。
+  // 抖音私信/后台任务直接用它；同时写入 DSH 默认，让新会话也跟随。
+  model: { provider: '', model: '' },
   platforms: {
-    enabled: ['qq', 'bili'],
+    enabled: ['qq', 'bili', 'douyin'],
     planned: ['tieba'],
     // 平台启动开关（2026-10-24 用户要求：不是所有用户都想同时开 QQ 和 B站）。
     // 这是「是否启动」的唯一真相：关掉后插件不会自动拉起该平台，也不会把它带进
@@ -136,6 +140,37 @@ export const DEFAULT_UNIFIED = {
     // QQ 的旧开关 bridge.autoStart 只用于升级迁移，保存时会镜像回这个值。
     start: { qq: true, bili: true },
   },
+  // 贴吧：手机扫码登录（自动换 BDUSS）；跟 B站 共用唤醒窗口。
+  // 设置项刻意与 B站 对齐：口味（爱看/不爱看/额外关键词）、作息节奏、每次醒来做什么、额度闸门。
+  // 差别只在「刷什么」：B站 刷视频，贴吧按「刷哪些吧」列表刷帖子。
+  tieba: {
+    enabled: false,
+    token: '',
+    bduss: '',
+    bars: ['抓虾吧'],
+    heartbeatShare: true,
+    heartbeatGapHours: 4,
+    sort: 'hot',
+    maxThreads: 5,
+    preferences: {
+      like: [],
+      dislike: [],
+      keywords: [],
+    },
+    autoReply: true,
+    autoLike: true,
+    autoComment: true,
+    autoPost: false,
+    limits: {
+      replyDaily: 30,
+      likeDaily: 60,
+      postDaily: 3,
+      globalMin: 2,
+    },
+  },
+  // 抖音（第四个平台）：网页版 + 本机 Edge；这里只管「什么时候允许看、看多少」。
+  // 默认值与 douyin-config.mjs 同源（DEFAULT_DOUYIN），避免两处漂移。
+  douyin: { ...DEFAULT_DOUYIN },
   ui: { activeTab: 'overview', showAdvanced: false },
   // 组件更新（2026-10-26）：只做 git 快进；`components` 里可以自己加 `{id,name,dir,branch}`。
   updates: {
@@ -152,6 +187,7 @@ export const SECRET_PATHS = new Set([
   'dsh.authToken',
   'snowluma.accessToken',
   'snowluma.wsToken',
+  // tieba.token / tieba.bduss 只作手动兜底；主要认证是扫码登录写入的 credentials.json + cookie.txt。
   // 面板直连 SnowLuma 控制台用的密码：只在后端用，设置页永远只看得到掩码。
   'snowluma.webuiPassword',
   'webSearch.apiKey',
@@ -609,6 +645,55 @@ function normalizeUnified(config) {
   };
   next.bridge = isPlainObject(next.bridge) ? next.bridge : {};
   next.bridge.autoStart = next.platforms.start.qq;
+  // 贴吧：只收合法形状，别把界面上的临时字段写进配置。
+  const tieba = isPlainObject(next.tieba) ? next.tieba : {};
+  const boolOr = (value, fallback) => (typeof value === 'boolean' ? value : fallback);
+  const clamp = (value, min, max, fallback) => {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(min, Math.min(max, n));
+  };
+  const tiebaPrefs = isPlainObject(tieba.preferences) ? tieba.preferences : {};
+  const like = normalizeKeywordList(tiebaPrefs.like);
+  const dislike = normalizeKeywordList(tiebaPrefs.dislike);
+  const likeKeys = new Set(like.map((label) => label.toLowerCase()));
+  const tiebaLimits = isPlainObject(tieba.limits) ? tieba.limits : {};
+  next.tieba = {
+    enabled: boolOr(tieba.enabled, false),
+    token: String(tieba.token ?? '').trim().replace(/^TB_TOKEN\s*[=:]\s*/i, ''),
+    // 手动兜底用的 BDUSS；扫码登录的凭据在 credentials.json，不写这里。
+    bduss: String(tieba.bduss ?? '').trim().replace(/^BDUSS\s*[=:]\s*/i, ''),
+    // 刷哪些吧：一行/逗号一个；空数组时平台层会回退到「抓虾吧」。
+    bars: normalizeKeywordList(tieba.bars).slice(0, 20),
+    heartbeatShare: boolOr(tieba.heartbeatShare, true),
+    heartbeatGapHours: Math.max(1, Math.min(24, Number(tieba.heartbeatGapHours) || 4)),
+    sort: tieba.sort === 'time' ? 'time' : 'hot',
+    maxThreads: clamp(tieba.maxThreads, 1, 20, 5),
+    preferences: {
+      like,
+      dislike,
+      // 额外关键词只扩大匹配范围；和「爱看」重复的去掉，避免界面上同一词占两行。
+      keywords: normalizeKeywordList(tiebaPrefs.keywords).filter((label) => !likeKeys.has(label.toLowerCase())),
+    },
+    autoReply: boolOr(tieba.autoReply, true),
+    autoLike: boolOr(tieba.autoLike, true),
+    autoComment: boolOr(tieba.autoComment, true),
+    autoPost: boolOr(tieba.autoPost, false),
+    limits: {
+      // 0 = 不限量（除官方硬上限外）；保存后下一轮生效，不用重启。
+      replyDaily: clamp(tiebaLimits.replyDaily, 0, 200, 30),
+      likeDaily: clamp(tiebaLimits.likeDaily, 0, 500, 60),
+      postDaily: clamp(tiebaLimits.postDaily, 0, 30, 3),
+      globalMin: clamp(tiebaLimits.globalMin, 0, 120, 2),
+    },
+  };
+  // 抖音：只收这个形状，界面上的临时字段不会写进配置。
+  next.douyin = normalizeDouyinConfig(next.douyin);
+  // 全局模型：只收「提供商 + 模型」成对出现；半截状态等于没设。
+  const modelRaw = isPlainObject(next.model) ? next.model : {};
+  const modelProvider = String(modelRaw.provider ?? '').trim().slice(0, 200);
+  const modelName = String(modelRaw.model ?? '').trim().slice(0, 300);
+  next.model = modelProvider && modelName ? { provider: modelProvider, model: modelName } : { provider: '', model: '' };
   return next;
 }
 

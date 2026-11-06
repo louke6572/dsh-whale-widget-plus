@@ -131,7 +131,7 @@ export function memoryCardStatusNow(config = memoryCardConfig()) {
 }
 
 /** 给控制台：状态 + 全文 + 最近记录 + 备份。 */
-export function memoryCardSnapshot(config = memoryCardConfig()) {
+export function memoryCardSnapshot(config = memoryCardConfig(), { recordLimit = 80 } = {}) {
   const card = readCardSafe();
   const now = Date.now();
   const status = memoryCardStatus(card, config);
@@ -148,7 +148,7 @@ export function memoryCardSnapshot(config = memoryCardConfig()) {
       }
       return (b.importance - a.importance) || (Date.parse(b.createdAt) - Date.parse(a.createdAt));
     })
-    .slice(0, 80)
+    .slice(0, Math.max(1, Math.min(500, Number(recordLimit) || 80)))
     .map((record) => ({
       id: record.id,
       date: record.createdAt,
@@ -156,7 +156,9 @@ export function memoryCardSnapshot(config = memoryCardConfig()) {
       scope: record.scope,
       kind: record.kind,
       title: record.title,
-      text: record.text.slice(0, 240),
+      // 控制台的「打开记忆文档」要能编辑正文：这里返回全文（上限 1200 由 normalizeRecord 保证）。
+      text: record.text,
+      detail: record.detail || '',
       importance: record.importance,
       clarity: record.clarity,
       pinned: record.pinned,
@@ -356,6 +358,43 @@ export function applyMemoryCardAction(action, payload = {}, { config = memoryCar
       card.records = card.records.filter((item) => item.id !== id || item.pinned);
       if (card.records.length === before) return { ok: false, error: '记忆不存在或已置顶（置顶记忆不会被忘记）' };
       card.stats.forgotten = (Number(card.stats.forgotten) || 0) + 1;
+      changed = true;
+    } else if (action === 'update') {
+      const record = card.records.find((item) => item.id === String(payload.id ?? ''));
+      if (!record) return { ok: false, error: '记忆不存在（可能已被压缩，去全量档案里找）' };
+      const patch = payload.patch && typeof payload.patch === 'object' ? payload.patch : payload;
+      const changedFields = [];
+      if (patch.title !== undefined) {
+        record.title = String(patch.title).trim().slice(0, 80);
+        changedFields.push('title');
+      }
+      if (patch.text !== undefined) {
+        const text = String(patch.text).trim();
+        if (!text) return { ok: false, error: '内容不能为空' };
+        record.text = text.slice(0, 1200);
+        changedFields.push('text');
+      }
+      if (patch.importance !== undefined) {
+        const importance = Number(patch.importance);
+        if (!Number.isFinite(importance)) return { ok: false, error: '重要度必须是数字' };
+        record.importance = Math.max(1, Math.min(100, Math.round(importance)));
+        changedFields.push('importance');
+      }
+      if (patch.tags !== undefined) {
+        const tags = Array.isArray(patch.tags) ? patch.tags : String(patch.tags ?? '').split(/[,，]/);
+        record.tags = tags.map((tag) => String(tag).trim()).filter(Boolean).slice(0, 12);
+        changedFields.push('tags');
+      }
+      if (patch.pinned !== undefined) {
+        record.pinned = patch.pinned === true;
+        record.anchor = record.pinned;
+        changedFields.push('pinned');
+      }
+      if (!changedFields.length) return { ok: false, error: '没有要修改的字段' };
+      record.manual = true;
+      record.editedAt = new Date(now).toISOString();
+      // 让修改后的版本重新归档进全量卡（旧版本已经在里面，等于多留一份历史）。
+      record.fullArchivedAt = '';
       changed = true;
     } else if (action === 'ack') {
       const level = Math.max(0, Math.min(3, Number(payload.level) || Number(card.alerts?.level) || 0));

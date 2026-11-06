@@ -28,8 +28,9 @@ import { pendingCount as attackPending } from '../tools/lib/attacks.mjs'
 import { pinOf, noteOf } from '../tools/lib/pins.mjs'
 import { markScheduleSlot } from '../tools/lib/night-schedule.mjs'
 import {
-  BILI_ALIGNMENT_FILE, BILI_CONFIG, QQ_STATE_DIR,
+  BILI_ALIGNMENT_FILE, BILI_CONFIG, QQ_STATE_DIR, TIEBA_MJS,
 } from './paths.js'
+import { tiebaConfig, tiebaPromptDue, markTiebaPrompted } from './tieba.js'
 import { resolvePersonaFile } from './persona.js'
 import { readUnified } from './store.js'
 import { memoryCardPromptBlock } from './memory-card.js'
@@ -305,7 +306,50 @@ function diaryPushLines() {
        "   （2026-10-18 主人定：推**日记内容**，不只是流水账 ✓ 它读设置页「消息推送」的配置）"]
 }
 
-function wakePrompt(st, tools = '') {
+function tiebaWakeLines(toolPath, { force = false } = {}) {
+  const cfg = tiebaConfig()
+  if (!cfg.enabled || !cfg.bduss) return ''
+  if (!force && !cfg.heartbeatShare) return ''
+  const lines = ['【顺手逛贴吧（和 B站 同一趟）】']
+  lines.push(`工具：\`node "${toolPath}" <子命令>\`（别去别处找 ✗）`)
+
+  // 口味（和 B站 的「爱看 / 不爱看 / 额外关键词」同一套语义，只是对象从视频换成帖子）
+  const like = cfg.preferences?.like ?? []
+  const dislike = cfg.preferences?.dislike ?? []
+  const keywords = cfg.preferences?.keywords ?? []
+  if (like.length || dislike.length || keywords.length) {
+    lines.push('【口味 · 刷帖子的偏好】')
+    if (like.length) lines.push(`• 爱看：${like.join('、')}（feed 里这些词命中会加权，优先理这些帖）`)
+    if (dislike.length) lines.push(`• 不爱看：${dislike.join('、')}（命中的帖直接跳过，别评论也别点赞 ✗）`)
+    if (keywords.length) lines.push(`• 额外关键词：${keywords.join('、')}（只用来扩大范围）`)
+    lines.push(`• 浏览：\`feed\` 默认按口味排序，每条带 taste.score；本次最多认真看 ${cfg.maxThreads} 条`)
+  } else {
+    lines.push(`• 浏览：\`feed\`（本次最多认真看 ${cfg.maxThreads} 条）`)
+  }
+
+  if (cfg.autoReply) {
+    lines.push('• `replyme` 看 @我的；只回值得讨论的，引用对方观点：`reply --thread <id> --msg "…"`（别敷衍“谢谢/同意”）')
+  }
+  if (cfg.autoLike) {
+    lines.push('• 至少给 1 条对你口味的好内容点赞：`like --thread <id>` 或 `like --thread <id> --post <pid>`')
+  }
+  if (cfg.autoComment) {
+    lines.push('• 挑 1 条能接上话的主帖评论：`reply --thread <id> --msg "…"`')
+  }
+  if (cfg.autoPost) {
+    lines.push(`• 想发新帖：\`post --title "…" --msg "…"\`（标题 ≤30 字、正文 ≤1000 字；默认发 ${cfg.bars?.[0] || '抓虾吧'}）`)
+  }
+
+  // 额度（代码闸门）：写死在工具里，这里只是告诉她今天还剩多少，免得她撞墙才回头改。
+  const lim = cfg.limits ?? {}
+  lines.push(`【今天的额度】评论 ≤${lim.replyDaily || '不限'} · 点赞 ≤${lim.likeDaily || '不限'} · 发帖 ≤${lim.postDaily || '不限'}；任意两条发言至少隔 ${lim.globalMin || 0} 分钟（超了工具会直接拒绝，别硬试 ✗）`)
+
+  lines.push('⚠️ 只支持纯文本：不要 Markdown、代码块或链接；内容不要涉及主人隐私')
+  lines.push('收工：`summary --note "这次逛吧做了什么"`，然后把帖子链接和结果告诉我')
+  return lines.join('\n')
+}
+
+function wakePrompt(st, tools = '', tiebaTool = '') {
   const L = limitsNow()
   const B = config()
   const K = kindsNow(B)
@@ -422,6 +466,7 @@ function wakePrompt(st, tools = '') {
       return days >= 7 ? ["5.5) ⛔ 已经 " + days + " 天没有主人的表态 → **今天不分享**（只看 + 写两本日记 + 推荐给我 ✓ 日记照写 ✓）"] : []
     })(),
     ...diaryPushLines(),
+    ...(tiebaTool ? ['', tiebaWakeLines(tiebaTool)] : []),
     '9) 收工：记 `diary log` ✓（今天想说的都说了吗？没说完留到下一趟，别憋着 ✗）',
   ].join('\n')
 }
@@ -699,15 +744,17 @@ export function startScheduler(ctx, opts) {
       waking = true
       try {
         await ensureSession()
+        const tiebaDue = tiebaPromptDue()
         await promptBili(
           {
             requestId: `bili-whale-${Date.now()}`,
             sessionId,
             mode: 'queue',
-            content: [{ type: 'text', text: wakePrompt(st, TOOL_CMD) }],
+            content: [{ type: 'text', text: wakePrompt(st, TOOL_CMD, tiebaDue ? TIEBA_MJS : '') }],
           },
           new AbortController().signal,
         )
+        if (tiebaDue) markTiebaPrompted('B站生物钟')
         const slots = Array.isArray(st.slots) ? st.slots : []
         if (st.slotId) markScheduleSlot(st, st.slotId, 'fired', nowMin())
         writeState({
@@ -1051,6 +1098,28 @@ export function startScheduler(ctx, opts) {
     }
   }
 
+  // 手动「现在逛一次」：复用同一个贴吧会话，不占用 B站 的排队回合。
+  async function wakeTieba(reason = '手动') {
+    const cfg = tiebaConfig()
+    if (!cfg.enabled) throw new Error('贴吧还没启用：设置 → 平台 → 贴吧')
+    if (!cfg.bduss) throw new Error('还没有粘贴 BDUSS：设置 → 平台 → 贴吧')
+    if (!ctx.sessionController) throw new Error('DSH 会话服务还没就绪，稍等再试')
+    await ensureSession()
+    const text = [
+      ...identityContextLines(),
+      '',
+      tiebaWakeLines(TIEBA_MJS, { force: true }),
+    ].filter(Boolean).join('\n')
+    await promptBili({
+      requestId: `tieba-heartbeat-${Date.now()}`,
+      sessionId,
+      mode: 'queue',
+      content: [{ type: 'text', text }],
+    }, new AbortController().signal)
+    markTiebaPrompted(reason)
+    return { ok: true, message: `已叫她逛贴吧（${reason}）` }
+  }
+
   const timer = setInterval(() => { tick().catch(() => {}) }, TICK_MS)
   // 一次性启动定时器单独收好：stop() 必须把它们也清掉，否则测试/卸载后进程
   // 仍被 8~25 秒后的回调吊着（Node 24 下强制 exit 还会撞 libuv 断言）。
@@ -1091,5 +1160,6 @@ export function startScheduler(ctx, opts) {
     },
     tick,
     listenTick,
+    wakeTieba,
   }
 }

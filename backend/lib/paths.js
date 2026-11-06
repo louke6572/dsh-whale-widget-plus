@@ -128,6 +128,10 @@ export const OWNER_BILI_CRED = path.join(BILI_DIR, 'owner-credentials.json');
 export const BILI_AI_DIR = BILI_DIR;
 export const BILI_TOOLS_DIR = path.join(PLUGIN_ROOT, 'tools');
 export const BILI_MJS = path.join(BILI_TOOLS_DIR, 'bili.mjs');
+// 贴吧：扫码登录拿 cookie（BDUSS/STOKEN），工具链与 B站 同目录。
+export const TIEBA_MJS = path.join(BILI_TOOLS_DIR, 'tieba.mjs');
+export const TIEBA_DIR = path.join(STATE_DIR, 'tieba');
+export const TIEBA_CRED = path.join(TIEBA_DIR, 'credentials.json');
 export const QQ_FOR_BILI_FILE = path.join(MEMORY_DIR, 'qq-for-bili.md');
 export const BILI_FOR_QQ_FILE = path.join(MEMORY_DIR, 'bili-for-qq.md');
 export const BILI_ALIGNMENT_FILE = path.join(MEMORY_DIR, 'alignment-for-bili.md');
@@ -154,7 +158,7 @@ export function ensureDirs() {
   migrateLegacyData();
   // DATA_ROOT / QQ_STATE_DIR / QQ_PERSONA_DIR / PET_DATA_DIR 都是新的可写数据根；
   // index.js 启动时也会调这里，标准 DSH 安装靠它把数据目录建出来。
-  for (const dir of [STATE_DIR, BACKUP_DIR, MEMORY_DIR, DATA_ROOT, QQ_STATE_DIR, QQ_PERSONA_DIR, PET_DATA_DIR, BILI_DIR]) {
+  for (const dir of [STATE_DIR, BACKUP_DIR, MEMORY_DIR, DATA_ROOT, QQ_STATE_DIR, QQ_PERSONA_DIR, PET_DATA_DIR, BILI_DIR, TIEBA_DIR]) {
     try { fs.mkdirSync(dir, { recursive: true }); } catch {}
   }
 }

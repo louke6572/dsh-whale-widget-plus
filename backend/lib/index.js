@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 import {
   ALIGN_FILE, BACKUP_DIR, BILI_AI_DIR, BILI_ALIGNMENT_FILE, BILI_CONFIG, BILI_CRED, BILI_DIR, BILI_MJS,
   BILI_TOOLS_DIR, DATA_ROOT, DSH_HOME, MEMORY_DIR, PLUGIN_ROOT, PLUGIN_LOG, QQ_ALIGNMENT_BRIEF,
-  QQ_CONFIG, QQBOT_ROOT, STATE_DIR, UNIFIED_FILE, ensureDirs, findNodeExe, maskPath,
+  QQ_CONFIG, QQBOT_ROOT, STATE_DIR, TIEBA_MJS, UNIFIED_FILE, ensureDirs, findNodeExe, maskPath,
 } from './paths.js';
 import { resolvePersonaFile } from './persona.js';
 import { discoverSnowLumaConnection, readOneBotTokens, snowLumaHomeCandidates } from '../../src/snowluma-conn.js';
@@ -38,6 +38,20 @@ import {
 } from './characters.js';
 import { activeMemoryPaths, activePersonaLayers, activePlatformStateDir, readCurrentCharacter, touchCharacter } from '../../src/character-persona.js';
 import { automationSnapshot } from './automation.js';
+import {
+  clearTiebaCredentials, markTiebaVerified, readTiebaCredentials, readTiebaViewHistory,
+  resolveTiebaAuth, saveTiebaCookieLogin, tiebaAction, tiebaConfig, tiebaStatus,
+  verifyStoredTiebaCredentials,
+} from './tieba.js';
+import { cancelTiebaQrLogin, pollTiebaQrLogin, startTiebaQrLogin } from './tieba-qr-login.mjs';
+import {
+  configureDouyinChatModel, configureDouyinLog, disposeDouyin, douyinAutoTick, douyinChatConfigure,
+  douyinChatContacts, douyinChatMinimize, douyinChatModels, douyinChatRead, douyinChatResume, douyinChatSetModel, douyinChatStart, douyinChatStatus, douyinChatStop,
+  douyinComments, douyinCurrent, douyinDebrief, douyinNext, douyinNotices,
+  douyinOpen,
+  douyinSearch, douyinStart, douyinStatus, douyinStop, douyinSummary, douyinSyncPolicy,
+  readDouyinHistory,
+} from './douyin.js';
 import {
   backupFile, configDefaults, listBackups, pathSummary,
   readAll, readBiliConfig, readJson, readQqConfig, readUnified,
@@ -220,6 +234,34 @@ export function apply(ctx) {
   const platforms = new PlatformRegistry();
   platforms.setStatus('qq', () => bridgeStatus());
   platforms.setStatus('bili', () => biliToQqStatus());
+  platforms.setStatus('tieba', () => tiebaStatus());
+  // 抖音：只把「总开关 / 现在能不能刷 / 窗口在不在」带回概览，详细状态在设置页读。
+  configureDouyinLog((message) => pluginLog(message));
+  let llmService = null;
+  let defaultModelService = null;
+  try {
+    const getService = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
+    llmService = getService('llm');
+    defaultModelService = getService('agentDefaultModel');
+    configureDouyinChatModel({
+      llm: llmService,
+      attachments: getService('attachments'),
+      getSelection: () => {
+        try { return defaultModelService?.currentSelection?.() ?? {}; } catch { return {}; }
+      },
+    });
+  } catch { /* 模型服务缺失时只保留只读能力 */ }
+  platforms.setStatus('douyin', async () => {
+    const status = await douyinStatus();
+    return {
+      ok: status.ok,
+      enabled: status.config.enabled,
+      allowed: status.policy?.allowed ?? false,
+      reason: status.policy?.reason ?? status.policyError ?? '',
+      watching: status.watching,
+      browser: status.browser?.running ? 'running' : 'stopped',
+    };
+  });
 
   let scheduler = null;
   let schedulerStatus = { running: false, startedAt: null, lastError: null, lastTickAt: null };
@@ -932,6 +974,10 @@ export function apply(ctx) {
     if (result.saved.unified) {
       try { writeAlignmentBriefs(); } catch (error) { result.warnings.push(`对齐简报重建失败：${error?.message ?? error}`); }
       try { scheduler?.invalidate?.(); } catch {}
+      // 抖音的时段/额度投影到网页端账本；失败只提示，不影响其它设置落盘。
+      try { douyinSyncPolicy(); } catch (error) { result.warnings.push(`抖音时段同步失败：${String(error?.message ?? error).slice(0, 120)}`); }
+      // 群聊/私信开关变化后立即生效（关掉会停，开起来会在下一轮恢复）。
+      try { void douyinChatResume(); } catch {}
       startSyncTimer();
       // 改了记忆卡容量/注入上限后立刻重渲染，避免「设置保存了但提示词还是旧的」。
       try {
@@ -1343,10 +1389,12 @@ ${body}`;
   // ── 记忆卡（角色的长期记忆）──────────────────────────────────────────────
   // 和上面的「双向脱敏同步」不是一回事：memory 是 QQ⇄B站 的搬运；
   // memory-card 是她自己的记忆（冲浪 + 聊天 + 主人互动），带清晰度/遗忘/容量规则。
-  async function handleMemoryCard(req, res) {
+  async function handleMemoryCard(req, res, url) {
     const config = readUnified().config.memoryCard;
     if (req.method === 'GET') {
-      json(res, 200, memoryCardSnapshot(config));
+      // 默认 80 条（外壳每 60 秒轮询一次）；「打开记忆文档」传 limit=300 拿更多可编辑记录。
+      const recordLimit = Math.max(1, Math.min(500, Number(url?.searchParams?.get('limit')) || 80));
+      json(res, 200, memoryCardSnapshot(config, { recordLimit }));
       return;
     }
     const body = await readJsonBody(req);
@@ -1373,7 +1421,7 @@ ${body}`;
       json(res, 200, result);
       return;
     }
-    if (['pin', 'forget', 'ack', 'add', 'set-first-meet', 'clear-first-meet', 'merge-memories'].includes(action)) {
+    if (['pin', 'forget', 'ack', 'add', 'update', 'set-first-meet', 'clear-first-meet', 'merge-memories'].includes(action)) {
       const result = await applyMemoryCardAction(action, body, { config });
       if (!result.ok) { json(res, 400, result); return; }
       json(res, 200, memoryCardSnapshot(config));
@@ -1651,6 +1699,13 @@ ${body}`;
       const add = (name, ok, detail = '') => checks.push({ name, ok: Boolean(ok), detail });
       add('QQ 桥接源码', fs.existsSync(path.join(QQBOT_ROOT, 'src', 'bridge.js')), maskPath(path.join(QQBOT_ROOT, 'src', 'bridge.js')));
       add('B站工具链', fs.existsSync(BILI_MJS), maskPath(BILI_MJS));
+      add('贴吧工具链', fs.existsSync(TIEBA_MJS), maskPath(TIEBA_MJS));
+      const tiebaAuth = resolveTiebaAuth();
+      const tiebaCredFile = path.join(TIEBA_DIR, 'credentials.json');
+      add('贴吧凭据文件', fs.existsSync(tiebaCredFile), fs.existsSync(tiebaCredFile) ? '已写入（不回显内容）' : '暂无');
+      add('贴吧认证状态', tiebaConfig().enabled === true
+        ? (tiebaAuth.bduss ? `已配置（BDUSS，来源：${tiebaAuth.source === 'manual' ? '配置文件' : '设置页'}）` : '未配置（请粘贴 BDUSS）')
+        : '未启用');
       add('B站配置', fs.existsSync(BILI_CONFIG), maskPath(BILI_CONFIG));
       add('B站 cookie', fs.existsSync(BILI_CRED), fs.existsSync(BILI_CRED) ? '已写入（不回显内容）' : '未写入');
       add('人设卡', fs.existsSync(resolvePersonaFile()), maskPath(resolvePersonaFile()));
@@ -3335,6 +3390,227 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
     json(res, 200, { ok: true, platforms: await platforms.statusAll(), capabilities: ['identity', 'memory.read', 'memory.write', 'prompt.block', 'actions'] });
   }
 
+  // ── 贴吧（BDUSS 登录 + 手机版/app 接口）────────────────────────────────
+  async function handleTieba(req, res, url) {
+    const pathname = url.pathname;
+    // 保存 BDUSS 并当场验证（curl 网络层，百度不认 Node fetch 的 TLS 指纹）
+    if (pathname.endsWith('/login')) {
+      if (req.method !== 'POST') { json(res, 405, { ok: false, error: '只支持 POST' }); return; }
+      let body = {};
+      try { body = await readJsonBody(req); } catch { json(res, 400, { ok: false, error: '请求体不是合法 JSON' }); return; }
+      try {
+        pluginLog('[贴吧登录] 保存 BDUSS');
+        const result = await saveTiebaCookieLogin(String(body.cookie ?? body.bduss ?? ''));
+        try { markTiebaVerified(); } catch {}
+        json(res, 200, { ok: true, ...result });
+      } catch (error) {
+        pluginLog(`[贴吧登录] 失败：${String(error?.message ?? error)}`);
+        json(res, 400, { ok: false, code: String(error?.code ?? ''), error: String(error?.message ?? error) });
+      }
+      return;
+    }
+    // 手机扫码登录：换到 BDUSS 后由后端用 curl 验证并落盘，用户不用复制任何东西
+    if (pathname.endsWith('/qr/start')) {
+      if (req.method !== 'POST') { json(res, 405, { ok: false, error: '只支持 POST' }); return; }
+      try {
+        pluginLog('[贴吧登录] 生成二维码');
+        json(res, 200, { ok: true, ...(await startTiebaQrLogin()) });
+      } catch (error) {
+        pluginLog(`[贴吧登录] 二维码失败：${String(error?.message ?? error)}`);
+        json(res, 503, { ok: false, error: String(error?.message ?? error) });
+      }
+      return;
+    }
+    if (pathname.endsWith('/qr/poll')) {
+      if (req.method !== 'GET') { json(res, 405, { ok: false, error: '只支持 GET' }); return; }
+      const id = String(url.searchParams.get('id') ?? '').trim();
+      if (!/^tieba_qr_[0-9a-f-]{36}$/i.test(id)) { json(res, 400, { ok: false, error: 'id 不合法' }); return; }
+      const result = await pollTiebaQrLogin(id);
+      if (result?.status === 'failed') pluginLog(`[贴吧登录] 扫码失败：${String(result.error ?? '').slice(0, 300)}`);
+      if (result?.status === 'confirmed') { try { markTiebaVerified(); } catch {} }
+      json(res, 200, result);
+      return;
+    }
+    if (pathname.endsWith('/qr/cancel')) {
+      if (req.method !== 'POST') { json(res, 405, { ok: false, error: '只支持 POST' }); return; }
+      let body = {};
+      try { body = await readJsonBody(req); } catch {}
+      cancelTiebaQrLogin(String(body.id ?? '').trim());
+      json(res, 200, { ok: true });
+      return;
+    }
+    // 浏览器自动化入口已废弃（Chrome 136 读不到加密 cookie，且要关浏览器）
+    if (pathname.endsWith('/open-token')) {
+      json(res, 410, {
+        ok: false, code: 'tieba.legacy-login-removed',
+        error: '领取 token 页已移除，请用扫码登录',
+        hint: '点「扫码登录」，手机确认后自动完成',
+      });
+      return;
+    }
+    // 旧的浏览器登录入口（已废弃）
+    if (pathname.includes('/login/start') || pathname.includes('/login/poll') || pathname.includes('/login/cancel')) {
+      json(res, 410, {
+        ok: false, code: 'tieba.legacy-login-removed',
+        error: '浏览器自动登录已移除，改为粘贴 BDUSS',
+        hint: '把 BDUSS 粘贴到输入框，点「保存并测试」',
+      });
+      return;
+    }
+    if (pathname.endsWith('/credentials/clear')) {
+      if (req.method !== 'POST') { json(res, 405, { ok: false, error: '只支持 POST' }); return; }
+      clearTiebaCredentials();
+      json(res, 200, { ok: true });
+      return;
+    }
+    if (pathname.endsWith('/account/verify')) {
+      if (req.method !== 'POST') { json(res, 405, { ok: false, error: '只支持 POST' }); return; }
+      try { json(res, 200, await verifyStoredTiebaCredentials()); }
+      catch (error) { json(res, 500, { ok: false, error: `核查失败：${String(error?.message ?? error).slice(0, 160)}` }); }
+      return;
+    }
+    // 看过的帖子（设置页「观看记录」）
+    if (req.method === 'GET' && pathname.endsWith('/history')) {
+      try {
+        json(res, 200, {
+          ok: true,
+          ...readTiebaViewHistory({
+            limit: Number(url.searchParams.get('limit')) || 200,
+            q: url.searchParams.get('q') ?? '',
+            days: Number(url.searchParams.get('days')) || 0,
+          }),
+        });
+      } catch (error) {
+        json(res, 500, { ok: false, error: String(error?.message ?? error) });
+      }
+      return;
+    }
+    // 默认 GET → 状态
+    if (req.method === 'GET') { json(res, 200, tiebaStatus()); return; }
+    // POST → action 分发（heartbeat-now / verify / feed / ...）
+    let body = {};
+    try { body = await readJsonBody(req); } catch { json(res, 400, { ok: false, error: '请求体不是合法 JSON' }); return; }
+    const action = String(body.action ?? '');
+    if (action === 'heartbeat-now') {
+      if (!scheduler || !schedulerStatus.running) {
+        json(res, 400, { ok: false, error: 'B站生物钟没在运行：贴吧跟它共用作息，先启动 B站 平台' });
+        return;
+      }
+      try {
+        const result = await scheduler.wakeTieba?.('手动');
+        json(res, 200, { ok: true, ...result });
+      } catch (error) {
+        json(res, 500, { ok: false, error: String(error?.message ?? error) });
+      }
+      return;
+    }
+    const allowed = ['verify', 'feed', 'thread', 'floor', 'replyme', 'post', 'reply', 'like', 'unlike', 'sign', 'delete-thread', 'delete-post', 'rename', 'summary', 'status'];
+    if (!allowed.includes(action)) { json(res, 400, { ok: false, error: `未知贴吧动作：${action || '（空）'}` }); return; }
+    try {
+      const result = await tiebaAction(action, body);
+      json(res, 200, { ok: true, ...result });
+    } catch (error) {
+      json(res, 400, { ok: false, error: String(error?.message ?? error), code: String(error?.code ?? '') });
+    }
+  }
+
+  // ── 全局模型（对话页）：一份选择，插件后台任务与新建会话共用 ───────────
+  async function modelCatalog() {
+    const saved = readUnified().config.model ?? { provider: '', model: '' };
+    let providers = [];
+    let models = [];
+    let error = '';
+    if (!llmService || typeof llmService.listProviders !== 'function') {
+      error = 'DSH 模型服务未就绪';
+    } else {
+      try { providers = llmService.listProviders().map((item) => ({ id: String(item.id ?? ''), name: String(item.name || item.displayName || item.id || '') })); }
+      catch (err) { error = `读取提供商失败：${String(err?.message ?? err).slice(0, 160)}`; }
+      for (const provider of providers) {
+        try {
+          const list = typeof llmService.listModels === 'function' ? await Promise.race([
+            llmService.listModels(provider.id),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('目录查询超时')), 5000)),
+          ]) : [];
+          for (const entry of Array.isArray(list) ? list : []) {
+            if (!entry?.id) continue;
+            models.push({ provider: provider.id, id: String(entry.id), name: String(entry.name || entry.id) });
+          }
+        } catch (err) { error = error || `${provider.id}: ${String(err?.message ?? err).slice(0, 120)}`; }
+      }
+    }
+    let dshDefault = {};
+    try { dshDefault = defaultModelService?.currentSelection?.() ?? {}; } catch {}
+    return { ok: true, providers, models, saved, dshDefault, error };
+  }
+
+  async function handleModels(req, res) {
+    if (req.method === 'GET') { json(res, 200, await modelCatalog()); return; }
+    if (req.method !== 'POST') { json(res, 405, { ok: false, error: '只支持 GET / POST' }); return; }
+    let body = {};
+    try { body = await readJsonBody(req); } catch { json(res, 400, { ok: false, error: '请求体不是合法 JSON' }); return; }
+    const provider = String(body.provider ?? '').trim().slice(0, 200);
+    const model = String(body.model ?? '').trim().slice(0, 300);
+    if (Boolean(provider) !== Boolean(model)) { json(res, 400, { ok: false, error: '提供商和模型要同时选，或同时清空（跟随默认）' }); return; }
+    saveUnified({ model: { provider, model } });
+    let defaultSaved = false;
+    if (provider && model && typeof defaultModelService?.saveSelection === 'function') {
+      try { await defaultModelService.saveSelection({ provider, model }); defaultSaved = true; } catch (err) { pluginLog(`[模型] 写入 DSH 默认失败：${String(err?.message ?? err).slice(0, 160)}`); }
+    }
+    pluginLog(`[模型] 全局模型 → ${provider ? `${provider}/${model}` : '跟随 DSH 默认'}`);
+    json(res, 200, { ...(await modelCatalog()), ok: true, defaultSaved });
+  }
+
+  // ── 抖音（第 4 个平台：网页版 + 本机 Edge，登录在专用窗口里人工完成）──────
+  // GET  /douyin            → 状态（开关 / 时段 / 今日额度 / 窗口 / 上次总结）
+  // GET  /douyin/history    → 看过的视频（本地记录）
+  // POST /douyin  {action}  → open / current / next / search / start / stop / apply / summary
+  async function handleDouyin(req, res, url) {
+    const pathname = url.pathname;
+    if (req.method === 'GET' && pathname.endsWith('/history')) {
+      try { json(res, 200, readDouyinHistory({ limit: Number(url.searchParams.get('limit')) || 300 })); }
+      catch (error) { json(res, 500, { ok: false, error: String(error?.message ?? error) }); }
+      return;
+    }
+    if (req.method === 'GET') { json(res, 200, await douyinStatus()); return; }
+    if (req.method !== 'POST') { json(res, 405, { ok: false, error: '只支持 GET / POST' }); return; }
+    let body = {};
+    try { body = await readJsonBody(req); } catch { json(res, 400, { ok: false, error: '请求体不是合法 JSON' }); return; }
+    const action = String(body.action ?? '');
+    if (!['open', 'current', 'next', 'search', 'start', 'stop', 'apply', 'status', 'summary', 'comments', 'notices', 'debrief',
+      'chat-status', 'chat-contacts', 'chat-configure', 'chat-start', 'chat-stop', 'chat-read', 'chat-minimize', 'chat-models', 'chat-set-model'].includes(action)) {
+      json(res, 400, { ok: false, error: `未知抖音动作：${action || '（空）'}` });
+      return;
+    }
+    try {
+      let result;
+      if (action === 'open') result = await douyinOpen();
+      else if (action === 'current') result = await douyinCurrent();
+      else if (action === 'next') result = await douyinNext();
+      else if (action === 'search') result = await douyinSearch(body.query);
+      else if (action === 'start') result = await douyinStart({ reason: String(body.reason || '手动'), maxVideos: body.maxVideos, minutes: body.minutes });
+      else if (action === 'stop') result = await douyinStop();
+      else if (action === 'summary') result = douyinSummary(body.note);
+      else if (action === 'comments') result = await douyinComments({ awemeId: body.awemeId, url: body.url, max: body.max, images: body.images !== false });
+      else if (action === 'notices') result = await douyinNotices({ count: body.count });
+      else if (action === 'debrief') result = await douyinDebrief({ awemeId: body.awemeId, url: body.url, danmakuLimit: body.danmakuLimit, commentMax: body.commentMax });
+      else if (action === 'chat-status') result = await douyinChatStatus();
+      else if (action === 'chat-contacts') result = await douyinChatContacts();
+      else if (action === 'chat-configure') result = await douyinChatConfigure({ recipientIds: body.recipientIds, mentionNames: body.mentionNames, allowConversationOnly: body.allowConversationOnly });
+      else if (action === 'chat-start') result = await douyinChatStart();
+      else if (action === 'chat-stop') result = await douyinChatStop();
+      else if (action === 'chat-read') result = await douyinChatRead(body.recipientId);
+      else if (action === 'chat-minimize') result = await douyinChatMinimize();
+      else if (action === 'chat-models') result = await douyinChatModels();
+      else if (action === 'chat-set-model') result = await douyinChatSetModel({ provider: body.provider, model: body.model });
+      else { if (action === 'apply') douyinSyncPolicy(); result = await douyinStatus(); }
+      if (result?.ok === false) { json(res, 400, result); return; }
+      json(res, 200, { ...result, ok: true });
+    } catch (error) {
+      pluginLog(`[抖音] ${action} 失败：${String(error?.message ?? error).slice(0, 200)}`);
+      json(res, 400, { ok: false, code: String(error?.code ?? ''), error: String(error?.message ?? error) });
+    }
+  }
+
   // ── 组件更新 ────────────────────────────────────────────────────────────
   // GET  : 最近一次检查结果 + 待更新项 + 是否该弹窗
   // POST : { action:'check' | 'apply' | 'dismiss' | 'reset', ids?: string[] }
@@ -3429,10 +3705,13 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
     }
     if (pathname === `${API_PREFIX}/fish-guard/qq`) { handleQqFishGuard(res); return; }
     if (pathname === `${API_PREFIX}/memory-card/full`) { await handleMemoryCardFull(req, res, url); return; }
-    if (pathname === `${API_PREFIX}/memory-card`) { await handleMemoryCard(req, res); return; }
+    if (pathname === `${API_PREFIX}/memory-card`) { await handleMemoryCard(req, res, url); return; }
     if (pathname === `${API_PREFIX}/align`) { await handleAlign(req, res); return; }
     if (pathname === `${API_PREFIX}/mode`) { await handleMode(req, res); return; }
     if (pathname === `${API_PREFIX}/platforms`) { await handlePlatforms(req, res); return; }
+    if (pathname === `${API_PREFIX}/models`) { await handleModels(req, res); return; }
+    if (pathname.startsWith(`${API_PREFIX}/tieba`)) { await handleTieba(req, res, url); return; }
+    if (pathname.startsWith(`${API_PREFIX}/douyin`)) { await handleDouyin(req, res, url); return; }
     if (pathname === `${API_PREFIX}/compat/scan`) {
       try {
         let version = '';
@@ -3547,9 +3826,20 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
   bridgeRepairTimer.unref?.();
   startSyncTimer();
 
+  // 抖音的自动轮次跟 B站 生物钟分开：B站 没登录时生物钟不启动，
+  // 但抖音是独立的第四个平台，必须按自己的时段走。
+  const douyinTimer = setInterval(() => { douyinAutoTick().catch(() => {}); }, 60_000);
+  douyinTimer.unref?.();
+  const douyinStartupTimer = setTimeout(() => { douyinAutoTick().catch(() => {}); }, 25_000);
+  douyinStartupTimer.unref?.();
+  // IM 恢复放在更晚一点：先让浏览器/登录就绪，再按配置启动被@自动回复。
+  const douyinChatTimer = setTimeout(() => { douyinChatResume().catch(() => {}); }, 35_000);
+  douyinChatTimer.unref?.();
+
   // 保存设置后如果开启了“随插件自动启动”，这里也覆盖一次。
   ctx.effect(() => () => {
     try { scheduler?.stop?.(); } catch {}
+    try { void disposeDouyin(); } catch {}
     try { updates.dispose(); } catch {}
     try { petPurpose.stop?.(); } catch {}
     if (petHostTimer) clearInterval(petHostTimer);
@@ -3561,6 +3851,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
     if (characterTimer) clearInterval(characterTimer);
     if (syncTimer) clearInterval(syncTimer);
     if (bridgeRepairTimer) clearInterval(bridgeRepairTimer);
+    clearInterval(douyinTimer); clearTimeout(douyinStartupTimer); clearTimeout(douyinChatTimer);
     // 桥接现在跑在本进程里：插件卸载时必须把它一起停掉，否则端口/QQ 连接会挂到 DSH 退出。
     try { void stopBridge(); } catch {}
     for (const dispose of disposers) { try { dispose(); } catch {} }

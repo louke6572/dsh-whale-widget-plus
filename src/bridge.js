@@ -9718,6 +9718,17 @@ async function main(options = {}) {
     return `\n【图片/表情】本条消息包含 ${mediaList.length} 个图片/表情（消息ID=${messageRef}）。`;
   }
 
+  // 提到抖音时把工具入口塞给模型。理由同贴吧：QQ 会话没有本地 shell、也不能开浏览器；
+  // 抖音的登录态在专用 Edge 里，web_fetch 只会拿到登录页。
+  function douyinHintFor(text) {
+    if (!/抖音|douyin/i.test(String(text ?? ''))) return '';
+    return '【抖音】刷抖音 / 看当前作品 / 划下一条 / 搜索 / 停止 / 看懂一条 / 读评论区 / 读互动通知，请用 mcp__snowluma-host__ 的 '
+      + 'douyin_status、douyin_current、douyin_next、douyin_search、douyin_start、douyin_stop、douyin_history、'
+      + 'douyin_debrief、douyin_comments、douyin_notices；群聊/私信只读用 douyin_chat_contacts、douyin_chat_status、douyin_chat_read，'
+      + '开关用 douyin_chat_configure、douyin_chat_start、douyin_chat_stop（只处理许可会话，群里被@或叫到昵称才回）。'
+      + '这些工具走本机专用 Edge 的登录态（评论区图片会下载到本机）。不要用 web_fetch 抓抖音网页，也不要自己开浏览器。\n';
+  }
+
   function findMessageMedia(key, ref) {
     const refStr = String(ref ?? '').trim();
     if (!refStr) return [];
@@ -15049,7 +15060,12 @@ async function main(options = {}) {
     const biliRecall = cfg.biliBridge?.enabled && cfg.biliBridge?.memory?.enabled !== false
       ? biliMemory.recallBlock(textContent)
       : '';
-    const promptText = recentBlock + (roleHint ? roleHint + '\n\n' : '') + (biliRecall ? biliRecall + '\n\n' : '') + chimeInHint
+    // 提到贴吧时直接把工具入口塞给模型：QQ 会话没有本地 shell，
+    // 不提醒就会去 web_fetch（网页没有登录态，只会看到 403/未登录）。
+    const tiebaHint = /贴吧/.test(`${plainContent} ${textContent}`)
+      ? `【贴吧】刷贴吧 / 看帖 / 回帖 / 签到请用 mcp__snowluma-host__ 的 tieba_feed、tieba_thread、tieba_replyme、tieba_reply、tieba_like、tieba_sign、tieba_post；这些工具走已登录的 BDUSS。不要用 web_fetch 抓贴吧网页（网页侧没有登录态，会 403）。不要开浏览器。\n`
+      : '';
+    const promptText = recentBlock + (roleHint ? roleHint + '\n\n' : '') + (biliRecall ? biliRecall + '\n\n' : '') + tiebaHint + douyinHintFor(`${plainContent} ${textContent}`) + chimeInHint
       + (isOwner ? ownerMessageTag() : '')
       + peerAliasTagV2(key, isOwner)
       + senderLabel + '：' + textContent
@@ -15087,7 +15103,10 @@ async function main(options = {}) {
           const biliRecall = cfg.biliBridge?.enabled && cfg.biliBridge?.memory?.enabled !== false
             ? biliMemory.recallBlock(textContent)
             : '';
-          const promptText = `${roleHint ? roleHint + '\n\n' : ''}${biliRecall ? biliRecall + '\n\n' : ''}${isOwner ? ownerMessageTag() : ''}${peerAliasTagV2(key, isOwner)}${textContent}${mediaHintFor(key, messageRef, mediaList)}`;
+          const tiebaHint = /贴吧/.test(`${plainContent} ${textContent}`)
+            ? `【贴吧】刷贴吧 / 看帖 / 回帖 / 签到请用 mcp__snowluma-host__ 的 tieba_feed、tieba_thread、tieba_reply、tieba_like、tieba_sign；这些工具走已登录的 BDUSS，不要用 web_fetch 抓网页。\n`
+            : '';
+          const promptText = `${roleHint ? roleHint + '\n\n' : ''}${biliRecall ? biliRecall + '\n\n' : ''}${tiebaHint}${douyinHintFor(`${plainContent} ${textContent}`)}${isOwner ? ownerMessageTag() : ''}${peerAliasTagV2(key, isOwner)}${textContent}${mediaHintFor(key, messageRef, mediaList)}`;
           scheduleSocialReply(
             key, promptText,
             Number(cfg.social?.activeReplyDelayMinMs ?? 2000),
@@ -15124,7 +15143,10 @@ async function main(options = {}) {
       const biliRecall = cfg.biliBridge?.enabled && cfg.biliBridge?.memory?.enabled !== false
         ? biliMemory.recallBlock(textContent)
         : '';
-      const promptText = `${roleHint ? roleHint + '\n\n' : ''}${biliRecall ? biliRecall + '\n\n' : ''}【群聊上下文】\n${buildContextBlock(key)}\n【当前消息】${currentLine}${mediaHintFor(key, messageRef, mediaList)}\n\n${replyInstruction}`;
+      const tiebaHint = /贴吧/.test(`${plainContent} ${textContent}`)
+        ? `【贴吧】刷贴吧 / 看帖 / 回帖 / 签到请用 mcp__snowluma-host__ 的 tieba_feed、tieba_thread、tieba_reply、tieba_like、tieba_sign；这些工具走已登录的 BDUSS，不要用 web_fetch 抓网页。\n`
+        : '';
+      const promptText = `${roleHint ? roleHint + '\n\n' : ''}${biliRecall ? biliRecall + '\n\n' : ''}${tiebaHint}${douyinHintFor(`${plainContent} ${textContent}`)}【群聊上下文】\n${buildContextBlock(key)}\n【当前消息】${currentLine}${mediaHintFor(key, messageRef, mediaList)}\n\n${replyInstruction}`;
       if (isOwner && kind === 'private') {
         log(`社交模式：管理员私聊触发，立即投递 ${key}`);
         await deliverPrompt(key, promptText, { media: mediaList });
