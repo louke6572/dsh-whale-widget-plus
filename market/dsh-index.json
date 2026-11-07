@@ -38,6 +38,15 @@
       },
       "versions": [
         {
+          "version": "0.7.5",
+          "publishTimestamp": 1794029728,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/louke6572/dsh-Dfy",
+            "commit": "4f389dd3024e16eb8ce4056869c5cef4b289c657"
+          }
+        },
+        {
           "version": "0.7.4",
           "publishTimestamp": 1794021341,
           "source": {
