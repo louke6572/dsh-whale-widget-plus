@@ -39,6 +39,7 @@
 - **「每天自动写日记」开关保存无效**：前端只发 `diary`，后端 `organize-config` 只保存 `enabled`，开关会被丢弃、回读又显示成开；现在两个开关分别保存并正确回读。
 - **「每天自动写日记」被自动整理开关挡住**：`autoOrganize` 先判断 `organize.enabled`，只开日记开关时整段直接返回；现在两个开关互不依赖，开哪个跑哪个。
 - **自动整理把跨平台记忆改成 QQ 私聊**：合并结果与日记原本硬编码 `scope: 'qq'`，会把 B站 / 贴吧 / 桌宠的记录归档成 QQ 记录，公开平台从此看不到；现在合并按 scope 分组、沿用原来源，日记只归档 QQ 流水，桌宠记录保持私有。
+- **抖音群聊回复报 `throwIfAborted`**：DSH 的 `sessionController.prompt(request, signal)` 第一行就调用 `signal.throwIfAborted()`，插件调用时没传第二个参数，导致群聊每条回复都 TypeError 失败；现在统一传入一个永不中断的 signal（单轮超时仍由 `wait` 的 `timeoutMs` 控制）。
 - **抖音 IM 重连后回复失败**：会话已在盘上时 `agents.resume` 拿不到所有权，同 id `create` 又报 `already exists`，整条回复被丢掉（日志 `建 DSH 会话失败：session ... already exists`）。现在会再试接回，仍失败则由 `sessionController` 分配一个可用会话，保证回复发得出去。
 - **自动整理「剩余条数」估算错误**：之前用 `merged*2` 推算，一组合并 3 条以上时界面数字会对不上；改为按实际归档条数统计。
 

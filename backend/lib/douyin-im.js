@@ -194,6 +194,12 @@ function settleChat(chat, reason) {
   waiter.resolve(reply);
 }
 
+// sessionController 的部分 Remote 方法签名是 (request, signal)（prompt 第一行就
+// signal.throwIfAborted()）。插件调用时没传 signal 会直接 TypeError:
+// "Cannot read properties of undefined (reading 'throwIfAborted')"。
+// 这里用一个永不中断的 signal：单轮超时由 wait 的 timeoutMs 自己控制。
+const CONTROLLER_SIGNAL = new AbortController().signal;
+
 function sessionIdOf(key) {
   return `douyin-im-${createHash('sha1').update(String(key)).digest('hex').slice(0, 12)}`;
 }
@@ -379,20 +385,20 @@ function extractOutcomeReply(outcome) {
 /** 走 sessionController：prompt + wait（和旧版抖音回复同一套，DSH 里能看到这一轮）。 */
 function askControllerChat(chat, text) {
   const run = chat.chain.then(async () => {
-    const before = await chat.controller.state({ sessionId: chat.sessionId }).catch(() => null);
+    const before = await chat.controller.state({ sessionId: chat.sessionId }, CONTROLLER_SIGNAL).catch(() => null);
     const afterSeq = Number.isFinite(before?.cursor) ? before.cursor : undefined;
     await chat.controller.prompt({
       requestId: `douyin-im-${randomUUID()}`,
       sessionId: chat.sessionId,
       mode: 'queue',
       content: [{ type: 'text', text }],
-    });
+    }, CONTROLLER_SIGNAL);
     const outcome = await chat.controller.wait({
       sessionId: chat.sessionId,
       ...(afterSeq === undefined ? {} : { afterSeq }),
       maxMessages: 30,
       timeoutMs: 180_000,
-    });
+    }, CONTROLLER_SIGNAL);
     if (outcome?.reason === 'input-required') {
       try { await chat.controller.cancel({ sessionId: chat.sessionId }); } catch { /* 取消失败也要报错 */ }
       throw new Error('DSH 会话在等待人工确认，已取消本轮回复');
