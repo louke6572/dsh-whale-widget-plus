@@ -31,6 +31,7 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@snowluma/mcp": "^1.14.20",
     "@snowluma/sdk": "^1.14.20",
+    "douyin-im": "^1.1.0",
     "edge-tts": "^1.0.1",
     "js-yaml": "^4.3.2",
     "playwright-core": "^1.65.0",
@@ -42,7 +43,8 @@
       "patch": [
         "./cordis.patch.yml",
         "./presets/qq-chat.patch.yml",
-        "./presets/qq-chat-v2.patch.yml"
+        "./presets/qq-chat-v2.patch.yml",
+        "./presets/douyin-chat.patch.yml"
       ]
     },
     "client": {

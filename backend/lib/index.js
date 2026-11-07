@@ -53,6 +53,11 @@ import {
   readDouyinHistory,
 } from './douyin.js';
 import {
+  configureDouyinIm, configureDouyinImLog, disposeDouyinIm, douyinImContacts,
+  douyinImLoginQr, douyinImLoginSms, douyinImLogout, douyinImSaveConfig, douyinImSelftest, douyinImStart, douyinImStatus,
+  douyinImStop, douyinImSubmitSms, scheduleDouyinImResume, scheduleDouyinImSelftest,
+} from './douyin-im.js';
+import {
   backupFile, configDefaults, listBackups, pathSummary,
   readAll, readBiliConfig, readJson, readQqConfig, readUnified,
   saveBiliConfig, saveQqConfig, saveUnified, writeJsonAtomic, writeTextAtomic,
@@ -249,8 +254,15 @@ export function apply(ctx) {
       getSelection: () => {
         try { return defaultModelService?.currentSelection?.() ?? {}; } catch { return {}; }
       },
+      // 抖音回复走 DSH 会话（和 QQ 一样，侧栏能看到思考）；服务缺失时自动退回直连模型。
+      sessionController: getService('sessionController'),
     });
   } catch { /* 模型服务缺失时只保留只读能力 */ }
+  // 抖音私信：douyin-im 长连接（不需要浏览器），回复同样走 DSH 会话。
+  configureDouyinImLog((message) => pluginLog(message));
+  try {
+    configureDouyinIm({ ctx });
+  } catch (error) { pluginLog('[抖音IM] 插件上下文注入失败：', String(error?.message ?? error).slice(0, 160)); }
   platforms.setStatus('douyin', async () => {
     const status = await douyinStatus();
     return {
@@ -3582,7 +3594,8 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
     try { body = await readJsonBody(req); } catch { json(res, 400, { ok: false, error: '请求体不是合法 JSON' }); return; }
     const action = String(body.action ?? '');
     if (!['open', 'current', 'next', 'search', 'start', 'stop', 'apply', 'status', 'summary', 'comments', 'notices', 'debrief',
-      'chat-status', 'chat-contacts', 'chat-configure', 'chat-start', 'chat-stop', 'chat-read', 'chat-minimize', 'chat-models', 'chat-set-model', 'chat-setup', 'chat-recover', 'chat-enable'].includes(action)) {
+      'chat-status', 'chat-contacts', 'chat-configure', 'chat-start', 'chat-stop', 'chat-read', 'chat-minimize', 'chat-models', 'chat-set-model', 'chat-setup', 'chat-recover', 'chat-enable',
+      'im-status', 'im-login-qr', 'im-login-sms', 'im-sms-code', 'im-logout', 'im-contacts', 'im-config', 'im-start', 'im-stop', 'im-selftest'].includes(action)) {
       json(res, 400, { ok: false, error: `未知抖音动作：${action || '（空）'}` });
       return;
     }
@@ -3610,6 +3623,16 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
       else if (action === 'chat-setup') result = await douyinChatSetup({ recipientIds: body.recipientIds, mentionNames: body.mentionNames });
       else if (action === 'chat-enable') result = await douyinChatEnable();
       else if (action === 'chat-recover') result = await douyinChatRecover();
+      else if (action === 'im-status') result = douyinImStatus();
+      else if (action === 'im-login-qr') result = await douyinImLoginQr();
+      else if (action === 'im-login-sms') result = await douyinImLoginSms(body.mobile);
+      else if (action === 'im-sms-code') result = await douyinImSubmitSms(body.code);
+      else if (action === 'im-logout') result = await douyinImLogout();
+      else if (action === 'im-contacts') result = await douyinImContacts();
+      else if (action === 'im-config') result = douyinImSaveConfig(body);
+      else if (action === 'im-start') result = await douyinImStart();
+      else if (action === 'im-stop') result = await douyinImStop();
+      else if (action === 'im-selftest') result = await douyinImSelftest();
       else { if (action === 'apply') douyinSyncPolicy(); result = await douyinStatus(); }
       if (result?.ok === false) { json(res, 400, result); return; }
       json(res, 200, { ...result, ok: true });
@@ -3840,24 +3863,28 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
   douyinTimer.unref?.();
   const douyinStartupTimer = setTimeout(() => { douyinAutoTick().catch(() => {}); }, 25_000);
   douyinStartupTimer.unref?.();
-  // IM 恢复放在更晚一点：先让浏览器/登录就绪，再按配置启动被@自动回复。
-  const douyinChatTimer = setTimeout(() => { douyinChatResume().catch(() => {}); }, 35_000);
-  douyinChatTimer.unref?.();
-  // 群聊开着时，窗口被关掉会自动补开（否则原插件会一直记 BROWSER_NOT_RUNNING 而不回复）。
-  const douyinChatWatchdog = setInterval(async () => {
+  // 旧的浏览器私信方案已退役：只有显式打开 legacyBrowser 时才继续跑（默认走 douyin-im）。
+  const legacyBrowserChat = readUnified().config?.douyin?.chat?.legacyBrowser === true;
+  const douyinChatTimer = legacyBrowserChat ? setTimeout(() => { douyinChatResume().catch(() => {}); }, 35_000) : null;
+  douyinChatTimer?.unref?.();
+  // 旧的群聊守护：同样只在 legacyBrowser 模式下工作，避免和 douyin-im 重复回复。
+  const douyinChatWatchdog = legacyBrowserChat ? setInterval(async () => {
     try {
       if (readUnified().config?.douyin?.chat?.enabled !== true) return;
-      const status = await douyinStatus();
-      if (status?.browser?.running) return;
-      pluginLog('[抖音] 群聊需要窗口：自动打开专用窗口并最小化');
-      await douyinOpen();
-      try { await douyinChatContacts(); } catch { /* 消息页加载失败时下一轮再试 */ }
-      try { await douyinChatMinimize(); } catch { /* 最小化失败不影响轮询 */ }
+      const chatState = await douyinChatStatus();
+      if (chatState?.running || chatState?.starting) return;
+      pluginLog('[抖音] 自动回复未在运行：自动准备专用窗口并恢复');
+      const result = await douyinChatResume();
+      if (result?.ok === false) pluginLog(`[抖音] 自动恢复失败：${String(result.error ?? '').slice(0, 160)}`);
     } catch (error) {
-      pluginLog(`[抖音] 自动打开专用窗口失败：${String(error?.message ?? error).slice(0, 160)}`);
+      pluginLog(`[抖音] 自动恢复失败：${String(error?.message ?? error).slice(0, 160)}`);
     }
-  }, 60_000);
-  douyinChatWatchdog.unref?.();
+  }, 60_000) : null;
+  douyinChatWatchdog?.unref?.();
+  // 新方案：douyin-im 长连接（不用浏览器）。开关开着且登录过就自动恢复。
+  scheduleDouyinImResume();
+  // 调试用：IM 目录里有 selftest.flag 时，启动后自动验证一次「消息 → DSH 会话 → 回复」。
+  scheduleDouyinImSelftest();
 
   // 保存设置后如果开启了“随插件自动启动”，这里也覆盖一次。
   ctx.effect(() => () => {
@@ -3867,6 +3894,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
     try { petPurpose.stop?.(); } catch {}
     if (petHostTimer) clearInterval(petHostTimer);
     if (typeof douyinChatWatchdog !== 'undefined') clearInterval(douyinChatWatchdog);
+    try { disposeDouyinIm(); } catch {}
     try { sessionEventOff?.(); } catch {}
     try { billing.dispose(); } catch {}
     try { tokenBudget.dispose(); } catch {}

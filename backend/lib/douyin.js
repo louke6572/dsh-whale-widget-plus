@@ -17,7 +17,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { STATE_DIR, findNodeExe, maskPath } from './paths.js';
 import { readJson, readUnified, saveUnified, writeJsonAtomic } from './store.js';
 import { DEFAULT_DOUYIN, normalizeDouyinConfig } from './douyin-config.mjs';
@@ -651,8 +651,8 @@ export async function douyinDebrief({ awemeId, url, danmakuLimit = 15, commentMa
 // 配置的昵称才调模型；回复本身还要过长度/去重/频次/禁词闸门。
 // 模型不额外要 Key：用 DSH 的默认模型路由（ctx.agentDefaultModel + ctx.llm）。
 let chatModel = null;
-export function configureDouyinChatModel({ llm, attachments, getSelection } = {}) {
-  chatModel = { llm, attachments, getSelection };
+export function configureDouyinChatModel({ llm, attachments, getSelection, sessionController } = {}) {
+  chatModel = { llm, attachments, getSelection, sessionController };
 }
 
 /** 聊天回复用哪个模型：优先「对话」页的全局模型，其次抖音页里的旧设置，最后跟随 DSH 默认。 */
@@ -667,9 +667,175 @@ function chatSelectedModel() {
   return { provider: fallback.provider || '', model: fallback.model || '', ...(fallback.reasoningEffort ? { reasoningEffort: fallback.reasoningEffort } : {}) };
 }
 
+const replySessionIds = new Map();
+const replySessionModels = new Map();
+
+function replySessionId(conversation) {
+  const key = String(conversation?.id || conversation?.displayName || 'default');
+  let id = replySessionIds.get(key);
+  if (!id) {
+    id = `douyin-im-${createHash('sha256').update(key).digest('hex').slice(0, 16)}`;
+    replySessionIds.set(key, id);
+  }
+  return id;
+}
+
+/** 每个抖音会话对应一个 DSH 会话：侧栏能看到对话和思考，模型/工具走 DSH 正常配置。 */
+async function ensureReplySession(controller, conversation) {
+  const sessionId = replySessionId(conversation);
+  try { await controller.inspect(sessionId); return sessionId; } catch { /* 还没建过 */ }
+  try {
+    await controller.create({ sessionId, cwd: DOUYIN_DIR, agentPreset: 'douyin-chat' });
+  } catch (error) {
+    // 不退回默认预设：默认会话带本地工具，抖音里的人不能有这种权限。
+    throw new Error(`抖音回复会话没建起来（需要新版 profile 里的 douyin-chat 预设，请重启 DSH）：${String(error?.message ?? error).slice(0, 160)}`);
+  }
+  return sessionId;
+}
+
+async function applySessionModel(controller, sessionId, selection) {
+  if (!selection?.provider || !selection?.model) return;
+  const key = `${selection.provider}|${selection.model}|${selection.reasoningEffort ?? ''}`;
+  if (replySessionModels.get(sessionId) === key) return;
+  try {
+    await controller.selectModel({
+      sessionId,
+      provider: selection.provider,
+      model: selection.model,
+      ...(selection.reasoningEffort ? { reasoningEffort: selection.reasoningEffort } : {}),
+    });
+    replySessionModels.set(sessionId, key);
+  } catch (error) {
+    // 切不过去就继续用会话当前模型：回复本身不能因为模型切换失败而丢。
+    replySessionModels.delete(sessionId);
+    log(`[抖音] 会话模型切换失败（继续用会话默认模型）：${String(error?.message ?? error).slice(0, 120)}`);
+  }
+}
+
+/** 把 vendor 整理好的对话转成「一轮抖音消息」的提示词；图片按 DSH 会话的 image part 带上。 */
+function buildSessionPrompt({ messages, conversation }) {
+  const images = [];
+  const lines = [];
+  for (const message of Array.isArray(messages) ? messages : []) {
+    const who = message?.role === 'assistant' ? '我' : '对方';
+    if (typeof message?.content === 'string') {
+      const text = message.content.trim();
+      if (text) lines.push(`${who}：${text}`);
+      continue;
+    }
+    for (const part of Array.isArray(message?.content) ? message.content : []) {
+      if (part?.type === 'text' && String(part.text ?? '').trim()) lines.push(`${who}：${String(part.text).trim()}`);
+      else if (part?.type === 'image_url') {
+        const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/.exec(part.image_url?.url ?? '');
+        if (match) images.push({ type: 'image', mediaType: match[1], data: match[2] });
+      }
+    }
+  }
+  const header = [
+    `【抖音会话】${conversation?.displayName || '未知会话'}${conversation?.isGroup === true ? '（群聊）' : '（私聊）'}`,
+    '下面是一轮抖音私信/群聊上下文，最后一条是刚收到的消息。只输出要发出去的回复：',
+    '- 1~3 句口语，不要 Markdown，不要旁白，不要解释自己在做什么，不要说“已发送”之类的话；',
+    '- 不要复读上面的历史消息，也不要输出表情 id 或任何系统标记。',
+    '',
+  ].join('\n');
+  return { text: `${header}${lines.join('\n')}`, images: images.slice(0, 4) };
+}
+
+/** 从 wait 返回的会话事件里取最后一条带文字的 assistant 消息（思考/工具调用不算回复）。 */
+function extractSessionReply(outcome) {
+  const texts = [];
+  for (const record of outcome?.output?.records ?? []) {
+    if (record?.type !== 'event') continue;
+    const event = record.event;
+    if (event?.type !== 'assistant/message' || event.surfaceOp !== 'append') continue;
+    const content = event.data?.message?.content;
+    if (!Array.isArray(content)) continue;
+    const text = content
+      .filter((block) => block?.type === 'text' && typeof block.text === 'string')
+      .map((block) => block.text)
+      .join('')
+      .trim();
+    if (text) texts.push(text);
+  }
+  return texts.at(-1) ?? '';
+}
+
+async function replyThroughSession({ messages, signal, conversation }) {
+  const controller = chatModel?.sessionController;
+  const selection = chatSelectedModel();
+  const sessionId = await ensureReplySession(controller, conversation);
+  await applySessionModel(controller, sessionId, selection);
+  const before = await controller.state({ sessionId }).catch(() => null);
+  const afterSeq = Number.isFinite(before?.cursor) ? before.cursor : undefined;
+  const prompt = buildSessionPrompt({ messages, conversation });
+  signal?.throwIfAborted();
+  await controller.prompt({
+    requestId: `douyin-reply-${randomUUID()}`,
+    sessionId,
+    mode: 'queue',
+    content: [{ type: 'text', text: prompt.text }, ...prompt.images],
+  }, signal);
+  const outcome = await controller.wait({
+    sessionId,
+    ...(afterSeq === undefined ? {} : { afterSeq }),
+    maxMessages: 30,
+    timeoutMs: 170_000,
+  }, signal);
+  if (outcome?.reason === 'input-required') {
+    try { await controller.cancel({ sessionId }); } catch { /* 取消失败也要报错回去 */ }
+    throw new Error('DSH 会话在等待人工确认，已取消本轮回复');
+  }
+  const text = extractSessionReply(outcome);
+  if (!text) throw new Error('DSH 会话没有给出可发送的回复');
+  return { text, usage: {} };
+}
+
+/** 抖音 IM（douyin-im）用：把一批新消息投进该会话对应的 DSH 会话，返回要发出去的文本。 */
+export async function douyinSessionReply({ conversationKey, displayName, isGroup, text, signal }) {
+  const bridge = chatModel;
+  const controller = bridge?.sessionController;
+  if (!controller || typeof controller.prompt !== 'function' || typeof controller.wait !== 'function') throw new Error('DSH 会话服务没就绪');
+  const selection = chatSelectedModel();
+  const sessionId = await ensureReplySession(controller, { id: conversationKey, displayName, isGroup });
+  await applySessionModel(controller, sessionId, selection);
+  const before = await controller.state({ sessionId }).catch(() => null);
+  const afterSeq = Number.isFinite(before?.cursor) ? before.cursor : undefined;
+  const header = [
+    `【抖音会话】${displayName || '未知会话'}${isGroup ? '（群聊）' : '（私聊）'}`,
+    '下面是刚收到的新消息。只输出要发出去的回复：',
+    '- 1~3 句口语，不要 Markdown，不要旁白，不要解释自己在做什么，不要说“已发送”之类的话；',
+    '- 不要复读历史消息，也不要输出表情 id 或任何系统标记。',
+    '',
+  ].join('\n');
+  signal?.throwIfAborted();
+  await controller.prompt({
+    requestId: `douyin-im-${randomUUID()}`,
+    sessionId,
+    mode: 'queue',
+    content: [{ type: 'text', text: `${header}${text}` }],
+  }, signal);
+  const outcome = await controller.wait({
+    sessionId,
+    ...(afterSeq === undefined ? {} : { afterSeq }),
+    maxMessages: 30,
+    timeoutMs: 170_000,
+  }, signal);
+  if (outcome?.reason === 'input-required') {
+    try { await controller.cancel({ sessionId }); } catch { /* 取消失败也要报错 */ }
+    throw new Error('DSH 会话在等待人工确认，已取消本轮回复');
+  }
+  const reply = extractSessionReply(outcome);
+  if (!reply) throw new Error('DSH 会话没有给出可发送的回复');
+  return reply;
+}
+
 function createReplyProvider() {
-  return async ({ system, messages, signal, maxTokens }) => {
+  return async ({ system, messages, signal, maxTokens, conversation }) => {
     const bridge = chatModel;
+    const controller = bridge?.sessionController;
+    if (controller && typeof controller.prompt === 'function' && typeof controller.wait === 'function') {
+      return replyThroughSession({ messages, signal, conversation });
+    }
     if (!bridge?.llm?.stream) throw new Error('DSH 模型服务未就绪，无法自动回复');
     const selection = chatSelectedModel();
     if (!selection.provider || !selection.model) throw new Error('没有可用的聊天模型：请到设置里选一个，或先在 DSH 里设置默认模型');
@@ -742,6 +908,8 @@ async function getChatService() {
       replyProvider: createReplyProvider(),
       personaMemory,
       getMemoryStore: () => controller.store(),
+      // 走 DSH 会话时一轮可能带搜索/整理，45 秒不够；超时由 wait 自己控制。
+      timeoutMs: 210_000,
     });
     return new ChatService({
       browser,
@@ -826,8 +994,15 @@ export async function douyinChatConfigure({ recipientIds, mentionNames, allowCon
   return chatSummary(state);
 }
 
+/** 旧浏览器私信已退役：只有显式 legacyBrowser 才允许走这条路，避免和 douyin-im 重复回复。 */
+function assertLegacyBrowserChat() {
+  if (readUnified()?.config?.douyin?.chat?.legacyBrowser === true) return;
+  throw new Error('旧的浏览器私信已退役：现在用设置页「私信 / 群聊（长连接）」（douyin-im，不需要开浏览器）');
+}
+
 /** 一步完成：写开关 + 许可名单 + 启动（设置页只留一个主按钮）。 */
 export async function douyinChatSetup({ recipientIds, mentionNames } = {}) {
+  assertLegacyBrowserChat();
   const names = normalizeMentionNames(mentionNames?.length ? mentionNames : douyinConfig().chat.mentionNames);
   saveUnified({ douyin: { chat: { enabled: true, mentionNames: names } } });
   const chat = await getChatService();
@@ -838,6 +1013,7 @@ export async function douyinChatSetup({ recipientIds, mentionNames } = {}) {
 
 /** 会话身份变化后会 paused；重新核对许可并重启一次。 */
 export async function douyinChatRecover() {
+  assertLegacyBrowserChat();
   const chat = await getChatService();
   const state = chat.state();
   const ids = (state?.policy?.allowlist ?? []).map((item) => String(item.id)).filter(Boolean);
@@ -850,33 +1026,38 @@ export async function douyinChatRecover() {
   return douyinChatStatus();
 }
 
+/** 自动回复必须在后台跑：窗口没开就补开，开着就先最小化，再把消息页准备好。 */
+async function prepareChatWindow() {
+  let running = false;
+  try { running = Boolean((await douyinStatus())?.browser?.running); } catch { /* 读不到状态就按没开来处理 */ }
+  if (!running) { try { await douyinOpen(); } catch { /* 打不开由后面的 start 报出来 */ } }
+  // 消息页不打开，后台不会自己新建标签；这里主动打开一次（失败就交给 start 的错误提示）。
+  try { await douyinChatContacts(); } catch { /* 登录/加载失败时仍尝试启动 */ }
+  // 原插件在窗口前台会暂停轮询；最小化之后才会继续读消息和发送。
+  try { await douyinChatMinimize(); } catch { /* 最小化失败时由 start 的 CHAT_FOREGROUND 决定是否重试 */ }
+}
+
 export async function douyinChatStart() {
+  assertLegacyBrowserChat();
   if (!douyinConfig().chat.enabled) throw new Error('先打开「被 @ / 叫到名字时自动回复」开关');
   const chat = await getChatService();
   const policy = chat.state().policy;
   if (!policy?.allowlist?.length) throw new Error('先列出会话并保存许可名单，再启动自动回复');
   // 好友互动总开关（原插件默认开；这里显式写一次，避免被别的流程关掉）
   writeJsonAtomic(path.join(DOUYIN_STATE_DIR, 'friend-interactions-policy.json'), { version: 1, enabled: true });
+  await prepareChatWindow();
   await chat.start({ schedule: true });
   return douyinChatStatus();
 }
 
 /** 一键开启：用已保存的群，自动开窗/开消息页、最小化并启动；第一次才需要去高级设置选群。 */
 export async function douyinChatEnable() {
+  assertLegacyBrowserChat();
   const chat = await getChatService();
   const ids = (chat.state()?.policy?.allowlist ?? []).map((item) => String(item.id)).filter(Boolean);
   if (!ids.length) throw new Error('还没有选群：展开「高级设置」，点「列出会话」并保存一次，之后再打开开关即可');
   saveUnified({ douyin: { chat: { enabled: true } } });
-  try {
-    const status = await douyinStatus();
-    if (!status?.browser?.running) await douyinOpen();
-  } catch { /* 打不开就让下面的启动报出来 */ }
-  // 消息页不打开，后台不会自己新建标签；这里主动打开一次。
-  try { await douyinChatContacts(); } catch { /* 登录/加载失败时仍尝试启动 */ }
-  try { await douyinChatMinimize(); } catch { /* 最小化失败不影响启动 */ }
-  writeJsonAtomic(path.join(DOUYIN_STATE_DIR, 'friend-interactions-policy.json'), { version: 1, enabled: true });
-  await chat.start({ schedule: true });
-  return douyinChatStatus();
+  return douyinChatStart();
 }
 
 export async function douyinChatStop() {
@@ -983,6 +1164,8 @@ export async function douyinChatMinimize() {
 /** 插件启动/保存后：如果配置开着且有许可名单，就恢复自动回复。 */
 export async function douyinChatResume() {
   try {
+    // 默认走 douyin-im（长连接，不用浏览器）；旧的浏览器私信只有显式 legacyBrowser 才恢复。
+    if (readUnified()?.config?.douyin?.chat?.legacyBrowser !== true) return { ok: true, skipped: 'douyin-im' };
     if (!douyinConfig().chat.enabled) {
       if (chatPromise) {
         const running = chatPromise.then((chat) => chat.state()).then((state) => Boolean(state?.running)).catch(() => false);

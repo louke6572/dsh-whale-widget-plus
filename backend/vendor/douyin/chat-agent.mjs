@@ -171,7 +171,7 @@ export class ChatAgent {
       const cancelled = new Promise((_, reject) => { abortHandler = () => reject(combined.reason); combined.addEventListener('abort', abortHandler, { once: true }); });
       const generated = Promise.resolve().then(async () => {
         combined.throwIfAborted();
-        if (this.replyProvider) return this.replyProvider({ system: systemPrompt, messages: content, signal: combined, maxTokens: this.replyTokens });
+        if (this.replyProvider) return this.replyProvider({ system: systemPrompt, messages: content, signal: combined, maxTokens: this.replyTokens, conversation });
         const response = await this.fetchImpl(`${this.config.baseUrl}/chat/completions`, {
           method: 'POST', redirect: 'error', signal: combined,
           headers: { authorization: `Bearer ${this.config.apiKey}`, 'content-type': 'application/json' },

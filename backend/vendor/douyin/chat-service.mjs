@@ -774,7 +774,7 @@ export class ChatService {
         budget.attempts++; queue.generationAttempts = (queue.generationAttempts || 0) + 1; queue.state = 'model';
         while (Object.keys(queue.generationContexts).length > 32) delete queue.generationContexts[Object.keys(queue.generationContexts)[0]];
         this.watermarks.days[dayKey()] = (this.watermarks.days[dayKey()] || 0) + 1; this.persist();
-        try { const reply = await this.agent.reply({ messages: context, mediaObservations: [], conversation: { displayName: contact.name, isGroup: contact.isGroup }, signal }); signal.throwIfAborted(); queue.text = normalizeChatReplyText(reply.text); queue.usage = reply.usage; queue.replySource = 'one-current-context-regeneration'; }
+        try { const reply = await this.agent.reply({ messages: context, mediaObservations: [], conversation: { id: contact.id, displayName: contact.name, isGroup: contact.isGroup }, signal }); signal.throwIfAborted(); queue.text = normalizeChatReplyText(reply.text); queue.usage = reply.usage; queue.replySource = 'one-current-context-regeneration'; }
         catch (error) { if (signal.aborted) throw error; this.backlogPause(mark, 'bounded-generation-failed'); return; }
       }
       queue.watermark = messageWatermark(messages, snapshot); this.persist();
@@ -966,7 +966,7 @@ export class ChatService {
           mark.pending = { phase: 'model', incoming:pendingIncoming,recoveryEvidence:evidence, at: new Date().toISOString() }; this.persist();
           this.log('message.received', { recipientId: contact.id, messages: incoming.map((item) => ({ id: item.id, text: item.text })) });
           const outputCatalog = this.outputAssets?.catalog() ?? [];
-          const reply = await this.agent.reply({ messages: replyContext, mediaObservations, outputCatalog, conversation: { displayName: contact.name, isGroup: contact.isGroup }, signal }); signal.throwIfAborted();
+          const reply = await this.agent.reply({ messages: replyContext, mediaObservations, outputCatalog, conversation: { id: contact.id, displayName: contact.name, isGroup: contact.isGroup }, signal }); signal.throwIfAborted();
           if(this.groupVideos&&contact.isGroup===true)for(const item of mediaMessages){const observed=mediaObservations.find(value=>value.messageId===item.id);if(observed)try{this.groupVideos.adoptReplyObservation(contact,item,observed,reply.text);}catch{this.log('group_video.note_unavailable',{recipientId:contact.id,code:'GROUP_VIDEO_JOURNAL_UNAVAILABLE'});}}
           mark.pending.generatedText = reply.text; if(reply.stickerId)mark.pending.stickerId=reply.stickerId; this.persist();
           // 生成期间若用户已经回复，或对方又发消息，跳过本次发送。
