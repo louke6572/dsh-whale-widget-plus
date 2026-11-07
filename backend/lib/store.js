@@ -179,6 +179,17 @@ export const DEFAULT_UNIFIED = {
     autoRollback: true,
     failureThreshold: 3,
   },
+  // 功能模块（设置栏位）启停：默认全开；停用后对应导航隐藏、接口返回 410。
+  modules: {
+    bili: true,
+    tieba: true,
+    douyin: true,
+    qq: true,
+    characters: true,
+    memory: true,
+    pet: true,
+    voice: true,
+  },
   ui: { activeTab: 'overview', showAdvanced: false },
   // 组件更新（2026-10-26）：只做 git 快进；`components` 里可以自己加 `{id,name,dir,branch}`。
   updates: {
@@ -717,6 +728,12 @@ function normalizeUnified(config) {
     autoRollback: boolOr(capRaw.autoRollback, true),
     failureThreshold: clamp(capRaw.failureThreshold, 1, 10, 3),
   };
+  // 模块启停：只收已知模块 id，未知键直接丢弃（防止设置页写进垃圾键）。
+  const modulesRaw = isPlainObject(next.modules) ? next.modules : {};
+  next.modules = Object.fromEntries(
+    ['bili', 'tieba', 'douyin', 'qq', 'characters', 'memory', 'pet', 'voice']
+      .map((id) => [id, boolOr(modulesRaw[id], true)]),
+  );
   return next;
 }
 

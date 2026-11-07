@@ -84,6 +84,7 @@ import { contentTypeRejection, isLoopbackReq, json, readBody, readJsonBody, same
 import { startScheduler } from './scheduler.js';
 import { createTokenBudgetService } from './token-budget.js';
 import { createCapabilityRegistry } from './capability-registry.js';
+import { CAPABILITY_MODULE, isModuleEnabled, moduleForPath, moduleList } from './modules.js';
 import { synthesizeEdgeToFile } from '../../src/voice-edge-tts.js';
 import { scanPluginCompatibility } from './compat.js';
 import { createGateEventStore } from '../../src/gate-events.js';
@@ -960,6 +961,11 @@ export function apply(ctx) {
         output: toolOutput,
         async execute(args) {
           const capability = String(args?.capability ?? '').trim();
+          const capModule = CAPABILITY_MODULE[capability];
+          if (capModule && !isModuleEnabled(readUnified().config, capModule)) {
+            const result = { ok: false, capability, disabled: true, error: `模块「${capModule}」已停用，这项能力暂不可用。` };
+            return { tool: 'dsh_capability_call', result, images: [], imageStatus: '' };
+          }
           const input = args?.input && typeof args.input === 'object' && !Array.isArray(args.input) ? args.input : {};
           const result = await capabilityRegistry.invoke(capability, input);
           return { tool: 'dsh_capability_call', result, images: [], imageStatus: '' };
@@ -2570,6 +2576,35 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
     json(res, 400, { ok: false, code: 'CAPABILITY_ACTION', error: `未知操作：${action}` });
   }
 
+  // ── 功能模块接口（设置 → 模块中心）──────────────────────────────────────
+  // 每个设置栏位是一个模块：停用后导航立刻隐藏、对应接口前缀返回 410。
+  // 状态存在 unified.modules，切换立即保存，不依赖设置页的总保存按钮。
+  async function handleModules(req, res) {
+    const method = String(req.method || 'GET').toUpperCase();
+    if (method === 'GET') {
+      json(res, 200, { ok: true, modules: moduleList(readUnified().config) });
+      return;
+    }
+    if (method !== 'POST') {
+      json(res, 405, { ok: false, code: 'MODULE_METHOD', error: '只支持 GET / POST' });
+      return;
+    }
+    const body = await readJsonBody(req);
+    const id = String(body.id ?? '').trim();
+    const enabled = body.enabled === true;
+    if (!moduleList({}).some((item) => item.id === id)) {
+      json(res, 400, { ok: false, code: 'MODULE_UNKNOWN', error: `未知模块：${id}` });
+      return;
+    }
+    saveUnified({ modules: { [id]: enabled } });
+    if (!enabled && id === 'douyin') {
+      // 抖音模块一停就连观看一起收掉，避免「页面关了浏览器还在跑」。
+      try { await douyinStop(); } catch {}
+    }
+    pluginLog(`[module] ${id} → ${enabled ? '启用' : '停用'}`);
+    json(res, 200, { ok: true, modules: moduleList(readUnified().config) });
+  }
+
   // 合并后的产品名/版本：设置页标题跟 dsh-Dfy 主包保持一致（2026-11 用户要求）。
   // 版本直接读合并包 package.json，避免设置页还显示 SurfCore 自己的版本号。
   function mergedPluginInfo() {
@@ -4045,6 +4080,12 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
     const pathname = url.pathname;
     if (pathname === `${API_PREFIX}/overview`) { json(res, 200, await overview()); return; }
     if (pathname === `${API_PREFIX}/config`) { await handleConfig(req, res); return; }
+    // 模块闸门：被停用的模块，它的接口前缀一律 410（核心接口不在映射表里，永远放行）。
+    const gatedModule = moduleForPath(pathname, API_PREFIX);
+    if (gatedModule && !isModuleEnabled(readUnified().config, gatedModule)) {
+      json(res, 410, { ok: false, code: 'MODULE_DISABLED', module: gatedModule, error: `模块「${gatedModule}」已停用，可在 系统 → 模块中心 启用。` });
+      return;
+    }
     if (pathname === `${API_PREFIX}/characters`) { await handleCharacters(req, res, url); return; }
     if (pathname === `${API_PREFIX}/persona`) { await handlePersona(req, res); return; }
     if (pathname === `${API_PREFIX}/limit-mute`) { await handleLimitMute(req, res); return; }
@@ -4065,6 +4106,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
     if (pathname === `${API_PREFIX}/platforms`) { await handlePlatforms(req, res); return; }
     if (pathname === `${API_PREFIX}/models`) { await handleModels(req, res); return; }
     if (pathname === `${API_PREFIX}/capabilities`) { await handleCapabilities(req, res); return; }
+    if (pathname === `${API_PREFIX}/modules`) { await handleModules(req, res); return; }
     if (pathname.startsWith(`${API_PREFIX}/tieba`)) { await handleTieba(req, res, url); return; }
     if (pathname.startsWith(`${API_PREFIX}/douyin`)) { await handleDouyin(req, res, url); return; }
     if (pathname === `${API_PREFIX}/compat/scan`) {
