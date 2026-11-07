@@ -46,7 +46,7 @@ import {
 import { cancelTiebaQrLogin, pollTiebaQrLogin, startTiebaQrLogin } from './tieba-qr-login.mjs';
 import {
   configureDouyinChatModel, configureDouyinLog, disposeDouyin, douyinAutoTick, douyinChatConfigure,
-  douyinChatContacts, douyinChatMinimize, douyinChatModels, douyinChatRead, douyinChatRecover, douyinChatResume, douyinChatSetModel, douyinChatSetup, douyinChatStart, douyinChatStatus, douyinChatStop,
+  douyinChatContacts, douyinChatEnable, douyinChatMinimize, douyinChatModels, douyinChatRead, douyinChatRecover, douyinChatResume, douyinChatSetModel, douyinChatSetup, douyinChatStart, douyinChatStatus, douyinChatStop,
   douyinComments, douyinCurrent, douyinDebrief, douyinNext, douyinNotices,
   douyinOpen,
   douyinSearch, douyinStart, douyinStatus, douyinStop, douyinSummary, douyinSyncPolicy,
@@ -3582,7 +3582,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
     try { body = await readJsonBody(req); } catch { json(res, 400, { ok: false, error: '请求体不是合法 JSON' }); return; }
     const action = String(body.action ?? '');
     if (!['open', 'current', 'next', 'search', 'start', 'stop', 'apply', 'status', 'summary', 'comments', 'notices', 'debrief',
-      'chat-status', 'chat-contacts', 'chat-configure', 'chat-start', 'chat-stop', 'chat-read', 'chat-minimize', 'chat-models', 'chat-set-model', 'chat-setup', 'chat-recover'].includes(action)) {
+      'chat-status', 'chat-contacts', 'chat-configure', 'chat-start', 'chat-stop', 'chat-read', 'chat-minimize', 'chat-models', 'chat-set-model', 'chat-setup', 'chat-recover', 'chat-enable'].includes(action)) {
       json(res, 400, { ok: false, error: `未知抖音动作：${action || '（空）'}` });
       return;
     }
@@ -3608,6 +3608,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
       else if (action === 'chat-models') result = await douyinChatModels();
       else if (action === 'chat-set-model') result = await douyinChatSetModel({ provider: body.provider, model: body.model });
       else if (action === 'chat-setup') result = await douyinChatSetup({ recipientIds: body.recipientIds, mentionNames: body.mentionNames });
+      else if (action === 'chat-enable') result = await douyinChatEnable();
       else if (action === 'chat-recover') result = await douyinChatRecover();
       else { if (action === 'apply') douyinSyncPolicy(); result = await douyinStatus(); }
       if (result?.ok === false) { json(res, 400, result); return; }
@@ -3842,6 +3843,21 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
   // IM 恢复放在更晚一点：先让浏览器/登录就绪，再按配置启动被@自动回复。
   const douyinChatTimer = setTimeout(() => { douyinChatResume().catch(() => {}); }, 35_000);
   douyinChatTimer.unref?.();
+  // 群聊开着时，窗口被关掉会自动补开（否则原插件会一直记 BROWSER_NOT_RUNNING 而不回复）。
+  const douyinChatWatchdog = setInterval(async () => {
+    try {
+      if (readUnified().config?.douyin?.chat?.enabled !== true) return;
+      const status = await douyinStatus();
+      if (status?.browser?.running) return;
+      pluginLog('[抖音] 群聊需要窗口：自动打开专用窗口并最小化');
+      await douyinOpen();
+      try { await douyinChatContacts(); } catch { /* 消息页加载失败时下一轮再试 */ }
+      try { await douyinChatMinimize(); } catch { /* 最小化失败不影响轮询 */ }
+    } catch (error) {
+      pluginLog(`[抖音] 自动打开专用窗口失败：${String(error?.message ?? error).slice(0, 160)}`);
+    }
+  }, 60_000);
+  douyinChatWatchdog.unref?.();
 
   // 保存设置后如果开启了“随插件自动启动”，这里也覆盖一次。
   ctx.effect(() => () => {
@@ -3850,6 +3866,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
     try { updates.dispose(); } catch {}
     try { petPurpose.stop?.(); } catch {}
     if (petHostTimer) clearInterval(petHostTimer);
+    if (typeof douyinChatWatchdog !== 'undefined') clearInterval(douyinChatWatchdog);
     try { sessionEventOff?.(); } catch {}
     try { billing.dispose(); } catch {}
     try { tokenBudget.dispose(); } catch {}

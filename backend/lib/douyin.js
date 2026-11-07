@@ -861,6 +861,24 @@ export async function douyinChatStart() {
   return douyinChatStatus();
 }
 
+/** 一键开启：用已保存的群，自动开窗/开消息页、最小化并启动；第一次才需要去高级设置选群。 */
+export async function douyinChatEnable() {
+  const chat = await getChatService();
+  const ids = (chat.state()?.policy?.allowlist ?? []).map((item) => String(item.id)).filter(Boolean);
+  if (!ids.length) throw new Error('还没有选群：展开「高级设置」，点「列出会话」并保存一次，之后再打开开关即可');
+  saveUnified({ douyin: { chat: { enabled: true } } });
+  try {
+    const status = await douyinStatus();
+    if (!status?.browser?.running) await douyinOpen();
+  } catch { /* 打不开就让下面的启动报出来 */ }
+  // 消息页不打开，后台不会自己新建标签；这里主动打开一次。
+  try { await douyinChatContacts(); } catch { /* 登录/加载失败时仍尝试启动 */ }
+  try { await douyinChatMinimize(); } catch { /* 最小化失败不影响启动 */ }
+  writeJsonAtomic(path.join(DOUYIN_STATE_DIR, 'friend-interactions-policy.json'), { version: 1, enabled: true });
+  await chat.start({ schedule: true });
+  return douyinChatStatus();
+}
+
 export async function douyinChatStop() {
   saveUnified({ douyin: { chat: { enabled: false } } });
   const chat = await getChatService();
