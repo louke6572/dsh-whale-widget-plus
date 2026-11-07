@@ -55,7 +55,21 @@ function writeState(next) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
-  fs.renameSync(tmp, file);
+  // Windows 下目标文件被杀毒 / 索引短暂占用时 rename 会抛 EPERM/EBUSY；
+  // 桥接和插件宿主都可能写这份状态，重试几次比直接丢掉一次情绪/口头禅更划算。
+  let lastError = null;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      fs.renameSync(tmp, file);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!['EPERM', 'EBUSY', 'EACCES'].includes(error?.code)) break;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+    }
+  }
+  try { fs.unlinkSync(tmp); } catch (error) { /* 临时文件清理失败不影响结果 */ }
+  throw lastError;
 }
 
 function normalizeQuirks(value) {

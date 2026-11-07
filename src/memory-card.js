@@ -78,8 +78,9 @@ export const DEFAULT_MEMORY_CARD_CONFIG = Object.freeze({
   fullMaxRecords: 0,
   /** 全量卡 md 导出只在档案小于这个字节数时生成（否则写占位，避免 10GB 档案再复制一份）。 */
   fullMarkdownMaxBytes: 5 * 1024 * 1024,
-  /** 语义整理：每天最多一次，把重复/寒暄合并成干净事实（用的是模型，所以默认只在记录够多时跑）。 */
-  organize: Object.freeze({ enabled: true, diary: true, minRecords: 40, lastRunAt: 0, lastMerged: 0, lastDropped: 0 }),
+  /** 语义整理：每天最多一次，把重复/寒暄合并成干净事实（用的是模型，所以默认只在记录够多时跑）。
+   *  默认关闭：整理会归档原始记录，属于破坏性操作，必须由用户在「记忆卡」页显式开启。 */
+  organize: Object.freeze({ enabled: false, diary: false, minRecords: 40, lastRunAt: 0, lastMerged: 0, lastDropped: 0 }),
 });
 
 /** 记忆来源 → 平台模块。 */

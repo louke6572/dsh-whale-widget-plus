@@ -1463,6 +1463,8 @@ ${body}`;
         ...memoryCardSnapshot(config, { recordLimit }),
         organize: {
           enabled: organize.enabled === true,
+          // 未显式写过时按默认（关）；这里必须回读，否则前端「每天自动写日记」开关永远是开的。
+          diary: organize.diary === true,
           lastRunAt: Number(organize.lastRunAt) || 0,
           lastMerged: Number(organize.lastMerged) || 0,
           lastDropped: Number(organize.lastDropped) || 0,
@@ -1500,7 +1502,12 @@ ${body}`;
       return;
     }
     if (action === 'organize-config') {
-      saveUnified({ memoryCard: { organize: { enabled: body.enabled === true } } });
+      // enabled 和 diary 是两个独立开关：前端「每天自动写日记」只发 diary，
+      // 之前这里只认 enabled，导致该开关保存后被丢弃、下次读回又显示成开。
+      const patch = {};
+      if (typeof body.enabled === 'boolean') patch.enabled = body.enabled;
+      if (typeof body.diary === 'boolean') patch.diary = body.diary;
+      if (Object.keys(patch).length) saveUnified({ memoryCard: { organize: patch } });
       json(res, 200, memoryCardSnapshot(config));
       return;
     }

@@ -7242,7 +7242,11 @@ async function main(options = {}) {
                   ? '云端声音复刻服务（8767）没起来，或音色名不存在'
                   : (route === 'online'
                     ? '免费在线模型偶尔排队或失败，重试一次；需要联网'
-                    : '需要联网；微软 Edge 端点偶尔超时，重试一次即可')),
+                    : (route === 'doubao'
+                      ? '检查豆包 AppID / Access Token 是否填对，音色 voice_type 是否已开通'
+                      : (route === 'qwen'
+                        ? '检查百炼 API Key 是否有效、免费额度是否用完'
+                        : '需要联网；微软 Edge 端点偶尔超时，重试一次即可')))),
             }, 502);
           }
           return;

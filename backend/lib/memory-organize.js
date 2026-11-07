@@ -282,13 +282,16 @@ export function createMemoryOrganizer({ ctx, log = () => {}, tokenBudget = null 
     const groups = [];
     let current = null;
     for (const record of alive) {
-      const key = String(record.conversationKey || record.key || '').trim() || `${record.platform || 'qq'}|${record.speaker || ''}`;
+      const scope = String(record.scope || 'qq');
+      const base = String(record.conversationKey || record.key || '').trim() || `${record.platform || 'qq'}|${record.speaker || ''}`;
+      // scope 必须参与分组：QQ 私聊流水和公开平台经历不能合成一条，否则合并结果会被写成错的来源。
+      const key = `${scope}|${base}`;
       const at = Date.parse(record.date || record.createdAt || 0) || 0;
       if (current && current.key === key && Math.abs(at - current.lastAt) <= 45 * 60_000) {
         current.items.push(record);
         current.lastAt = at;
       } else {
-        current = { key, items: [record], lastAt: at };
+        current = { key, scope, items: [record], lastAt: at };
         groups.push(current);
       }
     }
@@ -308,7 +311,7 @@ export function createMemoryOrganizer({ ctx, log = () => {}, tokenBudget = null 
         text: parts.join('；').slice(0, 300),
         importance,
         tags: ['merged', 'local'],
-        scope: 'qq',
+        scope: group.scope || 'qq',
       }, { config });
       if (!added?.ok) continue;
       merged += 1;
@@ -405,30 +408,42 @@ export function createMemoryOrganizer({ ctx, log = () => {}, tokenBudget = null 
     let merged = 0;
     let dropped = 0;
     let archived = 0;
+    let removedTotal = 0;
+    // 合并结果沿用原记录的 scope（含 pet 时保持 pet），避免把公开平台经历改写成 QQ 私聊。
+    const scopeForIds = (ids) => {
+      const scopes = ids
+        .map((id) => records.find((record) => String(record.id) === String(id)))
+        .filter(Boolean)
+        .map((record) => String(record.scope || 'qq'));
+      if (scopes.includes('pet')) return 'pet';
+      if (scopes.length && scopes.every((scope) => scope === 'bili')) return 'bili';
+      return 'qq';
+    };
     for (const item of merges) {
       const added = await applyMemoryCardAction('add', {
         title: item.title,
         text: item.text,
         importance: item.importance,
         tags: [...item.tags, 'merged'],
-        scope: 'qq',
+        scope: scopeForIds(item.ids),
       }, { config });
       if (!added?.ok) continue;
       merged += 1;
       for (const id of item.ids) {
         const result = await applyMemoryCardAction('forget', { id }, { config });
-        if (result?.ok) archived += Number(result.archived) || 0;
+        if (result?.ok) { archived += Number(result.archived) || 0; removedTotal += 1; }
       }
     }
     for (const id of finalDrops) {
       const result = await applyMemoryCardAction('forget', { id }, { config });
-      if (result?.ok) { dropped += 1; archived += Number(result.archived) || 0; }
+      if (result?.ok) { dropped += 1; archived += Number(result.archived) || 0; removedTotal += 1; }
     }
     log(`[memory-organize] 整理完成：合并 ${merged} 组、删除 ${dropped} 条（输入 ${records.length} 条${partial ? '，输出被截断' : ''}）`);
     return {
       ok: true,
       before: records.length,
-      after: Math.max(0, records.length - merged * 2 - dropped),
+      // after 按实际归档条数算；之前用 merged*2 估算，一组合并 3 条以上时数字会错。
+      after: Math.max(0, records.length - removedTotal),
       merged,
       dropped,
       archived,
@@ -446,7 +461,10 @@ export function createMemoryOrganizer({ ctx, log = () => {}, tokenBudget = null 
     const all = snapshot.records ?? [];
     const diaryExists = all.some((record) => (record.tags ?? []).includes('diary') && String(record.title || '').includes(day));
     if (diaryExists && !force) return { ok: false, reason: 'exists', error: `${day} 的日记已经写过了` };
-    const dayRecords = all.filter((record) => localDateKey(record.date) === day && !(record.tags ?? []).includes('diary'));
+    const dayRecords = all.filter((record) => localDateKey(record.date) === day
+      && !(record.tags ?? []).includes('diary')
+      // 日记只归档 QQ 私聊流水；B站/贴吧/桌宠的记录各自留在原通道，不能被日记吞掉。
+      && String(record.scope || 'qq') === 'qq');
     if (dayRecords.length < 2) return { ok: false, reason: 'too-few', error: `${day} 只有 ${dayRecords.length} 条记录，写不出日记` };
 
     const lines = dayRecords
@@ -490,18 +508,21 @@ export function createMemoryOrganizer({ ctx, log = () => {}, tokenBudget = null 
     return { ok: true, date: day, added: 1, removed, text };
   }
 
-  /** 自动整理：每天写昨日日记 + 定期语义整理（记录够多才跑）。 */
+  /** 自动整理：每天写昨日日记 + 定期语义整理（记录够多才跑）。两个开关互不依赖。 */
   async function autoOrganize({ config = readUnified()?.config?.memoryCard ?? memoryCardConfig(), now = Date.now() } = {}) {
     const auto = config?.organize ?? {};
-    if (auto.enabled !== true) return { ok: false, reason: 'disabled' };
+    const wantOrganize = auto.enabled === true;
+    // diary 默认关闭；只开「每天自动写日记」也应该能跑，不能被 autoOrganize 整段挡住。
+    const wantDiary = auto.diary === true;
+    if (!wantOrganize && !wantDiary) return { ok: false, reason: 'disabled' };
     const out = { ok: false };
-    if (auto.diary !== false) {
+    if (wantDiary) {
       const result = await diary({ force: false, config });
       if (result.ok) { out.ok = true; out.diary = result; }
       else if (result.reason !== 'exists') out.diaryError = result.error || result.reason;
     }
     const lastAt = Number(auto.lastRunAt) || 0;
-    if (now - lastAt >= 20 * 3600_000) {
+    if (wantOrganize && now - lastAt >= 20 * 3600_000) {
       const minRecords = Math.max(10, Math.min(300, Number(auto.minRecords) || 40));
       const snapshot = memoryCardSnapshot(config, { recordLimit: 500 });
       if ((snapshot.records ?? []).length >= minRecords) {
