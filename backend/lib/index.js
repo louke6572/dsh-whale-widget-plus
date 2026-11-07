@@ -46,7 +46,7 @@ import {
 import { cancelTiebaQrLogin, pollTiebaQrLogin, startTiebaQrLogin } from './tieba-qr-login.mjs';
 import {
   configureDouyinChatModel, configureDouyinLog, disposeDouyin, douyinAutoTick, douyinChatConfigure,
-  douyinChatContacts, douyinChatMinimize, douyinChatModels, douyinChatRead, douyinChatResume, douyinChatSetModel, douyinChatStart, douyinChatStatus, douyinChatStop,
+  douyinChatContacts, douyinChatMinimize, douyinChatModels, douyinChatRead, douyinChatRecover, douyinChatResume, douyinChatSetModel, douyinChatSetup, douyinChatStart, douyinChatStatus, douyinChatStop,
   douyinComments, douyinCurrent, douyinDebrief, douyinNext, douyinNotices,
   douyinOpen,
   douyinSearch, douyinStart, douyinStatus, douyinStop, douyinSummary, douyinSyncPolicy,
@@ -3582,7 +3582,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
     try { body = await readJsonBody(req); } catch { json(res, 400, { ok: false, error: '请求体不是合法 JSON' }); return; }
     const action = String(body.action ?? '');
     if (!['open', 'current', 'next', 'search', 'start', 'stop', 'apply', 'status', 'summary', 'comments', 'notices', 'debrief',
-      'chat-status', 'chat-contacts', 'chat-configure', 'chat-start', 'chat-stop', 'chat-read', 'chat-minimize', 'chat-models', 'chat-set-model'].includes(action)) {
+      'chat-status', 'chat-contacts', 'chat-configure', 'chat-start', 'chat-stop', 'chat-read', 'chat-minimize', 'chat-models', 'chat-set-model', 'chat-setup', 'chat-recover'].includes(action)) {
       json(res, 400, { ok: false, error: `未知抖音动作：${action || '（空）'}` });
       return;
     }
@@ -3607,6 +3607,8 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
       else if (action === 'chat-minimize') result = await douyinChatMinimize();
       else if (action === 'chat-models') result = await douyinChatModels();
       else if (action === 'chat-set-model') result = await douyinChatSetModel({ provider: body.provider, model: body.model });
+      else if (action === 'chat-setup') result = await douyinChatSetup({ recipientIds: body.recipientIds, mentionNames: body.mentionNames });
+      else if (action === 'chat-recover') result = await douyinChatRecover();
       else { if (action === 'apply') douyinSyncPolicy(); result = await douyinStatus(); }
       if (result?.ok === false) { json(res, 400, result); return; }
       json(res, 200, { ...result, ok: true });

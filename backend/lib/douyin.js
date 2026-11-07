@@ -756,11 +756,19 @@ async function getChatService() {
 }
 
 function chatSummary(state) {
+  let lastReplyAt = null;
+  try {
+    const receipts = (readJson(path.join(DOUYIN_STATE_DIR, 'outbound-receipts.json'), { receipts: [] })?.receipts ?? [])
+      .filter((item) => item?.confirmed === true && item?.at)
+      .sort((a, b) => String(b.at).localeCompare(String(a.at)));
+    lastReplyAt = receipts[0]?.at ?? null;
+  } catch { /* 没有回执文件时保持空 */ }
   return {
     ok: true,
     running: Boolean(state?.running),
     starting: Boolean(state?.starting),
     busy: Boolean(state?.busy),
+    lastReplyAt,
     allowlist: (state?.policy?.allowlist ?? []).map((item) => ({
       id: String(item.id),
       name: String(item.name ?? ''),
@@ -818,6 +826,30 @@ export async function douyinChatConfigure({ recipientIds, mentionNames, allowCon
   return chatSummary(state);
 }
 
+/** 一步完成：写开关 + 许可名单 + 启动（设置页只留一个主按钮）。 */
+export async function douyinChatSetup({ recipientIds, mentionNames } = {}) {
+  const names = normalizeMentionNames(mentionNames?.length ? mentionNames : douyinConfig().chat.mentionNames);
+  saveUnified({ douyin: { chat: { enabled: true, mentionNames: names } } });
+  const chat = await getChatService();
+  if (chat.state()?.running || chat.state()?.starting) { try { chat.stop({ reason: 'reconfigure' }); } catch { /* 忽略 */ } }
+  await douyinChatConfigure({ recipientIds, mentionNames: names });
+  return douyinChatStart();
+}
+
+/** 会话身份变化后会 paused；重新核对许可并重启一次。 */
+export async function douyinChatRecover() {
+  const chat = await getChatService();
+  const state = chat.state();
+  const ids = (state?.policy?.allowlist ?? []).map((item) => String(item.id)).filter(Boolean);
+  if (!ids.length) throw new Error('还没有许可会话：先列出会话、勾选并保存');
+  const names = normalizeMentionNames(state?.policy?.groupMentionNames?.length ? state.policy.groupMentionNames : douyinConfig().chat.mentionNames);
+  saveUnified({ douyin: { chat: { enabled: true, mentionNames: names } } });
+  if (chat.state()?.running || chat.state()?.starting) { try { chat.stop({ reason: 'recover' }); } catch { /* 忽略 */ } }
+  await chat.configure({ recipientIds: ids, allowConversationOnly: true, groupMentionNames: names });
+  await chat.start({ schedule: true });
+  return douyinChatStatus();
+}
+
 export async function douyinChatStart() {
   if (!douyinConfig().chat.enabled) throw new Error('先打开「被 @ / 叫到名字时自动回复」开关');
   const chat = await getChatService();
@@ -830,6 +862,7 @@ export async function douyinChatStart() {
 }
 
 export async function douyinChatStop() {
+  saveUnified({ douyin: { chat: { enabled: false } } });
   const chat = await getChatService();
   try { chat.stop({ reason: 'user-stop' }); } catch { /* 已经停了 */ }
   return douyinChatStatus();

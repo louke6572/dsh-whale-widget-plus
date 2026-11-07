@@ -1435,7 +1435,13 @@ export class ChatBrowser {
       let clicked = false, monitoring = false, monitor, polling, releaseDispatch, failureStage = 'fill', precheckFailureCode;
       const witnessId = `chat-${hash(`${recipientId}:${Date.now()}:${Math.random()}`)}`;
       try {
-        await editor.fill(message);
+        // 抖音 IM 对可疑的自动输入会静默丢弃：清空后逐字输入（失败再回退 fill）。
+        await editor.fill('');
+        try {
+          await editor.focus();
+          await editor.pressSequentially(message, { delay: 40 });
+        } catch { /* 逐字输入不可用时走回退 */ }
+        if (readableDraft(await editor.innerText()) !== readableDraft(message)) await editor.fill(message);
         stop(signal);
         failureStage = 'identity';
         const ready = await page.evaluate(readConversationDom, { ...expectedDomIdentity(contact), allowWeak: weak });
