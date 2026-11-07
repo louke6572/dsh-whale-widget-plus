@@ -24,7 +24,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import {
   ALIGN_FILE, BACKUP_DIR, BILI_AI_DIR, BILI_ALIGNMENT_FILE, BILI_CONFIG, BILI_CRED, BILI_DIR, BILI_MJS,
-  BILI_TOOLS_DIR, DATA_ROOT, DSH_HOME, MEMORY_DIR, PLUGIN_ROOT, PLUGIN_LOG, QQ_ALIGNMENT_BRIEF,
+  BILI_TOOLS_DIR, DATA_ROOT, DSH_HOME, MEMORY_DIR, PET_DATA_DIR, PLUGIN_ROOT, PLUGIN_LOG, QQ_ALIGNMENT_BRIEF,
   QQ_CONFIG, QQBOT_ROOT, STATE_DIR, TIEBA_MJS, UNIFIED_FILE, ensureDirs, findNodeExe, maskPath,
 } from './paths.js';
 import { resolvePersonaFile } from './persona.js';
@@ -83,6 +83,8 @@ import { PlatformRegistry } from './platforms.js';
 import { contentTypeRejection, isLoopbackReq, json, readBody, readJsonBody, sameOrigin } from './http-guard.js';
 import { startScheduler } from './scheduler.js';
 import { createTokenBudgetService } from './token-budget.js';
+import { createCapabilityRegistry } from './capability-registry.js';
+import { synthesizeEdgeToFile } from '../../src/voice-edge-tts.js';
 import { scanPluginCompatibility } from './compat.js';
 import { createGateEventStore } from '../../src/gate-events.js';
 import { normalizeAllowlist } from '../../src/allowlist.js';
@@ -333,6 +335,64 @@ export function apply(ctx) {
     currentDshUrl,
     pluginLog,
     version: VERSION,
+  });
+
+  // ── 能力槽（capability slot）─────────────────────────────────────────────
+  // 每项能力只跑一个主实现；第三方插件注册同契约实现后，可在「模块中心」一键换上去。
+  // 这里先注册两个内置能力：douyin.feed（切/读当前视频）与 voice.speak（语音合成）。
+  const capabilityRegistry = createCapabilityRegistry({ log: pluginLog });
+  capabilityRegistry.register({
+    id: 'dsh-dfy-douyin',
+    name: '内置抖音网页版',
+    builtin: true,
+    risk: 'medium',
+    provides: ['douyin.feed'],
+    async invoke(input) {
+      const action = input.action === 'next' ? 'next' : 'status';
+      if (action === 'next') {
+        const result = await douyinNext();
+        return { ok: true, action, page: result.page };
+      }
+      const result = await douyinStatus();
+      return { ok: true, action, page: result.page, watching: result.watching, policy: result.policy };
+    },
+  });
+  capabilityRegistry.register({
+    id: 'dsh-dfy-voice',
+    name: '跟随语音设置',
+    builtin: true,
+    risk: 'low',
+    provides: ['voice.speak'],
+    async invoke(input) {
+      const result = await petChat.synthesize(String(input.text ?? ''), {
+        mode: input.mode === 'speak' ? 'speak' : 'voice',
+        voice: String(input.voice ?? ''),
+      });
+      if (!result?.ok) throw new Error(result?.error || '语音合成失败');
+      return { ok: true, key: String(result.key ?? ''), durationMs: Number(result.durationMs) || 0, text: String(result.text ?? '') };
+    },
+  });
+  capabilityRegistry.register({
+    id: 'dsh-dfy-voice-edge',
+    name: 'Edge TTS（独立音源）',
+    builtin: true,
+    risk: 'low',
+    provides: ['voice.speak'],
+    async invoke(input) {
+      const text = String(input.text ?? '').trim();
+      if (!text) throw new Error('要合成的内容是空的');
+      const result = await synthesizeEdgeToFile({
+        text,
+        voice: String(input.voice ?? '').trim() || 'zh-CN-XiaoxiaoNeural',
+        outDir: path.join(PET_DATA_DIR, 'voice'),
+      });
+      return {
+        ok: true,
+        key: path.basename(result.path, path.extname(result.path)),
+        durationMs: Number(result.durationMs) || 0,
+        text,
+      };
+    },
   });
 
   // ── 组件更新（2026-10-26 用户要求）──────────────────────────────────────
@@ -850,6 +910,74 @@ export function apply(ctx) {
         }
       },
     }));
+  }
+
+  // ── Agent 工具：让鱼能直接列能力 / 调能力 ───────────────────────────────
+  // 能力槽不只是一块设置界面的装饰：这里把同一套槽位暴露成 DSH 工具，
+  // 鱼在会话里就能通过「当前主实现」调用 douyin.feed / voice.speak，
+  // 用户换掉实现后不用改提示词，工具入口保持不变。
+  function registerCapabilityTools(capabilityToolService) {
+    if (!capabilityToolService || typeof capabilityToolService.register !== 'function') return;
+    const renderToolValue = (_args, value) => [{ type: 'text', text: JSON.stringify(value?.result ?? value ?? {}, null, 2) }];
+    const toolOutput = {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          tool: { type: 'string' },
+          result: { type: 'object', additionalProperties: true },
+          images: { type: 'array', items: { type: 'object', additionalProperties: true } },
+          imageStatus: { type: 'string' },
+        },
+        required: ['tool', 'result', 'images', 'imageStatus'],
+      },
+      render: renderToolValue,
+    };
+    try {
+      disposers.push(capabilityToolService.register({
+        name: 'dsh_capability_list',
+        description: '列出 dsh-Dfy 的能力槽：当前由哪个实现负责、是否停用、健康状况与可切换的实现。',
+        parameters: { type: 'object', properties: {}, additionalProperties: false },
+        timeoutMs: 30000,
+        output: toolOutput,
+        async execute() {
+          return { tool: 'dsh_capability_list', result: capabilityRegistry.snapshot(), images: [], imageStatus: '' };
+        },
+      }));
+      disposers.push(capabilityToolService.register({
+        name: 'dsh_capability_call',
+        description: '调用 dsh-Dfy 的一项能力（走当前主实现）。可用能力见 dsh_capability_list；不要绕过能力槽直接拼内部接口。',
+        parameters: {
+          type: 'object',
+          properties: {
+            capability: { type: 'string', description: '能力 id，例如 douyin.feed 或 voice.speak' },
+            input: { type: 'object', additionalProperties: true, description: '能力输入，需符合对应能力契约' },
+          },
+          required: ['capability'],
+          additionalProperties: false,
+        },
+        timeoutMs: 120000,
+        output: toolOutput,
+        async execute(args) {
+          const capability = String(args?.capability ?? '').trim();
+          const input = args?.input && typeof args.input === 'object' && !Array.isArray(args.input) ? args.input : {};
+          const result = await capabilityRegistry.invoke(capability, input);
+          return { tool: 'dsh_capability_call', result, images: [], imageStatus: '' };
+        },
+      }));
+    } catch (error) {
+      pluginLog('[capability] 注册 Agent 工具失败：', String(error?.message ?? error));
+    }
+  }
+  // tools 服务可能比本插件晚就绪：优先直接用，拿不到就等依赖作用域注入后再注册。
+  const toolsNow = ctx.get('tools');
+  if (toolsNow?.register) registerCapabilityTools(toolsNow);
+  else if (typeof ctx.inject === 'function') {
+    try {
+      ctx.inject(['tools'], (toolCtx) => registerCapabilityTools(toolCtx.get('tools') ?? toolCtx.tools));
+    } catch (error) {
+      pluginLog('[capability] 等待 tools 服务失败：', String(error?.message ?? error));
+    }
   }
 
   // ── 概览 ────────────────────────────────────────────────────────────────
@@ -2406,6 +2534,42 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
     }
   }
 
+  // ── 能力槽接口（设置 → 模块中心）────────────────────────────────────────
+  // GET  = 当前能力清单 / 健康状况 / 最近事件；POST = 切换、只做契约测试、清空统计。
+  // 切换会立刻写回合体层配置（capabilities.slots），所以「安装后自动配置好」不依赖前端保存按钮。
+  async function handleCapabilities(req, res) {
+    const method = String(req.method || 'GET').toUpperCase();
+    if (method === 'GET') {
+      json(res, 200, capabilityRegistry.snapshot());
+      return;
+    }
+    if (method !== 'POST') {
+      json(res, 405, { ok: false, code: 'CAPABILITY_METHOD', error: '只支持 GET / POST' });
+      return;
+    }
+    const body = await readJsonBody(req);
+    const action = String(body.action ?? 'switch');
+    if (action === 'switch') {
+      const capability = String(body.capability ?? '').trim();
+      const provider = String(body.provider ?? '').trim();
+      const result = await capabilityRegistry.switchTo(capability, provider, { test: body.test !== false });
+      json(res, result.ok ? 200 : 400, { ...capabilityRegistry.snapshot(), switch: result });
+      return;
+    }
+    if (action === 'test') {
+      const capability = String(body.capability ?? '').trim();
+      const provider = String(body.provider ?? '').trim();
+      const result = await capabilityRegistry.runContract(capability, provider);
+      json(res, 200, { ...capabilityRegistry.snapshot(), contract: result });
+      return;
+    }
+    if (action === 'reset-stats') {
+      json(res, 200, capabilityRegistry.resetStats());
+      return;
+    }
+    json(res, 400, { ok: false, code: 'CAPABILITY_ACTION', error: `未知操作：${action}` });
+  }
+
   // 合并后的产品名/版本：设置页标题跟 dsh-Dfy 主包保持一致（2026-11 用户要求）。
   // 版本直接读合并包 package.json，避免设置页还显示 SurfCore 自己的版本号。
   function mergedPluginInfo() {
@@ -3900,6 +4064,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
     if (pathname === `${API_PREFIX}/mode`) { await handleMode(req, res); return; }
     if (pathname === `${API_PREFIX}/platforms`) { await handlePlatforms(req, res); return; }
     if (pathname === `${API_PREFIX}/models`) { await handleModels(req, res); return; }
+    if (pathname === `${API_PREFIX}/capabilities`) { await handleCapabilities(req, res); return; }
     if (pathname.startsWith(`${API_PREFIX}/tieba`)) { await handleTieba(req, res, url); return; }
     if (pathname.startsWith(`${API_PREFIX}/douyin`)) { await handleDouyin(req, res, url); return; }
     if (pathname === `${API_PREFIX}/compat/scan`) {
@@ -4061,6 +4226,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
     try { tokenBudget.dispose(); } catch {}
     try { memoryCardTimer?.stop?.(); } catch {}
     try { learningLoop.stop(); } catch {}
+    try { capabilityRegistry.dispose(); } catch {}
     if (memoryOrganizeTimer) clearInterval(memoryOrganizeTimer);
     try { closeAllQrLogins(); } catch {}
     if (characterTimer) clearInterval(characterTimer);

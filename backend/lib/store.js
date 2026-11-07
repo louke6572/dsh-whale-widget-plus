@@ -171,6 +171,14 @@ export const DEFAULT_UNIFIED = {
   // 抖音（第四个平台）：网页版 + 本机 Edge；这里只管「什么时候允许看、看多少」。
   // 默认值与 douyin-config.mjs 同源（DEFAULT_DOUYIN），避免两处漂移。
   douyin: { ...DEFAULT_DOUYIN },
+  // 能力槽（2026-11）：每项能力同一时刻只跑一个实现；slots 为空 = 用内置默认。
+  // 第三方插件只要注册同契约的 provides，就能在这里被换上去。
+  capabilities: {
+    slots: {},
+    backups: {},
+    autoRollback: true,
+    failureThreshold: 3,
+  },
   ui: { activeTab: 'overview', showAdvanced: false },
   // 组件更新（2026-10-26）：只做 git 快进；`components` 里可以自己加 `{id,name,dir,branch}`。
   updates: {
@@ -698,6 +706,17 @@ function normalizeUnified(config) {
   const modelProvider = String(modelRaw.provider ?? '').trim().slice(0, 200);
   const modelName = String(modelRaw.model ?? '').trim().slice(0, 300);
   next.model = modelProvider && modelName ? { provider: modelProvider, model: modelName } : { provider: '', model: '' };
+  // 能力槽：槽位只收「能力 id → 实现 id」的字符串映射，停用值也按字符串保存。
+  const capRaw = isPlainObject(next.capabilities) ? next.capabilities : {};
+  const cleanSlots = (value) => Object.fromEntries(Object.entries(isPlainObject(value) ? value : {})
+    .map(([key, item]) => [String(key).trim().slice(0, 80), String(item ?? '').trim().slice(0, 120)])
+    .filter(([key, item]) => key && item));
+  next.capabilities = {
+    slots: cleanSlots(capRaw.slots),
+    backups: cleanSlots(capRaw.backups),
+    autoRollback: boolOr(capRaw.autoRollback, true),
+    failureThreshold: clamp(capRaw.failureThreshold, 1, 10, 3),
+  };
   return next;
 }
 
