@@ -26193,9 +26193,14 @@ function petAiPost(payload, cb) {
     body: JSON.stringify(payload || {}),
   }).then(function (d) { if (cb) try { cb(d) } catch (err) {}; return d })
 }
-// 气泡朗读（2026-11）：只在 SurfCore 事件显式带 speak=true 时读（「气泡内容=朗读语音」）。
-// 用浏览器原生 speechSynthesis：零依赖、不联网；不支持的环境静默跳过。
-function petSpeakText(text) {
+// 朗读（2026-11）：优先走 Edge TTS（与 QQ 语音条同一音色，设置 → 系统 → 语音设置），
+// 合成由宿主路由 /dsh-whale/tts.json 代办；只有合成失败才退回浏览器原生 speechSynthesis。
+var petSpeakAudio = null
+var petSpeakSeq = 0
+// 朗读音量 0~1：来自 /tts.json 返回的 volume（设置 → 系统 → 语音设置 → 朗读音量）。
+// Edge 合成本身没有增益参数，音量统一在播放端控制；浏览器兜底也用同一个值。
+var petSpeakVolume = 0.8
+function petSpeakBrowser(text) {
   try {
     if (typeof window === 'undefined' || !window.speechSynthesis) return
     var body = String(text || '').trim()
@@ -26204,8 +26209,67 @@ function petSpeakText(text) {
     var u = new SpeechSynthesisUtterance(body)
     u.lang = 'zh-CN'
     u.rate = 1
+    u.volume = petSpeakVolume
+    var voices = window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : []
+    for (var i = 0; i < voices.length; i++) {
+      if (/zh|cmn|Chinese/i.test(String(voices[i].lang || ''))) { u.voice = voices[i]; break }
+    }
     window.speechSynthesis.speak(u)
   } catch (err) {}
+}
+function petSpeakStop() {
+  petSpeakSeq += 1
+  var audio = petSpeakAudio
+  petSpeakAudio = null
+  if (audio) { try { audio.pause() } catch (e) {} }
+  try { if (window.speechSynthesis) window.speechSynthesis.cancel() } catch (e) {}
+}
+function petSpeakText(text) {
+  var body = String(text || '').trim()
+  if (!body) return
+  petSpeakStop()
+  var seq = petSpeakSeq
+  petAiFetch('/dsh-whale/tts.json?text=' + encodeURIComponent(body.slice(0, 300)), { cache: 'no-store' }).then(function (d) {
+    if (seq !== petSpeakSeq) return
+    if (d && d.ok && d.url) {
+      // 后端按「语音设置」里的朗读音量给出 0~100；Windows 音量键仍可整体调。
+      if (d.volume !== undefined && d.volume !== null) {
+        var vol = Number(d.volume)
+        if (isFinite(vol)) petSpeakVolume = Math.max(0, Math.min(100, vol)) / 100
+      }
+      try {
+        var audio = new Audio(d.url)
+        audio.volume = petSpeakVolume
+        petSpeakAudio = audio
+        audio.onended = function () { if (petSpeakAudio === audio) petSpeakAudio = null }
+        var p = audio.play()
+        if (p && typeof p.catch === 'function') p.catch(function () { if (seq === petSpeakSeq) petSpeakBrowser(body) })
+        return
+      } catch (err) {}
+    }
+    // 合成不可用（没开语音总开关 / 网络不通）→ 浏览器朗读兜底
+    if (seq === petSpeakSeq) petSpeakBrowser(body)
+  })
+}
+// 同一条消息可能同时走 qq-message（卡片）和 reply（气泡）两条事件，
+// 各自都带 speak 标记；这里做一次近时去重，避免同一句被念两遍。
+// 2026-11：按「去掉空格/标点后的正文」比较，并把窗口放宽到 30 秒 ——
+// 分条发送/重试让同一句话隔十几秒再来一次时，原来 10 秒的窗口拦不住。
+var petLastSpoken = { text: '', at: 0 }
+function petSpeakKey(text) {
+  return String(text || '')
+    .replace(/[\s\u3000]+/g, '')
+    .replace(/[，。！？、；：""''…—·,.!?;:"'（）()~～]/g, '')
+}
+function petSpeakOnce(text) {
+  var body = String(text || '').trim()
+  if (!body) return
+  var key = petSpeakKey(body)
+  if (!key) return
+  if (petLastSpoken.text === key && Date.now() - petLastSpoken.at < 30000) return
+  petLastSpoken.text = key
+  petLastSpoken.at = Date.now()
+  petSpeakText(body)
 }
 // 气泡里说一句话（复用现有的 custom 泡泡渲染）
 // ttlMs：0 = 常驻，点一下才收（QQ 回复用）；不传则沿用默认 8 秒（碎碎念等）。
@@ -27729,7 +27793,7 @@ function petQqHandle(ev) {
     // 2026-11 用户反馈：QQ 回复同时弹气泡 + 弹卡片，两层浮窗叠在一起挡屏。
     // 现在 QQ 回复只进卡片：有未读就摇信封，点信封在里面看完整记录并回复。
     if (ev.type === 'reply') {
-      if (ev.speak === true) petSpeakText(ev.text)
+      if (ev.speak === true) petSpeakOnce(ev.text)
       petQqCardFeed(Object.assign({}, ev, { role: 'assistant' }))
       if (petOn) petPlayWhisperAnim()
       return
@@ -27737,11 +27801,14 @@ function petQqHandle(ev) {
     // 主动搭话（她自己在桌面上说的话）仍用气泡，不进 QQ 记录
     if (ev.type === 'proactive') {
       petAiBubble(ev.text, 140, 0)
-      if (ev.speak === true) petSpeakText(ev.text)
+      if (ev.speak === true) petSpeakOnce(ev.text)
       if (petOn) petPlayWhisperAnim()
       return
     }
     var isSelf = ev.role === 'assistant'
+    // 「消息卡片朗读」：新回复进卡片时念出来（不依赖气泡是否打开）。
+    // 放在前面的 return 之前：QQ 聊天窗开着时同样要念。
+    if (isSelf && ev.speak === true) petSpeakOnce(ev.text)
     // 自己刚从挂件发出去的消息：别重复弹自己的气泡
     if (!isSelf && Date.now() - petQqLastSentAt < 6000 && ev.text === petQqLastSentText) return
     if (petChatMode === 'qq' && petChatMask && petChatMask.style.display !== 'none') {

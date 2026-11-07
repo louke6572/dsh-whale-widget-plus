@@ -39,6 +39,10 @@ import { discoverDshBaseUrl, isLoopbackBaseUrl, probeDshBaseUrl } from './dsh-po
 import { AUDIO_EXTS, cleanupTemp, describeAudio, inspectAudio, listAudioFiles, parseTargetKey, processAudioVolume, resolveAudioProcessing, resolveAudioSource, safeJoinLibrary } from './send-voice-lib.js';
 import { discoverSnowLumaConnection, persistSnowLumaEndpoint, persistToken } from './snowluma-conn.js';
 import { synthesizeEdgeToFile, DEFAULT_EDGE_VOICE } from './voice-edge-tts.js';
+import { synthesizeToFile as synthesizeVoxdToFile, DEFAULT_BASE_URL as DEFAULT_VOXD_URL } from './voice-tts.js';
+import { synthesizeOnlineToFile, DEFAULT_ONLINE_DESC, DEFAULT_ONLINE_LANGUAGE } from './voice-online-tts.js';
+import { synthesizeDoubaoToFile, DOUBAO_DEFAULT_VOICE } from './voice-doubao-tts.js';
+import { synthesizeQwenToFile, QWEN_DEFAULT_VOICE, QWEN_DEFAULT_MODEL } from './voice-qwen-tts.js';
 import { classifyVoiceError } from './voice-diagnostics.js';
 import { hardenDir, manualDirCommand } from './state-acl.mjs';
 import { extractForwardIds, forwardIdFromData, sanitizeForwardId, formatForwardResponse } from './forward.js';
@@ -73,6 +77,8 @@ import { createTokenLedger } from './token-ledger.js';
 import { createTurnGuard } from './turn-guard.js';
 import { createGateEventStore } from './gate-events.js';
 import { normalizeAllowlist, pickBacklogSessions } from './allowlist.js';
+import { notePersonaActivity, personaPromptBlock } from './persona-state.js';
+import { learningPromptBlock } from './learning-profile.js';
 import { pickPeerAlias, buildPeerAliasTag } from './callname.js';
 import { buildPersonaIdentity, personaNameFromCard } from './persona-identity.js';
 import { evaluateWakeBudget, evaluateOutbound, localDayStart } from './token-guard.js';
@@ -2127,10 +2133,31 @@ async function main(options = {}) {
         timeoutMs: Number(v.tts?.timeoutMs) > 0 ? Number(v.tts.timeoutMs) : 60000,
         maxChars: Number(v.tts?.maxChars) > 0 ? Number(v.tts.maxChars) : 120,
         character: String(v.tts?.character || ''),
-        // 合成通道只剩 Edge（微软在线端点，免装模型）。local/cloud 的地址与换路逻辑已删除。
-        route: 'edge',
+        // 三条合成通道，由用户在「设置 → 语音 → 音源」里选：
+        //   edge  —— 微软在线端点（免安装、免 key）
+        //   local —— 本地 voxd 服务（GPT-SoVITS 等，默认 8765）
+        //   cloud —— 火山引擎云端声音复刻（默认 8767）
+        // 后两者都是「本机起一个 voxd 协议服务」，插件只当客户端，不捆绑任何模型。
+        route: ['edge', 'local', 'cloud', 'online', 'doubao', 'qwen'].includes(String(v.tts?.route)) ? String(v.tts.route) : 'edge',
         // edge 路由的音色（readaloud 音色名，如 zh-CN-XiaoxiaoNeural）。
         edgeVoice: String(v.tts?.edgeVoice || DEFAULT_EDGE_VOICE),
+        localBaseUrl: String(v.tts?.localBaseUrl || DEFAULT_VOXD_URL).trim() || DEFAULT_VOXD_URL,
+        localVoice: String(v.tts?.localVoice || ''),
+        cloudBaseUrl: String(v.tts?.cloudBaseUrl || 'http://127.0.0.1:8767').trim() || 'http://127.0.0.1:8767',
+        cloudVoice: String(v.tts?.cloudVoice || ''),
+        // online = 免费的在线模型（HuggingFace Space）。音色用一句中文描述生成，不需要参考音频。
+        onlineDesc: String(v.tts?.onlineDesc || DEFAULT_ONLINE_DESC),
+        onlineLanguage: String(v.tts?.onlineLanguage || DEFAULT_ONLINE_LANGUAGE),
+        // doubao = 豆包语音（火山引擎）：AppID + Access Token，21 款免费音色。
+        doubaoAppId: String(v.tts?.doubaoAppId || '').trim(),
+        doubaoToken: String(v.tts?.doubaoToken || '').trim(),
+        doubaoVoice: String(v.tts?.doubaoVoice || DOUBAO_DEFAULT_VOICE),
+        doubaoEncoding: ['mp3', 'wav', 'ogg_opus'].includes(String(v.tts?.doubaoEncoding)) ? String(v.tts.doubaoEncoding) : 'mp3',
+        // qwen = 阿里百炼 Qwen-TTS：一个 API Key，音色多，支持指定语种。
+        qwenApiKey: String(v.tts?.qwenApiKey || '').trim(),
+        qwenVoice: String(v.tts?.qwenVoice || QWEN_DEFAULT_VOICE),
+        qwenModel: String(v.tts?.qwenModel || QWEN_DEFAULT_MODEL),
+        qwenLanguage: String(v.tts?.qwenLanguage || 'Auto'),
         // 音色映射变了就 +1，让旧音频失效（否则"换了声音还在放老的"）
         cacheVersion: Number(v.tts?.cacheVersion) || 0,
         dir: path.join(STATE_DIR, 'voice-tts')
@@ -2172,24 +2199,102 @@ async function main(options = {}) {
     }
     if (say.length > vc.tts.maxChars) throw codedVoiceError(new Error(`要说的话最多 ${vc.tts.maxChars} 字（收到 ${say.length}）`));
 
-    // 只有 Edge 一条路：合成失败就直接报错，不再换到已删除的 local/cloud 端点。
     try {
-      const result = await synthesizeEdgeToFile({
-        text: say,
-        voice: voice || vc.tts.edgeVoice || DEFAULT_EDGE_VOICE,
-        timeoutMs: vc.tts.timeoutMs,
-        cacheVersion: vc.tts.cacheVersion ?? null,
-        outDir: vc.tts.dir
-      });
-      return { path: result.path, via: 'tts', ttsCached: result.cached, ttsDurationMs: result.durationMs, route: 'edge' };
+      const result = await synthesizeByRoute({ text: say, voice });
+      return { path: result.path, via: 'tts', ttsCached: result.cached, ttsDurationMs: result.durationMs, route: result.route };
     } catch (error) {
       const info = classifyVoiceError(error?.message ?? error);
       logVoiceError({
-        scope: 'synth', route: 'edge', code: info.code, stage: info.stage,
+        scope: 'synth', route: vc.tts.route, code: info.code, stage: info.stage,
         message: String(error?.message ?? error).slice(0, 400),
       });
       throw codedVoiceError(error, info);
     }
+  }
+
+  /**
+   * 按当前音源合成一段话（语音条、卡片朗读、试听共用）。
+   *   · edge  → 微软在线端点（mp3，免安装）
+   *   · local → 本机 voxd 服务（wav，默认 8765，GPT-SoVITS 等）
+   *   · cloud → 本机 voxd 服务（wav，默认 8767，火山引擎声音复刻）
+   * 后两条只发 HTTP，插件不捆绑模型；服务没起就直接报错，不静默换路。
+   */
+  async function synthesizeByRoute({ text, voice = '', rate = '+0%', pitch = '+0Hz', timeoutMs } = {}) {
+    const vc = voiceCfg();
+    const route = vc.tts.route;
+    if (route === 'doubao') {
+      const result = await synthesizeDoubaoToFile({
+        text,
+        appId: vc.tts.doubaoAppId,
+        accessToken: vc.tts.doubaoToken,
+        voice: voice || vc.tts.doubaoVoice,
+        encoding: vc.tts.doubaoEncoding,
+        timeoutMs: Number(timeoutMs) > 0 ? Number(timeoutMs) : vc.tts.timeoutMs,
+        cacheVersion: vc.tts.cacheVersion ?? null,
+        outDir: vc.tts.dir,
+      });
+      return {
+        path: result.path, cached: result.cached, durationMs: result.durationMs,
+        route, contentType: vc.tts.doubaoEncoding === 'wav' ? 'audio/wav' : 'audio/mpeg',
+      };
+    }
+    if (route === 'qwen') {
+      const result = await synthesizeQwenToFile({
+        text,
+        apiKey: vc.tts.qwenApiKey,
+        voice: voice || vc.tts.qwenVoice,
+        model: vc.tts.qwenModel,
+        language: vc.tts.qwenLanguage,
+        timeoutMs: Number(timeoutMs) > 0 ? Number(timeoutMs) : vc.tts.timeoutMs,
+        cacheVersion: vc.tts.cacheVersion ?? null,
+        outDir: vc.tts.dir,
+      });
+      return { path: result.path, cached: result.cached, durationMs: result.durationMs, route, contentType: 'audio/wav' };
+    }
+    if (route === 'online') {
+      // 免费在线模型：不需要音色 id，声音由「声音描述」决定。
+      const result = await synthesizeOnlineToFile({
+        text,
+        description: vc.tts.onlineDesc,
+        language: vc.tts.onlineLanguage,
+        timeoutMs: Number(timeoutMs) > 0 ? Math.max(Number(timeoutMs), 120000) : 180000,
+        cacheVersion: vc.tts.cacheVersion ?? null,
+        outDir: vc.tts.dir,
+      });
+      return { path: result.path, cached: result.cached, durationMs: 0, route: 'online', contentType: 'audio/wav' };
+    }
+    if (route === 'local' || route === 'cloud') {
+      const baseUrl = route === 'local' ? vc.tts.localBaseUrl : vc.tts.cloudBaseUrl;
+      const character = String(
+        voice
+        || (route === 'local' ? vc.tts.localVoice : vc.tts.cloudVoice)
+        || vc.tts.character
+        || ''
+      ).trim();
+      const result = await synthesizeVoxdToFile({
+        text,
+        character,
+        voice: character,
+        baseUrl,
+        timeoutMs: Number(timeoutMs) > 0 ? Number(timeoutMs) : vc.tts.timeoutMs,
+        cacheVersion: vc.tts.cacheVersion ?? null,
+        outDir: vc.tts.dir,
+      });
+      return {
+        path: result.path, cached: result.cached, durationMs: result.durationMs,
+        route, contentType: 'audio/wav',
+      };
+    }
+    const result = await synthesizeEdgeToFile({
+      text,
+      voice: voice || vc.tts.edgeVoice || DEFAULT_EDGE_VOICE,
+      rate,
+      pitch,
+      timeoutMs: Number(timeoutMs) > 0 ? Number(timeoutMs) : vc.tts.timeoutMs,
+      cacheVersion: vc.tts.cacheVersion ?? null,
+      outDir: vc.tts.dir,
+    });
+    return { path: result.path, cached: result.cached, durationMs: result.durationMs, route: 'edge', contentType: 'audio/mpeg' };
   }
 
   function voiceLibrary() {
@@ -3050,6 +3155,16 @@ async function main(options = {}) {
       const block = buildSlangContext(slangEntries, cfg.slang?.injectMax ?? 8);
       if (block) parts.push(block);
     }
+    // 情绪 / 口头禅：和桌宠、抖音读同一份状态，避免各平台语气前后矛盾。
+    try {
+      const persona = personaPromptBlock();
+      if (persona) parts.push(persona);
+    } catch { /* 状态坏了不影响聊天 */ }
+    // 她自己看到的（贴吧/B站/抖音）与自动近况：只当背景，不主动汇报。
+    try {
+      const learning = learningPromptBlock();
+      if (learning) parts.push(learning);
+    } catch { /* 学习状态坏了不影响聊天 */ }
     return parts.join('\n\n') + '\n\n' + promptText;
   }
 
@@ -3258,7 +3373,10 @@ async function main(options = {}) {
   /** 摄入一条会话事件到 token 账本；任何异常都不能影响 QQ 主链路。 */
   function recordSessionUsage(sessionId, event) {
     try {
-      if (event?.type === 'model/selection') rememberModel(sessionId, event.data);
+      if (event?.type === 'model/selection') {
+        rememberModel(sessionId, event.data);
+        noteManualModelSelection(sessionId, event.data);
+      }
       const known = sessionModels.get(sessionId);
       tokenLedger.ingestEvent({
         sessionId,
@@ -6061,7 +6179,11 @@ async function main(options = {}) {
               const personaMode = url.searchParams.get('mode') === 'full' ? 'full' : (key.startsWith('group:') ? 'tone' : 'full');
               return { name: roleState.role ?? null, mode: personaMode, hint: currentMode === 'reserved2' ? currentRoleHintV2(key, personaMode) : currentRoleHint(key, personaMode) };
             })(),
-            memoryCard: (Boolean(cfg.ownerQQ) && key === `private:${String(cfg.ownerQQ)}`) ? memoryCardPromptBlock() : '',
+            memoryCard: memoryCardPromptBlock(
+              (Boolean(cfg.ownerQQ) && key === `private:${String(cfg.ownerQQ)}`)
+                ? MEMORY_CARD_PATHS.promptQq
+                : MEMORY_CARD_PATHS.promptBili
+            ),
             recommended: cfg.socialV2?.provideRecommendations === false ? null : {
               wake: cfg.socialV2?.wake ?? {},
               send: cfg.socialV2?.send ?? {},
@@ -7083,29 +7205,40 @@ async function main(options = {}) {
         // 不受 tts.enabled 限制：总闸关着也应该能先听声音，再决定要不要打开。
         if (req.method === 'GET' && url.pathname === '/api/voice/preview') {
           const vc = voiceCfg();
-          const voice = String(url.searchParams.get('voice') || vc.tts.edgeVoice || DEFAULT_EDGE_VOICE);
+          const voice = String(url.searchParams.get('voice') || '');
+          // 朗读音色试听要能带语速：设置页「朗读」卡片会传 rate（如 +10%）。Edge 与云端支持，本地引擎忽略。
+          const rate = String(url.searchParams.get('rate') || '+0%');
+          const pitch = String(url.searchParams.get('pitch') || '+0Hz');
           const text = String(url.searchParams.get('text') || '').trim() || '你好，我是现在这个音色。';
           if (text.length > 200) { sendJson({ ok: false, error: '试听文本最多 200 字' }, 400); return; }
           try {
-            const out = await synthesizeEdgeToFile({
+            const out = await synthesizeByRoute({
               text,
               voice,
+              rate,
+              pitch,
               timeoutMs: Math.min(Number(vc.tts.timeoutMs) || 60000, 30000),
-              cacheVersion: vc.tts.cacheVersion ?? null,
-              outDir: vc.tts.dir,
             });
             const buf = fs.readFileSync(out.path);
             res.writeHead(200, {
-              'content-type': 'audio/mpeg',
+              'content-type': out.contentType || 'audio/mpeg',
               'content-length': String(buf.length),
               'cache-control': 'no-store',
+              'x-route': out.route,
             });
             res.end(buf);
           } catch (error) {
+            const route = vc.tts.route;
             sendJson({
               ok: false,
               error: `试听合成失败：${error?.message ?? error}`,
-              hint: '需要联网；微软 Edge 端点偶尔超时，重试一次即可',
+              hint: route === 'local'
+                ? '本地语音服务（8765）没起来，或音色名不存在'
+                : (route === 'cloud'
+                  ? '云端声音复刻服务（8767）没起来，或音色名不存在'
+                  : (route === 'online'
+                    ? '免费在线模型偶尔排队或失败，重试一次；需要联网'
+                    : '需要联网；微软 Edge 端点偶尔超时，重试一次即可')),
             }, 502);
           }
           return;
@@ -8970,6 +9103,13 @@ async function main(options = {}) {
    * 只做旁路通知：读 host.json 拿地址/令牌，失败静默 —— 挂件没开不影响 QQ。
    */
   function mirrorPetMessage(payload) {
+    // 情绪状态：私聊里主人说话 / 她回了话都记一笔，桌宠和 QQ 读同一份心情。
+    try {
+      const key = String(payload?.key || '');
+      const ownerKey = cfg.ownerQQ ? `private:${cfg.ownerQQ}` : '';
+      if (payload?.role === 'assistant') notePersonaActivity({ kind: 'reply' });
+      else notePersonaActivity({ kind: ownerKey && key === ownerKey ? 'owner' : 'contact' });
+    } catch { /* 状态写失败不影响消息镜像 */ }
     try {
       // host.json 由插件侧（pet-api）写进**数据根**的 pet/（$DSH_HOME/surfcore/qq/pet）。
       // 兼容两种旧位置：clone 安装的仓库根 pet/、2026-11-04 之前合体层的 $DSH_HOME/surfcore/pet。
@@ -9876,24 +10016,168 @@ async function main(options = {}) {
   // 控制台热切换思考强度时递增 modelSelectionEpoch，使旧记录失效并在下一条消息重新应用。
   // 四种 QQ 模式共用 DSH 会话，统一强制使用多模态模型 DeepSeek-V41-Flash（id: deepseek-flash）；
   // 它同时支持 text/image 输入，取代已下线的 deepseek-v4-flash-vision-exp。
-  const modelAppliedSessions = new Map(); // sessionId -> 已应用的 modelSelectionEpoch
+  //
+  // 2026-11 用户反馈「在窗口手动切换模型，一来消息就被改回默认」：
+  //   · 全局选择以 <DSH_HOME>/surfcore/config.json 的 model 为准（设置页「对话 → 模型」写的就是它）；
+  //   · 显式选了「跟随 DSH 默认」时桥接不再强行 selectModel；
+  //   · 某个会话被用户手动切过（model/selection 事件里的模型与桥接目标不一致），
+  //     只要全局目标没变，后续消息就尊重手动选择，不再覆盖。
+  const MODEL_TARGET_FILE = path.join(SHARED_DSH_HOME, 'surfcore', 'config.json');
+  let modelTargetCache = { mtimeMs: -1, value: undefined };
+  const modelAppliedSessions = new Map(); // sessionId -> { epoch, signature, manual, manualSignature }
+
+  /** 读取设置页保存的全局模型；没有 model 字段时回落到桥接配置（旧行为）。 */
+  function targetModelSelection() {
+    try {
+      const stat = fs.statSync(MODEL_TARGET_FILE);
+      if (modelTargetCache.mtimeMs === stat.mtimeMs) return modelTargetCache.value;
+      const data = JSON.parse(fs.readFileSync(MODEL_TARGET_FILE, 'utf8'));
+      const raw = data?.model;
+      let value;
+      if (raw && typeof raw === 'object') {
+        const provider = String(raw.provider || '').trim();
+        const model = String(raw.model || '').trim();
+        // 显式清空 = 跟随 DSH 默认：不再强制模型。
+        value = provider && model ? { provider, model } : null;
+      } else {
+        value = {
+          provider: String(cfg.dsh?.provider || 'deepseek-official'),
+          model: String(cfg.dsh?.model || 'deepseek-flash'),
+        };
+      }
+      modelTargetCache = { mtimeMs: stat.mtimeMs, value };
+      return value;
+    } catch {
+      return {
+        provider: String(cfg.dsh?.provider || 'deepseek-official'),
+        model: String(cfg.dsh?.model || 'deepseek-flash'),
+      };
+    }
+  }
+
+  /** 会话里出现了「不是桥接设的」模型 → 记为用户手动选择。 */
+  function noteManualModelSelection(sessionId, data) {
+    try {
+      const known = modelAppliedSessions.get(sessionId);
+      if (!known || !known.signature) return;
+      const provider = String(data?.provider || '');
+      const model = String(data?.model || '');
+      if (!model) return;
+      if (`${provider}/${model}` === known.signature) return;
+      modelAppliedSessions.set(sessionId, {
+        ...known,
+        manual: true,
+        manualSignature: known.signature,
+      });
+    } catch { /* 账本/展示用途，失败不影响聊天 */ }
+  }
+
+  // 当前实例真实可用的 provider / model（30 秒缓存）。
+  // 用于自愈「配置里选的 provider 在当前实例不存在」：桌面版装了免费渠道包选了 loomy，
+  // 切到没装该渠道包的 web 实例后，会话仍记着 loomy —— 每条消息都报
+  // `no adapter registered for provider "loomy"`，整套回复链路直接挂掉。
+  let modelCatalogCache = { at: 0, catalog: null };
+  async function availableModelCatalog() {
+    if (modelCatalogCache.catalog && Date.now() - modelCatalogCache.at < 30_000) return modelCatalogCache.catalog;
+    try {
+      const catalog = unwrap(await fetchModelCatalog(), 'session.modelCatalog');
+      modelCatalogCache = { at: Date.now(), catalog };
+      return catalog;
+    } catch {
+      return null;
+    }
+  }
+
+  /** provider 已消失时挑替代：优先同名模型，否则当前实例第一个可用模型。 */
+  function pickSurvivingModel(catalog, preferredModel) {
+    const groups = Array.isArray(catalog?.groups) ? catalog.groups : [];
+    const wanted = String(preferredModel ?? '').trim().toLowerCase();
+    if (wanted) {
+      for (const group of groups) {
+        const models = Array.isArray(group?.models) ? group.models : [];
+        const hit = models.find((m) => String(m?.id ?? '').toLowerCase() === wanted
+          || String(m?.name ?? '').toLowerCase() === wanted);
+        if (hit?.id && group?.id) return { provider: String(group.id), model: String(hit.id) };
+      }
+    }
+    for (const group of groups) {
+      const first = Array.isArray(group?.models) ? group.models[0] : null;
+      if (group?.id && first?.id) return { provider: String(group.id), model: String(first.id) };
+    }
+    return null;
+  }
+
   // 返回 'applied' | 'not-found' | 'failed'。
   // 'not-found' 表示 DSH 侧会话已经不存在（DSH 重启、异常退出、归档竞态），
   // 本地映射已失效，调用方必须退役重建，否则每条消息都会对着一个不存在的会话重试。
   async function ensureChatModel(sessionId) {
-    if (modelAppliedSessions.get(sessionId) === modelSelectionEpoch) return 'applied';
-    const provider = String(cfg.dsh?.provider || 'deepseek-official');
-    const model = String(cfg.dsh?.model || 'deepseek-flash');
+    const target = targetModelSelection();
+    const signature = target ? `${target.provider}/${target.model}` : '';
+    const known = modelAppliedSessions.get(sessionId);
+    if (!target) {
+      // 「跟随 DSH 默认」：不干预——但会话里记着的 provider 若当前实例压根没有
+      // （渠道包被卸载 / 换了实例），不切就会每条消息都报 no adapter。
+      // 这种情况按当前实例模型目录里的同名模型兜底，兜不住就用第一个可用模型。
+      const current = sessionModels.get(sessionId);
+      const staleProvider = String(current?.provider || '');
+      if (staleProvider) {
+        const catalog = await availableModelCatalog();
+        const alive = Boolean(catalog?.groups?.some((g) => g?.id === staleProvider));
+        const healedSignature = `healed:${staleProvider}`;
+        if (catalog && !alive && known?.signature !== healedSignature) {
+          const fallback = pickSurvivingModel(catalog, current?.model);
+          if (fallback) {
+            try {
+              const result = unwrap(await api.sessions.selectModel({
+                sessionId, provider: fallback.provider, model: fallback.model,
+              }), 'session.selectModel');
+              rememberModel(sessionId, result.selected);
+              modelAppliedSessions.set(sessionId, { epoch: modelSelectionEpoch, signature: healedSignature, manual: false });
+              log(`会话 ${sessionId} 的模型 ${staleProvider}/${current?.model} 在当前实例不可用，已切到 ${result.selected.provider}/${result.selected.model}`);
+              return 'applied';
+            } catch (error) {
+              log(`会话 ${sessionId} 模型自愈失败：${String(error?.message ?? error).slice(0, 140)}`);
+            }
+          }
+        }
+      }
+      modelAppliedSessions.set(sessionId, { epoch: modelSelectionEpoch, signature: '', manual: false });
+      return 'applied';
+    }
+    if (known && known.epoch === modelSelectionEpoch && known.signature === signature) {
+      // 已经应用过桥接目标，但会话当前模型不是它 —— 只可能是用户在窗口里手动切过了。
+      const current = sessionModels.get(sessionId);
+      if (current?.model && current?.provider && `${current.provider}/${current.model}` !== signature) {
+        modelAppliedSessions.set(sessionId, { ...known, manual: true, manualSignature: signature });
+      }
+      return 'applied';
+    }
+    // 用户手动切过这个会话，且全局目标没变 → 尊重手动选择。
+    if (known && known.manual && known.manualSignature === signature && known.epoch === modelSelectionEpoch) {
+      return 'applied';
+    }
     const effort = String(cfg.dsh?.reasoningEffort || REASONING_EFFORT_DEFAULT);
     let lastError = null;
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       try {
-        const result = unwrap(await api.sessions.selectModel({ sessionId, provider, model, reasoningEffort: effort }), 'session.selectModel');
-        modelAppliedSessions.set(sessionId, modelSelectionEpoch);
+        const result = unwrap(await api.sessions.selectModel({ sessionId, provider: target.provider, model: target.model, reasoningEffort: effort }), 'session.selectModel');
+        modelAppliedSessions.set(sessionId, { epoch: modelSelectionEpoch, signature, manual: false });
         log(`已设置会话模型 ${sessionId} -> ${result.selected.provider}/${result.selected.model} (${result.selected.reasoningEffort ?? '默认'})`);
         return 'applied';
       } catch (error) {
         lastError = error;
+        // 换到别的提供商后思考强度档位可能不被支持（如 deepseek 专属的 low/high）：
+        // 明确报错时就退一步，只切模型、不指定 effort，别让整次 selectModel 失败。
+        if (/effort|reasoning/i.test(String(error?.message ?? ''))) {
+          try {
+            const result = unwrap(await api.sessions.selectModel({ sessionId, provider: target.provider, model: target.model }), 'session.selectModel');
+            modelAppliedSessions.set(sessionId, { epoch: modelSelectionEpoch, signature, manual: false });
+            log(`已设置会话模型 ${sessionId} -> ${result.selected.provider}/${result.selected.model}（忽略思考强度）`);
+            return 'applied';
+          } catch (inner) {
+            lastError = inner;
+          }
+        }
         log(`设置会话模型失败 ${sessionId}（第 ${attempt}/2 次）: ${error?.message ?? error}`);
         if (attempt < 2) await sleep(1000);
       }
@@ -9901,7 +10185,7 @@ async function main(options = {}) {
     const message = String(lastError?.message ?? lastError ?? '');
     if (/not[- ]?found/i.test(message)) {
       // 终态失败：记下 epoch，避免退役前（或退役失败时）被反复重试刷屏。
-      modelAppliedSessions.set(sessionId, modelSelectionEpoch);
+      modelAppliedSessions.set(sessionId, { epoch: modelSelectionEpoch, signature, manual: false });
       return 'not-found';
     }
     return 'failed';
@@ -12581,12 +12865,17 @@ async function main(options = {}) {
   // 记忆卡注入块：插件每次整理后原子写 memory-card-prompt-qq.md，这里按 mtime 缓存读。
   // 不解析 JSON、不依赖插件代码——桥接和插件是不同进程，文件是唯一契约。
   let memoryCardPromptCache = { key: '', text: '' };
-  function memoryCardPromptBlock() {
+  /**
+   * @param file 默认读 QQ 版（全量）。非主人会话传 promptBili：
+   * 那一版只有身份记忆（初次相遇 / 永不忘记的锚点）+ 公开经历，
+   * 不含主人的私聊细节——四个平台对她来说是同一个身份，但私事不带到别人面前。
+   */
+  function memoryCardPromptBlock(file = MEMORY_CARD_PATHS.promptQq) {
     try {
-      const stat = fs.statSync(MEMORY_CARD_PATHS.promptQq);
-      const key = `${stat.mtimeMs}:${stat.size}`;
+      const stat = fs.statSync(file);
+      const key = `${file}:${stat.mtimeMs}:${stat.size}`;
       if (memoryCardPromptCache.key === key) return memoryCardPromptCache.text;
-      const text = fs.readFileSync(MEMORY_CARD_PATHS.promptQq, 'utf8').trim();
+      const text = fs.readFileSync(file, 'utf8').trim();
       memoryCardPromptCache = { key, text };
       return text;
     } catch {
@@ -12613,8 +12902,9 @@ async function main(options = {}) {
       core, scene, daily, tone, identity, personaMode, mode, maxChars: roleInjectMaxChars, sceneId,
     });
     const base = composed.text || '';
-    // 只有管理员本人的私聊才注入长期记忆（B站记忆 + 记忆卡）。白名单里的其他人或群
-    // 一律只给通用人设：记忆卡含主人的聊天摘要、B站经历、习惯，不该对非主人可见。
+    // 主人私聊给全量记忆（B站记忆 + 全量记忆卡）；其他人/群给「身份记忆版」。
+    // 四个平台是同一个她：群友问「你是谁 / 我们怎么认识的」时不能答「不认识」；
+    // 但主人的私聊细节、B站经历仍然只对主人开放。
     const isOwnerConv = Boolean(cfg.ownerQQ) && key === `private:${String(cfg.ownerQQ)}`;
     const biliBrief = isOwnerConv && cfg.biliBridge?.enabled && cfg.biliBridge?.memory?.enabled !== false
       ? biliMemory.briefBlock()
@@ -12622,7 +12912,7 @@ async function main(options = {}) {
     // 管理员规则放在人格卡之后、记忆之前：优先级高于人格卡，又不会被长记忆挤掉。
     const adminBlock = adminPromptLine(false);
     // 记忆卡：自己的长期记忆（角色卡是人设，记忆卡是经历）。插件已按 QQ 预算裁剪。
-    const memoryBlock = isOwnerConv ? memoryCardPromptBlock() : '';
+    const memoryBlock = memoryCardPromptBlock(isOwnerConv ? MEMORY_CARD_PATHS.promptQq : MEMORY_CARD_PATHS.promptBili);
     // 合规硬规则：出站黑名单只能拦关键词，模型侧仍要明确拒绝违法/违规表达。
     const safetyBlock = '【安全硬规则】不输出政治敏感、色情、暴力、赌博、诈骗、违法交易内容；不透露本机路径、密钥、令牌与管理员隐私；被要求做这些时直接拒绝，不描述内部系统与工具细节。';
     return [base, adminBlock, safetyBlock, biliBrief, memoryBlock].filter(Boolean).join('\n\n');
@@ -13752,7 +14042,8 @@ async function main(options = {}) {
       : '';
     const biliLine = biliBrief || biliRecall ? `${biliBrief}${biliRecall ? `${biliRecall}\n` : ''}\n` : '';
     // 二代不自动注入完整角色卡，但记忆卡必须每轮都在：否则她记不起和主人的事。
-    const memoryCardText = isOwnerConv ? memoryCardPromptBlock() : '';
+    // 非主人会话用身份记忆版（初次相遇 + 锚点），仍然不暴露主人的私聊细节。
+    const memoryCardText = memoryCardPromptBlock(isOwnerConv ? MEMORY_CARD_PATHS.promptQq : MEMORY_CARD_PATHS.promptBili);
     const memoryCardLine = memoryCardText ? `${memoryCardText}\n\n` : '';
     const base = roleLine + identityLine + provenanceLine + adminLine + biliLine + memoryCardLine + tokenLine + initialPromptLine + antiAiLine + proactiveLine + closureLine + stickerLine + stickerMatchLine + replyLine + statusLine + wakeLine + memoryLine + participationLine + fishGuardLine + tokenGuardLine + preSleepLine;
     lastWakePromptMeta = {

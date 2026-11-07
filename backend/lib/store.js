@@ -192,6 +192,9 @@ export const SECRET_PATHS = new Set([
   'snowluma.webuiPassword',
   'webSearch.apiKey',
   'consoleToken',
+  // 第三方 TTS 凭证：只在后端合成时用，设置页回读一律给掩码（保存时自动还原）。
+  'socialV2.voice.tts.doubaoToken',
+  'socialV2.voice.tts.qwenApiKey',
   // 2026-11 审计：GitHub token 存在合体层（updates.githubToken），但没进这份清单，
   // 于是 GET /config 的 unified 分支把它原样回了出去（qq/bili 分支都脱敏、只有它漏）。
   // 合体层目前唯一的秘密就是它。

@@ -17,6 +17,7 @@ import path from 'node:path';
 import { contentTypeRejection, isLoopbackReq, json, readBody, sameOrigin, safeEqual } from './http-guard.js';
 import { callBridge } from './bridge.js';
 import { PET_DATA_DIR } from './paths.js';
+import { readQqConfig } from './store.js';
 
 const API_PREFIX = '/dsh-surfcore/pet-api';
 const HOST_FILE_VERSION = 1;
@@ -130,15 +131,22 @@ export function createPetApiService({ chat, purpose, petService, stateDir, petRo
     // 这里不能把 feed 的 id 一起 spread 进去：那会覆盖事件 id，游标永远追不上，
     // 挂件每次轮询都会重复收到同一条 qq-message（信封未读数暴涨）。
     const { id: feedId, ...rest } = entry;
-    chat.emit({ type: 'qq-message', feedId, ...rest });
+    // 「消息卡片朗读」独立于气泡：关掉气泡（carrier=qq）时，卡片里的回复也要能念出来。
+    // cardSpeak 只存在 QQ 配置的 purpose 里（normalizePurposeConfig 不保留它），所以直接读原始配置。
+    const cardSpeak = (() => {
+      try { return readQqConfig().config?.purpose?.cardSpeak === true; } catch { return false; }
+    })();
+    const speakOn = cardSpeak && entry.role === 'assistant';
+    chat.emit({ type: 'qq-message', feedId, speak: speakOn, ...rest });
     // 2026-11 用户反馈：QQ 里的回复只会进「信封未读」，不弹气泡。
     // 额外发一条 reply：挂件对 reply 的处理是「直接进桌宠气泡」，所以她的 QQ 回复能在桌面看到。
     // 只对 assistant 生效，且只在用户把「同时在气泡里显示」打开时（carrier=pet）——
     // 关掉气泡的人不该再被弹。
     const bubbleOn = (purpose?.config?.().carrier ?? 'qq') === 'pet';
     if (entry.role === 'assistant' && bubbleOn) {
-      const speakOn = (purpose?.config?.().modality ?? 'text') === 'voice';
-      chat.emit({ type: 'reply', text: entry.text, modality: speakOn ? 'voice' : 'text', speak: speakOn, source: 'qq', key: entry.key });
+      const bubbleSpeakOn = (purpose?.config?.().modality ?? 'text') === 'voice';
+      // cardSpeak 打开时由上面的 qq-message 负责朗读，这里不再重复念一遍。
+      chat.emit({ type: 'reply', text: entry.text, modality: bubbleSpeakOn ? 'voice' : 'text', speak: bubbleSpeakOn && !cardSpeak, source: 'qq', key: entry.key });
     }
     return entry;
   }
@@ -319,13 +327,45 @@ export function createPetApiService({ chat, purpose, petService, stateDir, petRo
       json(res, 200, result);
       return;
     }
+    // 朗读合成：QQ 消息卡/气泡的「念出来」走这里，音色与 QQ 语音条同一份 Edge TTS。
+    // 返回的 url 是相对本服务的前缀（带 token），挂件用 Audio 直接播放。
+    if (req.method === 'GET' && suffix === '/tts') {
+      const text = String(url.searchParams.get('text') || '').trim().slice(0, 2000);
+      if (!text) { json(res, 400, { ok: false, error: '缺少 text' }); return; }
+      // 音色/语速允许调用方覆盖（语音设置里试听朗读音色用）；不传就用配置里的朗读音色。
+      const voice = String(url.searchParams.get('voice') || '').trim().slice(0, 80);
+      const rate = String(url.searchParams.get('rate') || '').trim().slice(0, 12);
+      const pitch = String(url.searchParams.get('pitch') || '').trim().slice(0, 12);
+      try {
+        const result = await chat.synthesize(text, { mode: 'speak', voice, rate, pitch });
+        if (!result.ok) { json(res, 502, { ok: false, error: result.error || '语音合成失败' }); return; }
+        json(res, 200, {
+          ok: true,
+          key: result.key,
+          url: audioUrlFor(result.key),
+          durationMs: result.durationMs,
+          text: result.text,
+          // 朗读音量（0–100）：Edge 合成没法调增益，由前端 Audio.volume 应用。
+          volume: (() => {
+            const raw = Number(chat.voiceSettings?.().speakVolume);
+            return Number.isFinite(raw) ? Math.max(0, Math.min(100, raw)) : 80;
+          })(),
+        });
+      } catch (error) {
+        json(res, 500, { ok: false, error: String(error?.message ?? error).slice(0, 160) });
+      }
+      return;
+    }
     if (req.method === 'GET' && suffix.startsWith('/audio/')) {
-      const key = suffix.slice('/audio/'.length).replace(/\.wav$/i, '');
+      const key = suffix.slice('/audio/'.length).replace(/\.(wav|mp3)$/i, '');
       const audio = chat.readAudio(key);
       if (!audio) { json(res, 404, { ok: false, error: '音频不存在或已过期' }); return; }
       try {
+        // 没装 ffmpeg 时合成结果会退回 mp3：URL 仍以 .wav 结尾，但 Content-Type 必须按真实文件给，
+        // 否则浏览器按 wav 解码 mp3 会直接播不出来。
+        const isMp3 = path.extname(audio.file).toLowerCase() === '.mp3';
         res.writeHead(200, {
-          'Content-Type': 'audio/wav',
+          'Content-Type': isMp3 ? 'audio/mpeg' : 'audio/wav',
           'Content-Length': String(audio.bytes.length),
           'Cache-Control': 'private, max-age=86400',
         });

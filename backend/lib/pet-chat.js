@@ -23,6 +23,8 @@ import { readBiliConfig, readQqConfig, readUnified, writeJsonAtomic } from './st
 import { resolvePersonaFile } from './persona.js';
 import { memoryCardPromptBlock } from './memory-card.js';
 import { activeMemoryPaths, readCurrentCharacter, readPersonaLayerText } from '../../src/character-persona.js';
+import { notePersonaActivity, personaPromptBlock } from '../../src/persona-state.js';
+import { learningPromptBlock } from '../../src/learning-profile.js';
 import { buildPersonaIdentity, personaNameFromCard } from '../../src/persona-identity.js';
 import { composePersonaLayers } from '../../src/persona-layers.js';
 import { adminFromSources } from '../../src/admin-identity.js';
@@ -30,6 +32,10 @@ import { PET_DATA_DIR } from './paths.js';
 import { appendMemoryInboxEvent } from '../../src/memory-card.js?rev=20261025-pet-memory2';
 import { wavDurationMs } from '../../src/voice-tts.js';
 import { synthesizeEdgeToFile } from '../../src/voice-edge-tts.js';
+import { synthesizeToFile as synthesizeVoxdToFile } from '../../src/voice-tts.js';
+import { synthesizeOnlineToFile, DEFAULT_ONLINE_DESC, DEFAULT_ONLINE_LANGUAGE } from '../../src/voice-online-tts.js';
+import { synthesizeDoubaoToFile, DOUBAO_DEFAULT_VOICE } from '../../src/voice-doubao-tts.js';
+import { synthesizeQwenToFile, QWEN_DEFAULT_VOICE, QWEN_DEFAULT_MODEL } from '../../src/voice-qwen-tts.js';
 import { execFile as _execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 const execFile = promisify(_execFile);
@@ -60,6 +66,14 @@ function clampInt(value, fallback, min, max) {
   const n = Number(value);
   if (!Number.isFinite(n)) return fallback;
   return Math.min(max, Math.max(min, Math.round(n)));
+}
+
+/** Edge 语速串（'+10%' / '-10%' / '+0%'）；非法值回 +0%。 */
+function normalizeEdgeRate(value) {
+  const match = /^([+-]?\d{1,3})\s*%?$/.exec(String(value ?? '').trim());
+  const raw = match ? Number(match[1]) : 0;
+  const clamped = Math.max(-50, Math.min(50, Math.round(raw / 10) * 10));
+  return `${clamped >= 0 ? '+' : ''}${clamped}%`;
 }
 
 function clip(text, max) {
@@ -232,12 +246,34 @@ export function createPetChatService({ ctx, stateDir, pluginLog = () => {}, toke
     const cfg = qqConfig();
     const v = cfg?.socialV2?.voice ?? {};
     const t = v?.tts ?? {};
-    // 只剩 Edge TTS：微软 readaloud/edge/v1 公开端点，零安装免费。
+    // 音源和「语音设置」共用一份配置：edge 在线 / local 本地 8765 / cloud 火山 8767。
+    // 朗读（消息卡片、气泡）也必须跟随同一个音源，否则换了引擎朗读还是旧声音。
+    // speakVoice / speakRate 只影响「朗读」，没配就跟随语音条音色。
+    const edgeVoice = String(t.edgeVoice || 'zh-CN-XiaoxiaoNeural');
+    const route = ['edge', 'local', 'cloud', 'online', 'doubao', 'qwen'].includes(String(t.route)) ? String(t.route) : 'edge';
     return {
       enabled: t.enabled === true,
       maxChars: clampInt(t.maxChars, 120, 20, 300),
-      route: 'edge',
-      edgeVoice: String(t.edgeVoice || 'zh-CN-XiaoxiaoNeural'),
+      route,
+      localBaseUrl: String(t.localBaseUrl || 'http://127.0.0.1:8765').trim() || 'http://127.0.0.1:8765',
+      localVoice: String(t.localVoice || ''),
+      cloudBaseUrl: String(t.cloudBaseUrl || 'http://127.0.0.1:8767').trim() || 'http://127.0.0.1:8767',
+      cloudVoice: String(t.cloudVoice || ''),
+      onlineDesc: String(t.onlineDesc || DEFAULT_ONLINE_DESC),
+      onlineLanguage: String(t.onlineLanguage || DEFAULT_ONLINE_LANGUAGE),
+      doubaoAppId: String(t.doubaoAppId || '').trim(),
+      doubaoToken: String(t.doubaoToken || '').trim(),
+      doubaoVoice: String(t.doubaoVoice || DOUBAO_DEFAULT_VOICE),
+      doubaoEncoding: ['mp3', 'wav', 'ogg_opus'].includes(String(t.doubaoEncoding)) ? String(t.doubaoEncoding) : 'mp3',
+      qwenApiKey: String(t.qwenApiKey || '').trim(),
+      qwenVoice: String(t.qwenVoice || QWEN_DEFAULT_VOICE),
+      qwenModel: String(t.qwenModel || QWEN_DEFAULT_MODEL),
+      qwenLanguage: String(t.qwenLanguage || 'Auto'),
+      edgeVoice,
+      speakVoice: String(t.speakVoice || edgeVoice),
+      speakRate: normalizeEdgeRate(t.speakRate),
+      // 朗读音量（0–100，前端 Audio.volume 用；Edge 合成的音量本身不可调）
+      speakVolume: clampInt(t.speakVolume, 80, 0, 100),
       timeoutMs: clampInt(t.timeoutMs, 60000, 3000, 180000),
       cacheVersion: Number(t.cacheVersion) || 0,
     };
@@ -479,6 +515,26 @@ export function createPetChatService({ ctx, stateDir, pluginLog = () => {}, toke
     return { online: presence.size > 0, lastSeenAt: last || 0 };
   }
 
+  // 多开（桌面桌宠窗 + 网页里再开一个挂件）时，同一条消息会被几个客户端各收到一遍；
+  // 朗读只让第一个拿到它的客户端念，其余客户端照常收文本但不带 speak，
+  // 避免同一句被两个窗口叠着念两遍（2026-11 用户反馈）。
+  const spokenIds = new Set();
+  function claimSpeak(event) {
+    if (event.speak !== true) return event;
+    if (spokenIds.has(event.id)) {
+      const { speak, ...rest } = event;
+      return rest;
+    }
+    spokenIds.add(event.id);
+    if (spokenIds.size > 500) {
+      // 只保留最近 200 个，防止长期运行无限增长
+      const keep = [...spokenIds].slice(-200);
+      spokenIds.clear();
+      for (const id of keep) spokenIds.add(id);
+    }
+    return event;
+  }
+
   async function poll({ since = null, waitMs = 20000, clientId = 'pet' } = {}) {
     notePresence(clientId);
     // ⚠️ 别用 Number(since) 直接判断：Number(null) === 0 且 Number('') === 0，
@@ -518,7 +574,7 @@ export function createPetChatService({ ctx, stateDir, pluginLog = () => {}, toke
           ok: true,
           bootId,
           cursor: last,
-          events: fresh.map(publicEvent),
+          events: fresh.map(publicEvent).map(claimSpeak),
           config: publicConfig(),
           serverTime: Date.now(),
         };
@@ -552,6 +608,8 @@ export function createPetChatService({ ctx, stateDir, pluginLog = () => {}, toke
     if (event.role) out.role = event.role;
     if (event.sender) out.sender = event.sender;
     if (event.key) out.key = event.key;
+    // 朗读标记：publicEvent 是白名单，漏掉 speak 会让「气泡/卡片朗读」永远收不到开关。
+    if (event.speak === true) out.speak = true;
     return out;
   }
 
@@ -574,42 +632,108 @@ export function createPetChatService({ ctx, stateDir, pluginLog = () => {}, toke
   }
 
   // ── 语音 ────────────────────────────────────────────────────────────────
-  async function synthesize(text) {
+  async function synthesize(text, { mode = 'voice', voice = '', rate = '', pitch = '' } = {}) {
     const v = voiceSettings();
     if (!v.enabled) return { ok: false, error: '语音合成未开启（设置 → 语音设置 → 打开总开关）' };
     const spoken = clipForVoice(stripStageDirections(text), v.maxChars);
     if (!spoken) return { ok: false, error: '没有可念的内容' };
+    // 朗读（消息卡片/气泡）走 speakVoice，语音条走 edgeVoice；语速只对朗读单独可调。
+    const talkVoice = String(voice || (mode === 'speak' ? v.speakVoice : v.edgeVoice) || v.edgeVoice);
+    const talkRate = String(rate || (mode === 'speak' ? v.speakRate : '+0%'));
+    const talkPitch = String(pitch || '+0Hz');
     ensureDirs();
     try {
       let resultPath, durationMs, ext, realKey;
 
-      // Edge TTS：微软 readaloud/edge/v1 公开端点，输出 mp3
-      const r = await synthesizeEdgeToFile({
-        text: spoken,
-        voice: v.edgeVoice,
-        timeoutMs: v.timeoutMs,
-        outDir: voiceDir,
-      });
-      resultPath = r.path;
-      durationMs = r.durationMs;
-      ext = '.mp3';
-      // 桌宠需要 wav → ffmpeg 转码
-      const wavPath = path.join(voiceDir, `${path.basename(resultPath, '.mp3')}.wav`);
-      const cfg = qqConfig();
-      const ffmpegPath = process.env.FFMPEG_PATH
-        || cfg?.socialV2?.voice?.ffmpegPath
-        || 'ffmpeg';
-      try {
-        await execFile(ffmpegPath, [
-          '-y', '-i', resultPath,
-          '-ar', '24000', '-ac', '1', '-sample_fmt', 's16',
-          wavPath,
-        ], { timeout: 10000 });
-        resultPath = wavPath;
+      if (v.route === 'doubao') {
+        const r = await synthesizeDoubaoToFile({
+          text: spoken,
+          appId: v.doubaoAppId,
+          accessToken: v.doubaoToken,
+          voice: v.doubaoVoice,
+          encoding: v.doubaoEncoding,
+          timeoutMs: v.timeoutMs,
+          cacheVersion: v.cacheVersion,
+          outDir: voiceDir,
+        });
+        resultPath = r.path;
+        durationMs = r.durationMs || 0;
+        ext = v.doubaoEncoding === 'ogg_opus' ? '.ogg' : (v.doubaoEncoding === 'wav' ? '.wav' : '.mp3');
+      } else if (v.route === 'qwen') {
+        const r = await synthesizeQwenToFile({
+          text: spoken,
+          apiKey: v.qwenApiKey,
+          voice: v.qwenVoice,
+          model: v.qwenModel,
+          language: v.qwenLanguage,
+          timeoutMs: v.timeoutMs,
+          cacheVersion: v.cacheVersion,
+          outDir: voiceDir,
+        });
+        resultPath = r.path;
+        try { durationMs = wavDurationMs(fs.readFileSync(r.path)); } catch { durationMs = 0; }
         ext = '.wav';
-      } catch (convErr) {
-        pluginLog('[pet-chat] Edge TTS → wav 转码失败（ffmpeg 可能未安装），直接用 mp3：', convErr.message);
+      } else if (v.route === 'online') {
+        // 免费在线模型（HuggingFace Space）：音色由「声音描述」决定，输出 wav。
+        const r = await synthesizeOnlineToFile({
+          text: spoken,
+          description: v.onlineDesc,
+          language: v.onlineLanguage,
+          timeoutMs: Math.max(v.timeoutMs, 120000),
+          cacheVersion: v.cacheVersion,
+          outDir: voiceDir,
+        });
+        resultPath = r.path;
+        try { durationMs = wavDurationMs(fs.readFileSync(r.path)); } catch { durationMs = 0; }
+        ext = '.wav';
+      } else if (v.route !== 'edge') {
+        // 本地 / 云端 voxd：直接产出 wav（24k 单声道），桌宠和消息卡片都能直接播，不用 ffmpeg。
+        // 音色名用这条通道自己的（localVoice/cloudVoice），Edge 的音色 id 在这里没有意义。
+        const baseUrl = v.route === 'local' ? v.localBaseUrl : v.cloudBaseUrl;
+        const character = String((v.route === 'local' ? v.localVoice : v.cloudVoice) || '').trim();
+        const r = await synthesizeVoxdToFile({
+          text: spoken,
+          character,
+          voice: character,
+          baseUrl,
+          timeoutMs: v.timeoutMs,
+          cacheVersion: v.cacheVersion,
+          outDir: voiceDir,
+        });
+        resultPath = r.path;
+        durationMs = r.durationMs;
+        ext = '.wav';
+      } else {
+        // Edge TTS：微软 readaloud/edge/v1 公开端点，输出 mp3
+        const r = await synthesizeEdgeToFile({
+          text: spoken,
+          voice: talkVoice,
+          rate: talkRate,
+          pitch: talkPitch,
+          timeoutMs: v.timeoutMs,
+          outDir: voiceDir,
+        });
+        resultPath = r.path;
+        durationMs = r.durationMs;
         ext = '.mp3';
+        // 桌宠需要 wav → ffmpeg 转码
+        const wavPath = path.join(voiceDir, `${path.basename(resultPath, '.mp3')}.wav`);
+        const cfg = qqConfig();
+        const ffmpegPath = process.env.FFMPEG_PATH
+          || cfg?.socialV2?.voice?.ffmpegPath
+          || 'ffmpeg';
+        try {
+          await execFile(ffmpegPath, [
+            '-y', '-i', resultPath,
+            '-ar', '24000', '-ac', '1', '-sample_fmt', 's16',
+            wavPath,
+          ], { timeout: 10000 });
+          resultPath = wavPath;
+          ext = '.wav';
+        } catch (convErr) {
+          pluginLog('[pet-chat] Edge TTS → wav 转码失败（ffmpeg 可能未安装），直接用 mp3：', convErr.message);
+          ext = '.mp3';
+        }
       }
 
       realKey = path.basename(resultPath, ext);
@@ -741,6 +865,18 @@ export function createPetChatService({ ctx, stateDir, pluginLog = () => {}, toke
       lines.push(memory.slice(0, 2600));
       lines.push('');
     }
+    // 情绪 / 口头禅：和 QQ、抖音共用同一份状态（src/persona-state.js）。
+    const personaState = personaPromptBlock();
+    if (personaState) {
+      lines.push(personaState);
+      lines.push('');
+    }
+    // 她自己看到的（贴吧/B站/抖音）+ 自动近况：只当背景。
+    const learned = learningPromptBlock();
+    if (learned) {
+      lines.push(learned);
+      lines.push('');
+    }
     const bits = [];
     if (purpose.pending?.length) bits.push(`心里还惦记着：${purpose.pending.join('；')}`);
     if (purpose.goals?.length) bits.push(`最近在想的：${purpose.goals.join('；')}`);
@@ -782,6 +918,7 @@ export function createPetChatService({ ctx, stateDir, pluginLog = () => {}, toke
     if (!s.chat.enabled) return { ok: false, error: '桌宠对话已关闭（设置 → 桌宠 → 对话）' };
     const say = String(text ?? '').trim().slice(0, MAX_INPUT_CHARS);
     if (!say) return { ok: false, error: '说点什么吧' };
+    notePersonaActivity({ kind: 'owner' });
     const mode = modality === 'voice' ? 'voice' : 'text';
     if (!llmReady()) return { ok: false, error: 'DSH 模型服务还没就绪，稍后再试' };
     // 并发闸：挂件重连/重复点击时会并行发几条 /chat，而这里每条都是一次完整模型调用。
@@ -893,6 +1030,7 @@ export function createPetChatService({ ctx, stateDir, pluginLog = () => {}, toke
     history.lastProactiveAt = now;
     history.lastAssistantAt = now;
     saveHistory(history);
+    notePersonaActivity({ kind: 'reply', at: now });
     const remembered = rememberEvents(buildPetMemoryEvents({
       replyText: body,
       at: now,

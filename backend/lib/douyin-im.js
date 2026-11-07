@@ -19,6 +19,13 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { DOUYIN_DIR } from './douyin.js';
 import { readUnified } from './store.js';
+import { notePersonaActivity, personaPromptBlock } from '../../src/persona-state.js';
+import { learningPromptBlock } from '../../src/learning-profile.js';
+import { activeMemoryPaths, activePersonaFile, readCurrentCharacter, readPersonaLayerText } from '../../src/character-persona.js';
+import { composePersonaLayers } from '../../src/persona-layers.js';
+import { buildPersonaIdentity, personaNameFromCard } from '../../src/persona-identity.js';
+import { appendMemoryInboxEvent } from '../../src/memory-card.js';
+import { memoryCardPromptBlock } from './memory-card.js';
 
 const IM_DIR = path.join(DOUYIN_DIR, 'im');
 const DATA_DIR = path.join(IM_DIR, 'data');
@@ -145,7 +152,8 @@ function bindSessionEvents() {
   try {
     sessionEventOff = ctx.on('session/event', (session, event) => {
       const chat = chatBySession.get(String(session?.id ?? ''));
-      if (!chat) return;
+      // controller 模式靠 wait() 的 outcome 取回复；这里不再缓存，避免 buffer 无限增长。
+      if (!chat || chat.kind === 'controller') return;
       if (event?.type === 'assistant/message') {
         const text = assistantTextOf(event);
         if (text) chat.buffer.push(text);
@@ -190,7 +198,7 @@ function sessionIdOf(key) {
   return `douyin-im-${createHash('sha1').update(String(key)).digest('hex').slice(0, 12)}`;
 }
 
-/** 用 DSH 的 agents 服务取/建会话（比 sessionController.wait 稳，且和 QQ 桥接同一套）。 */
+/** 打开/接回会话：优先 sessionController（DSH 侧栏能看到会话），失败退回 agents（旧路径）。 */
 async function openChatSession(key) {
   const known = chatByKey.get(key);
   if (known) return known;
@@ -199,6 +207,41 @@ async function openChatSession(key) {
   const service = (name) => {
     try { return typeof ctx.get === 'function' ? ctx.get(name) : ctx[name]; } catch { return undefined; }
   };
+  try { fs.mkdirSync(WORKSPACE_DIR, { recursive: true }); } catch { /* 目录失败不影响会话 */ }
+  const sessionId = sessionIdOf(key);
+
+  // ── 首选：sessionController（和旧版抖音回复同一条路，DSH 侧栏/身份页能看到会话）──
+  const controller = service('sessionController');
+  if (controller && typeof controller.create === 'function' && typeof controller.prompt === 'function'
+    && typeof controller.wait === 'function' && typeof controller.state === 'function') {
+    // 不依赖 inspect（Remote 服务没暴露它）：用 state 探一下会话是否已经在盘上。
+    try { await controller.state({ sessionId }); }
+    catch {
+      try {
+        await controller.create({ sessionId, cwd: WORKSPACE_DIR, agentPreset: 'douyin-chat' });
+      } catch (createError) {
+        // 已存在但 state 读不到：再探一次，仍然不行才报错。
+        try { await controller.state({ sessionId }); } catch { throw createError; }
+      }
+    }
+    await applyControllerModel(controller, sessionId);
+    const chat = {
+      key,
+      kind: 'controller',
+      controller,
+      sessionId,
+      buffer: [],
+      waiter: null,
+      chain: Promise.resolve(),
+    };
+    chatByKey.set(key, chat);
+    chatBySession.set(chat.sessionId, chat);
+    await applySessionTitle(controller, chat.sessionId, key);
+    log(`会话已就绪（DSH 侧栏可见）：${key} -> ${chat.sessionId}`);
+    return chat;
+  }
+
+  // ── 兜底：agents 服务（老版本 DSH 没有 sessionController 时）──
   const agents = service('agents');
   if (!agents || typeof agents.resume !== 'function' || typeof agents.create !== 'function') {
     throw new Error('DSH agents 服务没就绪（需要重启 DSH 让插件重新加载）');
@@ -216,8 +259,6 @@ async function openChatSession(key) {
     try { await presets.mount(agentCtx, 'douyin-chat'); }
     catch (error) { log(`挂 preset 失败（继续用基础提示词）：${String(error?.message ?? error).slice(0, 140)}`); }
   };
-  try { fs.mkdirSync(WORKSPACE_DIR, { recursive: true }); } catch { /* 目录失败不影响会话 */ }
-  const sessionId = sessionIdOf(key);
   let handle;
   try {
     handle = await agents.resume({ resumeSessionId: sessionId, agentOptions, setup });
@@ -238,8 +279,45 @@ async function openChatSession(key) {
   };
   chatByKey.set(key, chat);
   chatBySession.set(chat.sessionId, chat);
+  await applySessionTitle(service('sessionController'), chat.sessionId, key);
   log(`会话已就绪：${key} -> ${chat.sessionId}`);
   return chat;
+}
+
+// 会话标题：抖音会话默认没有标题，DSH 侧栏里就是一片空白，根本找不到。
+// 这里给每个会话起一个「抖音群聊 · 群名」，让它在会话列表里可辨认（只改一次）。
+const titledSessions = new Set();
+
+async function applySessionTitle(controller, sessionId, key) {
+  if (!controller || typeof controller.rename !== 'function') return;
+  if (titledSessions.has(sessionId)) return;
+  const cfg = douyinImConfig();
+  const item = cfg.allowlist.find((one) => one.id === key);
+  const rawName = String(item?.name || key.split(':')[1] || '').trim() || '会话';
+  const title = `抖音${key.startsWith('group:') ? '群聊' : '私聊'} · ${rawName}`.slice(0, 60);
+  try {
+    await controller.rename({ sessionId, title });
+    titledSessions.add(sessionId);
+    log(`会话标题已设为「${title}」`);
+  } catch (error) {
+    // 改名失败不影响回复；下次打开还会再试一次。
+    log(`会话改名失败（继续回复）：${String(error?.message ?? error).slice(0, 120)}`);
+  }
+}
+
+/** 抖音会话跟随 DSH 里设置的模型（没配就用会话默认）。 */
+async function applyControllerModel(controller, sessionId) {
+  if (typeof controller.selectModel !== 'function') return;
+  try {
+    const model = readUnified()?.config?.model;
+    if (!model?.provider || !model?.model) return;
+    await controller.selectModel({
+      sessionId,
+      provider: String(model.provider),
+      model: String(model.model),
+      ...(model.reasoningEffort ? { reasoningEffort: String(model.reasoningEffort) } : {}),
+    });
+  } catch { /* 切不过去就继续用会话当前模型，回复本身不能因此失败 */ }
 }
 
 function makeUserMessage(text, key) {
@@ -255,8 +333,57 @@ function makeUserMessage(text, key) {
   });
 }
 
+/** 从 controller.wait 的 outcome 里取最后一条 assistant 文本（思考/工具调用不算）。 */
+function extractOutcomeReply(outcome) {
+  const texts = [];
+  for (const record of outcome?.output?.records ?? []) {
+    if (record?.type !== 'event') continue;
+    const event = record.event;
+    if (event?.type !== 'assistant/message' || event.surfaceOp !== 'append') continue;
+    const content = event.data?.message?.content;
+    if (!Array.isArray(content)) continue;
+    const text = content
+      .filter((block) => block?.type === 'text' && typeof block.text === 'string')
+      .map((block) => block.text)
+      .join('')
+      .trim();
+    if (text) texts.push(text);
+  }
+  return texts.at(-1) ?? '';
+}
+
+/** 走 sessionController：prompt + wait（和旧版抖音回复同一套，DSH 里能看到这一轮）。 */
+function askControllerChat(chat, text) {
+  const run = chat.chain.then(async () => {
+    const before = await chat.controller.state({ sessionId: chat.sessionId }).catch(() => null);
+    const afterSeq = Number.isFinite(before?.cursor) ? before.cursor : undefined;
+    await chat.controller.prompt({
+      requestId: `douyin-im-${randomUUID()}`,
+      sessionId: chat.sessionId,
+      mode: 'queue',
+      content: [{ type: 'text', text }],
+    });
+    const outcome = await chat.controller.wait({
+      sessionId: chat.sessionId,
+      ...(afterSeq === undefined ? {} : { afterSeq }),
+      maxMessages: 30,
+      timeoutMs: 180_000,
+    });
+    if (outcome?.reason === 'input-required') {
+      try { await chat.controller.cancel({ sessionId: chat.sessionId }); } catch { /* 取消失败也要报错 */ }
+      throw new Error('DSH 会话在等待人工确认，已取消本轮回复');
+    }
+    const reply = extractOutcomeReply(outcome);
+    if (!reply) throw new Error('这一轮没有产出文本（可能工具调用被权限挡掉，或模型没回）');
+    return reply;
+  });
+  chat.chain = run.catch(() => {}).then(() => new Promise((resolve) => setTimeout(resolve, 50)));
+  return run;
+}
+
 /** 投一条消息并等这一轮结束；同一会话串行，避免两条消息抢同一轮。 */
 function askChat(chat, text) {
+  if (chat.kind === 'controller') return askControllerChat(chat, text);
   const run = chat.chain.then(() => new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       if (chat.waiter && chat.waiter.timer === timer) {
@@ -282,6 +409,95 @@ function askChat(chat, text) {
 async function loadSdk() {
   const mod = await import('douyin-im');
   return mod;
+}
+
+// ── 人格注入 ───────────────────────────────────────────────────────────────
+// 抖音会话的 preset 是固定的安全规则，不含角色人格（这一点和 QQ 不同：
+// QQ 桥接每条消息都会注入 roles/<角色>.md）。不补这一块，抖音里的回复就只剩
+// 「一个会用模型的客服」——没有身份、没有性格、也没有共同经历。
+// 这里按 mtime 缓存，人格卡一改下次回复就生效。
+let personaCache = { key: '', text: '' };
+
+function ownerDisplayName() {
+  try { return String(readUnified()?.config?.admin?.displayName || '').trim() || '主人'; } catch { return '主人'; }
+}
+
+function douyinPersonaBlock() {
+  let file = '';
+  try { file = String(activePersonaFile() || ''); } catch { file = ''; }
+  if (!file) return '';
+  let stat = null;
+  try { stat = fs.statSync(file); } catch { return ''; }
+  const key = `${file}:${stat.mtimeMs}:${stat.size}`;
+  if (personaCache.key === key) return personaCache.text;
+  let core = '';
+  try { core = fs.readFileSync(file, 'utf8').trim(); } catch { return ''; }
+  if (!core) return '';
+  try {
+    let cur = null;
+    try { cur = readCurrentCharacter(); } catch { cur = null; }
+    const composed = composePersonaLayers({
+      core,
+      identity: buildPersonaIdentity({ name: personaNameFromCard(core, cur?.name || '这个角色'), owner: ownerDisplayName() }),
+      tone: readPersonaLayerText('tone'),
+      daily: readPersonaLayerText('daily'),
+      mode: 'v2',
+      maxChars: 2600,
+    }).text || core;
+    personaCache = { key, text: composed.trim() };
+    return personaCache.text;
+  } catch {
+    personaCache = { key, text: core };
+    return core;
+  }
+}
+
+/** 记忆卡注入块（四个平台同一张卡；关闭记忆卡时返回空）。 */
+function memoryCardBlock(platform) {
+  try {
+    if (readUnified()?.config?.memoryCard?.enabled === false) return '';
+    return String(memoryCardPromptBlock(platform) || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+/** 这一轮对话 → 统一记忆卡（和 QQ / B站 / 贴吧 / 桌宠同一条遗忘曲线）。 */
+function rememberConversation({ conversation, batch, reply }) {
+  try {
+    if (readUnified()?.config?.memoryCard?.enabled === false) return;
+    const paths = activeMemoryPaths();
+    const now = Date.now();
+    // 只记最后两句，整批都写会把卡刷满；群聊里本来也只是被叫到的那几句。
+    for (const item of batch.slice(-2)) {
+      appendMemoryInboxEvent(paths, {
+        at: now - 1,
+        platform: 'qq',
+        kind: conversation.isGroup ? 'group' : 'private',
+        sender: senderNameOf(item.event),
+        senderId: String(item.event?.senderUid ?? ''),
+        groupId: conversation.isGroup ? conversation.key : '',
+        direct: !conversation.isGroup,
+        conversationKey: `douyin:${conversation.key}`,
+        text: item.text,
+      });
+    }
+    let roleName = '她';
+    try { roleName = String(readCurrentCharacter()?.name || '').trim() || '她'; } catch { roleName = '她'; }
+    appendMemoryInboxEvent(paths, {
+      at: now,
+      platform: 'qq',
+      kind: conversation.isGroup ? 'group' : 'private',
+      sender: roleName,
+      isSelf: true,
+      private: !conversation.isGroup,
+      direct: true,
+      conversationKey: `douyin:${conversation.key}`,
+      text: reply,
+    });
+  } catch (error) {
+    log(`写记忆失败：${String(error?.message ?? error).slice(0, 120)}`);
+  }
 }
 
 async function getClient() {
@@ -612,6 +828,13 @@ function messageIdOf(event) {
 }
 
 function textOf(event) {
+  // 语音消息（msgType 17）：SDK 解析成 content.kind='audio'，但抖音长连接不推转写文本，
+  // event.text 要么为空、要么是整段 JSON。必须在这层接住，否则整条消息被静默丢掉，
+  // 表现为「对方发语音，机器人毫无反应」。若服务端偶尔带了转写文本就直接用。
+  if (event?.content && typeof event.content === 'object' && event.content.kind === 'audio') {
+    const spoken = String(event?.text ?? event.content?.text ?? '').trim();
+    return spoken && !spoken.startsWith('{') ? `[语音转文字] ${spoken}` : '[发来一条语音消息]';
+  }
   const text = String(event?.text ?? '').trim();
   if (text) return text;
   if (event?.work?.title) return `[分享了作品] ${event.work.title}`;
@@ -651,6 +874,8 @@ async function handleMessage(event) {
     if (conversation.isGroup && config.groupMentionOnly !== false && !addressesUs(event, mentionNames)) return;
     const text = textOf(event);
     if (!text) return;
+    // 有人在跟她说话（不一定是主人）：计入「有社交接触」，让沉默推导更准。
+    notePersonaActivity({ kind: 'contact' });
     const messageId = messageIdOf(event);
     if (messageId && readReplied().includes(messageId)) return;
     const state = readState();
@@ -682,30 +907,59 @@ async function flushBatch({ conversation, batch }) {
   const lines = batch
     .map((item) => `${senderNameOf(item.event)}：${item.text}`)
     .join('\n');
+  // 情绪 / 口头禅 + 她自己看到的：和 QQ、桌宠同一份状态，别在抖音里变成另一个人。
+  const personaBits = [personaPromptBlock(), learningPromptBlock()].filter(Boolean);
+  // 记忆卡：和 QQ / B站 / 贴吧 / 桌宠同一张卡。私聊给她全量（含 QQ 私事），
+  // 群聊只给「身份记忆 + 公开内容」那一版——群里有外人，不能把私聊细节带出去。
+  const memoryBlock = memoryCardBlock(conversation.isGroup ? 'bili' : 'qq');
+  // 角色人格卡：抖音 preset 只有安全规则，没有「她是谁」。不补这块，回复就是通用助手腔。
+  const personaCore = douyinPersonaBlock();
   const prompt = [
     `【抖音会话】${conversation.displayName || '未知会话'}${conversation.isGroup ? '（群聊）' : '（私聊）'}`,
+    personaCore,
+    memoryBlock,
+    ...personaBits,
     '下面是刚收到的新消息。只输出要发出去的回复：',
-    '- 1~3 句口语，不要 Markdown，不要旁白，不要解释自己在做什么，不要说“已发送”之类的话；',
-    '- 不要复读历史消息，也不要输出表情 id 或任何系统标记。',
+    '- 你就是上面的角色本人，不是客服或助理：保持她的身份、性格和说话方式，不要提 AI / 模型 / 提示词；',
+    '- 结合你和对方之前聊过的内容自然接话（会话历史里有），不要装作不认识、也不要复读历史；',
+    // 真人感规则（参考 MaiBot 的 light 模板）：短、碎、口语、允许只给反应。
+    '- 像真人在手机上打字：句子可以短、可以不完整，可以用语气词和网络用语（哈哈、笑死、草、确实、啊这、好家伙、牛的），不要用书面腔；',
+    '- 不用每条都正面回答：可以只回一个反应（比如「笑死」「确实」「？」），可以反问回去，可以顺着对方的梗接；',
+    '- 禁止客服腔和 AI 腔：不说「请问」「有什么可以帮你」「希望对你有帮助」，不写排比句，不做总结陈词，不礼貌过度；',
+    '- 回复拆成 1~3 条短消息，像真人连发几条一样；每条之间用 ||| 分隔，每条尽量一两句话，别写长段；',
+    '- 不知道的事就说不知道，不要编造没见过的经历、人设背景或现实里没发生的事；',
+    '- 看到「发来一条语音消息」说明语音内容你听不了，就自然地让对方打字再说一遍，别假装听到了；',
+    '- 不要 Markdown，不要旁白，不要解释自己在做什么，不要输出表情 id 或任何系统标记。',
     '',
     lines,
-  ].join('\n');
+  ].filter((line) => line !== undefined && line !== null && line !== '').join('\n');
   try {
     const chat = await openChatSession(conversation.key);
     const reply = await askChat(chat, prompt);
     const text = normalizeOutgoing(reply);
     if (!text) throw new Error('回复为空');
+    const bubbles = splitBubbles(text);
+    if (!bubbles.length) throw new Error('回复为空');
     const latest = batch.at(-1).event;
-    const response = await latest.reply(text);
-    const statusCode = Number(response?.statusCode ?? 0);
-    const statusMsg = String(response?.statusMsg ?? response?.message ?? '');
-    if (statusCode && statusCode !== 0) throw new Error(`发送被拒：${statusCode} ${statusMsg}`.trim());
+    // 拆条连发：真人不会把一屏话塞进一个气泡。条与条之间按条长停一下，像在打第二句。
+    for (let i = 0; i < bubbles.length; i += 1) {
+      const response = await latest.reply(bubbles[i]);
+      const statusCode = Number(response?.statusCode ?? 0);
+      const statusMsg = String(response?.statusMsg ?? response?.message ?? '');
+      if (statusCode && statusCode !== 0) throw new Error(`发送被拒：${statusCode} ${statusMsg}`.trim());
+      if (i < bubbles.length - 1) {
+        const wait = Math.min(2500, 500 + bubbles[i].length * 60 + Math.floor(Math.random() * 400));
+        await new Promise((resolve) => setTimeout(resolve, wait));
+      }
+    }
     const state = readState();
     state.replies += 1;
     saveState(state);
     const ids = readReplied();
     for (const item of batch) if (item.messageId) ids.push(item.messageId);
     saveReplied(ids);
+    notePersonaActivity({ kind: 'reply' });
+    rememberConversation({ conversation, batch, reply: text });
     runtime.error = '';
     log(`已回复 ${conversation.displayName}：${text.slice(0, 40)}`);
   } catch (error) {
@@ -736,6 +990,27 @@ function normalizeOutgoing(input) {
   const cut = text.slice(0, 200);
   const dot = Math.max(cut.lastIndexOf('。'), cut.lastIndexOf('！'), cut.lastIndexOf('？'), cut.lastIndexOf('\n'));
   return (dot > 80 ? cut.slice(0, dot + 1) : cut).trim();
+}
+
+/**
+ * 把一段回复拆成最多 3 条「气泡」。模型按提示词用 ||| 分隔；
+ * 没用分隔符但有换行时按换行拆（真人打字换行≈发新条）。
+ * 单条超 100 字按标点截断——超过就不像「一条消息」了。
+ */
+function splitBubbles(text) {
+  const raw = String(text ?? '');
+  const parts = (raw.includes('|||') ? raw.split(/\|{3,}/) : raw.split(/\n+/))
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const bubbles = [];
+  for (const part of parts) {
+    if (bubbles.length >= 3) break;
+    if (part.length <= 100) { bubbles.push(part); continue; }
+    const cut = part.slice(0, 100);
+    const dot = Math.max(cut.lastIndexOf('。'), cut.lastIndexOf('！'), cut.lastIndexOf('？'), cut.lastIndexOf('…'), cut.lastIndexOf('，'));
+    bubbles.push((dot > 40 ? cut.slice(0, dot + 1) : cut).trim());
+  }
+  return bubbles;
 }
 
 // ── 启动 / 停止 ────────────────────────────────────────────────────────────

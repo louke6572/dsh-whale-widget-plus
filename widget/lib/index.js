@@ -5035,6 +5035,38 @@ export default {
       },
     }))
 
+    // 朗读合成：卡片/气泡「念出来」用 Edge TTS（与 QQ 语音条同一音色）。
+    // 浏览器只调这个同源路由；baseUrl / token 留在宿主侧，音频由 SurfCore pet-api 直接回。
+    disposers.push(registerRoute({
+      kind: 'exact',
+      path: '/dsh-whale/tts.json',
+      handler: async (req, res) => {
+        try {
+          const url = new URL(req.url || '/', 'http://127.0.0.1')
+          const text = String(url.searchParams.get('text') || '').trim()
+          if (!text) {
+            res.writeHead(400, JSON_HEADERS)
+            res.end(JSON.stringify({ ok: false, error: '缺少 text' }))
+            return
+          }
+          // 合成要等 Edge 端点，给足超时（默认合成总时限 60s）
+          const data = await surfcoreRequest(`/tts?text=${encodeURIComponent(text.slice(0, 300))}`, { timeout: 70000 })
+          if (!data || !data.ok) {
+            res.writeHead(502, JSON_HEADERS)
+            res.end(JSON.stringify({ ok: false, error: (data && data.error) || '语音合成不可用' }))
+            return
+          }
+          res.writeHead(200, JSON_HEADERS)
+          res.end(JSON.stringify({ ok: true, url: data.url, durationMs: data.durationMs, text: data.text, volume: data.volume }))
+        } catch (err) {
+          try {
+            res.writeHead(Number(err && err.status) || 500, JSON_HEADERS)
+            res.end(JSON.stringify({ ok: false, error: String((err && err.message) || err).slice(0, 200) }))
+          } catch (e) {}
+        }
+      },
+    }))
+
     disposers.push(registerRoute({
       kind: 'exact',
       path: '/dsh-whale/usage-settings.json',

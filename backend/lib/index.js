@@ -113,6 +113,10 @@ import { fileStamp, isStale } from '../../src/config-stamps.js';
 import { createContextTelemetry } from '../../src/context-telemetry.js';
 import { createBillingService } from './billing.js';
 import { createPersonaClassifier } from './persona-classify.js';
+import { personaSnapshot, setPersonaMood, setPersonaQuirks } from '../../src/persona-state.js';
+import { createLearningLoop } from './learning-loop.js';
+import { createMemoryOrganizer } from './memory-organize.js';
+import { rollbackAutoPersona } from '../../src/learning-profile.js';
 
 // 版本号对外只有一个来源：合并后的 dsh-Dfy 主包（plugins/surfcore-next/package.json）。
 // surfcore 现在只是被 dsh-Dfy 复用的后端库，它自己的 package.json 版本不再对外展示；
@@ -279,6 +283,7 @@ export function apply(ctx) {
   let schedulerStatus = { running: false, startedAt: null, lastError: null, lastTickAt: null };
   let syncTimer = null;
   let memoryCardTimer = null;
+  let memoryOrganizeTimer = null;
   let characterTimer = null;
 
   // ── 每日 token 额度 / 用量采集（2026-10-23 用户要求）────────────────────
@@ -316,6 +321,10 @@ export function apply(ctx) {
 
   const petChat = createPetChatService({ ctx, stateDir: STATE_DIR, pluginLog, tokenBudget });
   const petPurpose = createPetPurposeService({ chat: petChat, tokenBudget, pluginLog, callBridge });
+  // 自我学习：贴吧 / B站 / 抖音 的观看记录 → 经历 + 近况（定时跑，也可以在设置页手动触发）。
+  const learningLoop = createLearningLoop({ ctx, log: pluginLog, tokenBudget });
+  // 记忆整理：把聊天流水合并/去噪成干净的事实（一键手动 + 每日自动）。
+  const memoryOrganizer = createMemoryOrganizer({ ctx, log: pluginLog, tokenBudget });
   const petApi = createPetApiService({
     chat: petChat,
     purpose: petPurpose,
@@ -632,6 +641,27 @@ export function apply(ctx) {
   // 记忆卡：插件宿主是唯一维护者。启动 8 秒后整理一次（摄取桥接 inbox + B站记忆），
   // 之后每 10 分钟一次；每日衰减由 memory-card 自己按 dailyHour 判断。
   memoryCardTimer = startMemoryCardTimer({ log: pluginLog, callBridge });
+  // 自我学习：启动 10 分钟后第一次，之后按 learning.intervalHours（默认 6 小时）。
+  learningLoop.start();
+  // 记忆整理：每小时检查一次；只有「开关开 + 距上次 20h + 记录够多」才真正调模型。
+  memoryOrganizeTimer = setInterval(() => {
+    void (async () => {
+      try {
+        const cfg = readUnified().config?.memoryCard ?? {};
+        const result = await memoryOrganizer.autoOrganize({ config: cfg });
+        if (result?.ok) {
+          const merge = result.merge;
+          if (merge) {
+            saveUnified({ memoryCard: { organize: { lastRunAt: Date.now(), lastMerged: merge.merged || 0, lastDropped: merge.dropped || 0 } } });
+          }
+          pluginLog(`[memory-organize] 自动：日记 ${result.diary?.date ?? '—'}（归档 ${result.diary?.removed ?? 0} 条） / 合并 ${merge?.merged ?? 0} 组、删除 ${merge?.dropped ?? 0} 条`);
+        }
+      } catch (error) {
+        pluginLog('[memory-organize] 自动整理失败：', String(error?.message ?? error).slice(0, 120));
+      }
+    })();
+  }, 60 * 60 * 1000);
+  memoryOrganizeTimer.unref?.();
 
   // 角色自动存档：启动 10 秒后跑一次，之后每 6 小时检查（每天最多一份 + 11 个年龄档轮换）。
   const runCharacterAutoSave = () => {
@@ -672,7 +702,10 @@ export function apply(ctx) {
   }
 
   // 桥接是否还是“上一轮 DSH 的”：旧版本不报 root/dshBaseUrl，或者端口已经变了。
-  function bridgeStaleReason(status) {
+  // 多实例（桌面 + web）共用 ~/.dsh 时，桥接只会被其中一个实例持有 ——
+  // 另一个实例看到「桥接连着别的端口」不能直接抢：只要那个 DSH 还活着，它就是对的。
+  // 否则两边每 10 分钟互相重启一次，QQ 回复反复断线（用户看到的就是「一直重启」）。
+  async function bridgeStaleReason(status) {
     if (!status?.running) return '';
     const runningRoot = status.root ? path.resolve(String(status.root)) : '';
     if (!runningRoot || runningRoot !== path.resolve(QQBOT_ROOT)) {
@@ -681,8 +714,22 @@ export function apply(ctx) {
     const expected = currentDshUrl().replace(/\/+$/, '');
     const actual = String(status.dshBaseUrl ?? '').trim().replace(/\/+$/, '');
     if (!actual) return '桥接是旧版本，无法报告 DSH 地址';
-    if (expected && actual !== expected) return `桥接还连着旧 DSH（${actual} ≠ ${expected}）`;
+    if (expected && actual !== expected) {
+      if (await dshUrlAlive(actual)) return '';
+      return `桥接还连着旧 DSH（${actual} ≠ ${expected}）`;
+    }
     return '';
+  }
+
+  /** 桥接记录的 DSH 地址是否还有进程在监听（活着就不算旧）。 */
+  async function dshUrlAlive(url) {
+    try {
+      const u = new URL(url);
+      const port = Number(u.port) || (u.protocol === 'https:' ? 443 : 80);
+      return await portOpen(port);
+    } catch {
+      return false;
+    }
   }
 
   // 2026-11 用户反馈：「已经配置过的，每次重开还要手动点一键开始」。
@@ -745,7 +792,7 @@ export function apply(ctx) {
       if (!snow.ok && !snow.skipped) pluginLog('autoStart 预热 SnowLuma 未完成：', snow.error || '');
       const status = await bridgeStatus();
       if (status.running) {
-        const stale = bridgeStaleReason(status);
+        const stale = await bridgeStaleReason(status);
         if (stale && Date.now() >= bridgeRepairCooldownUntil) {
           pluginLog(`autoStartBridge：${stale}，自动重启`);
           const restarted = await restartBridge({ dshWebUrl: currentDshUrl() });
@@ -794,7 +841,7 @@ export function apply(ctx) {
           }
           await handler(req, res);
         } catch (error) {
-          pluginLog('API 失败：', error?.message ?? error);
+          pluginLog('API 失败：', `${req.method} ${req.url} — ${error?.message ?? error}`);
           // 400/413 这类「客户端请求有问题」的错误要按自己的状态码回，别一律 500：
           // readJsonBody 把非法 JSON 标成 400、readBody 把超限标成 413。
           const status = Number(error?.statusCode);
@@ -1411,11 +1458,52 @@ ${body}`;
     if (req.method === 'GET') {
       // 默认 80 条（外壳每 60 秒轮询一次）；「打开记忆文档」传 limit=300 拿更多可编辑记录。
       const recordLimit = Math.max(1, Math.min(500, Number(url?.searchParams?.get('limit')) || 80));
-      json(res, 200, memoryCardSnapshot(config, { recordLimit }));
+      const organize = config?.organize && typeof config.organize === 'object' ? config.organize : {};
+      json(res, 200, {
+        ...memoryCardSnapshot(config, { recordLimit }),
+        organize: {
+          enabled: organize.enabled === true,
+          lastRunAt: Number(organize.lastRunAt) || 0,
+          lastMerged: Number(organize.lastMerged) || 0,
+          lastDropped: Number(organize.lastDropped) || 0,
+          llmReady: memoryOrganizer.llmReady(),
+        },
+      });
       return;
     }
     const body = await readJsonBody(req);
     const action = String(body.action ?? '');
+    if (action === 'diary') {
+      const result = await memoryOrganizer.diary({ date: String(body.date || ''), force: body.force === true });
+      if (!result.ok) { json(res, 400, result); return; }
+      json(res, 200, { ...memoryCardSnapshot(config), diary: result });
+      return;
+    }
+    if (action === 'forget-batch') {
+      const ids = Array.isArray(body.ids) ? body.ids.map(String).slice(0, 200) : [];
+      if (!ids.length) { json(res, 400, { ok: false, error: '没有选中任何记忆' }); return; }
+      let removed = 0;
+      for (const id of ids) {
+        const result = await applyMemoryCardAction('forget', { id }, { config });
+        if (result?.ok) removed += 1;
+      }
+      json(res, 200, { ...memoryCardSnapshot(config), removed });
+      return;
+    }
+    if (action === 'organize') {
+      const result = await memoryOrganizer.organize({
+        ids: Array.isArray(body.ids) ? body.ids : null,
+        force: body.force !== false,
+      });
+      if (!result.ok) { json(res, 400, result); return; }
+      json(res, 200, { ...memoryCardSnapshot(config), organized: result });
+      return;
+    }
+    if (action === 'organize-config') {
+      saveUnified({ memoryCard: { organize: { enabled: body.enabled === true } } });
+      json(res, 200, memoryCardSnapshot(config));
+      return;
+    }
     if (action === 'maintain') {
       const result = await runMemoryCardMaintenance({ forceDecay: body.forceDecay === true, config });
       const snapshot = memoryCardSnapshot(config);
@@ -2468,6 +2556,70 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
     json(res, 404, { ok: false, error: `桌宠安装/启动接口已下线：${suffix}` });
   }
 
+  // ── 人格状态（情绪 / 口头禅）：读改都走这里，QQ/桌宠/抖音共用 ──────────────
+  // 注意：不要叫 handlePersona —— 上面已有同名函数（人格四层编辑），同名声明会把它整个覆盖掉，
+  //       /persona 就会拿不到 url 参数而报 "reading 'pathname'"（2026-11 实测的读取失败）。
+  async function handlePersonaState(req, res, url) {
+    const parsed = url && typeof url.pathname === 'string' ? url : new URL(req.url || '/', 'http://127.0.0.1');
+    const suffix = parsed.pathname.slice(`${API_PREFIX}/persona`.length) || '/state';
+    const method = String(req.method || 'GET').toUpperCase();
+    if (method === 'GET' && (suffix === '' || suffix === '/state')) {
+      json(res, 200, personaSnapshot());
+      return;
+    }
+    if (method === 'POST' && suffix === '/config') {
+      let body = {};
+      try { body = await readJsonBody(req); } catch { json(res, 400, { ok: false, error: '请求体不是合法 JSON' }); return; }
+      try {
+        if (Array.isArray(body.quirks)) setPersonaQuirks(body.quirks);
+        if (typeof body.mood === 'string') setPersonaMood(body.mood, String(body.note || ''));
+        json(res, 200, personaSnapshot());
+      } catch (error) {
+        json(res, 400, { ok: false, error: String(error?.message ?? error).slice(0, 160) });
+      }
+      return;
+    }
+    json(res, 404, { ok: false, error: `未知人格接口：${suffix}` });
+  }
+
+  // ── 自我学习：贴吧 / B站 / 抖音 → 经历 + 近况（读状态 / 立即学 / 回滚）────────
+  async function handleLearning(req, res, url) {
+    const parsed = url && typeof url.pathname === 'string' ? url : new URL(req.url || '/', 'http://127.0.0.1');
+    const suffix = parsed.pathname.slice(`${API_PREFIX}/learning`.length) || '/status';
+    const method = String(req.method || 'GET').toUpperCase();
+    if (method === 'GET' && (suffix === '' || suffix === '/status')) {
+      json(res, 200, learningLoop.status());
+      return;
+    }
+    if (method === 'POST' && suffix === '/run') {
+      let body = {};
+      try { body = await readJsonBody(req); } catch { body = {}; }
+      json(res, 200, await learningLoop.run({ force: body.force !== false }));
+      return;
+    }
+    if (method === 'POST' && suffix === '/rollback') {
+      json(res, 200, rollbackAutoPersona());
+      return;
+    }
+    if (method === 'POST' && suffix === '/config') {
+      let body = {};
+      try { body = await readJsonBody(req); } catch { json(res, 400, { ok: false, error: '请求体不是合法 JSON' }); return; }
+      const patch = {};
+      if (typeof body.enabled === 'boolean') patch.enabled = body.enabled;
+      if (typeof body.diary === 'boolean') patch.diary = body.diary;
+      if (Number.isFinite(Number(body.intervalHours))) patch.intervalHours = Math.max(1, Math.min(48, Math.round(Number(body.intervalHours))));
+      if (Number.isFinite(Number(body.minItems))) patch.minItems = Math.max(1, Math.min(40, Math.round(Number(body.minItems))));
+      if (Object.keys(patch).length) {
+        saveUnified({ learning: patch });
+        // 间隔/开关变了：重建定时器，免得要等下次重启才生效。
+        try { learningLoop.stop(); learningLoop.start(); } catch {}
+      }
+      json(res, 200, learningLoop.status());
+      return;
+    }
+    json(res, 404, { ok: false, error: `未知学习接口：${suffix}` });
+  }
+
   // 设置页「测一句话」：同样要弹到桌宠气泡（docs/PET.md）；/pet/chat-test 和 /purpose/pet-chat 共用。
   async function petChatTest(body = {}) {
     const result = await petChat.chat({ text: body.text || '在吗', modality: body.modality === 'voice' ? 'voice' : 'text' });
@@ -2655,7 +2807,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
           return launchItem(id, false, { code: 'PLATFORM_DISABLED', error: 'QQ 启动开关已关闭', hint: '去「QQ」页打开「启动 QQ」并保存' });
         }
         const status = await bridgeStatus();
-        const stale = bridgeStaleReason(status);
+        const stale = await bridgeStaleReason(status);
         const bridge = stale ? await restartBridge({ dshWebUrl: currentDshUrl() }) : await startBridge({ dshWebUrl: currentDshUrl() });
         const snowluma = await launchSnowLuma().catch((error) => ({ ok: false, error: String(error?.message ?? error), hint: '检查 SnowLuma 安装目录/允许插件打开设置' }));
         const bridgeOk = bridge?.ok !== false;
@@ -2786,7 +2938,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
       // 一键启动：按平台启动开关拉起 QQ 桥接 / B站生物钟；QQ 打开时才尝试打开 SnowLuma。
       const starts = platformStartState();
       const status = await bridgeStatus();
-      const stale = bridgeStaleReason(status);
+      const stale = await bridgeStaleReason(status);
       const dshWebUrl = currentDshUrl();
       const bridge = starts.qq
         ? (stale ? await restartBridge({ dshWebUrl }) : await startBridge({ dshWebUrl }))
@@ -3796,6 +3948,8 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
     if (pathname === `${API_PREFIX}/diagnostics`) { await handleDiagnostics(req, res); return; }
     if (pathname === `${API_PREFIX}/bridge`) { await handleBridge(req, res); return; }
     if (pathname.startsWith(`${API_PREFIX}/purpose`)) { await handlePurpose(req, res, url); return; }
+    if (pathname.startsWith(`${API_PREFIX}/persona`)) { await handlePersonaState(req, res, url); return; }
+    if (pathname.startsWith(`${API_PREFIX}/learning`)) { await handleLearning(req, res, url); return; }
     if (pathname === `${API_PREFIX}/voice/preview`) { await handleVoicePreview(req, res, url); return; }
     if (pathname === `${API_PREFIX}/snowluma`) { await handleSnowLuma(req, res); return; }
     // 其余语音包管理路由（/voice/packs、/voice/tts-*）已随语音包子系统下线（2026-11 精简）。
@@ -3899,6 +4053,8 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
     try { billing.dispose(); } catch {}
     try { tokenBudget.dispose(); } catch {}
     try { memoryCardTimer?.stop?.(); } catch {}
+    try { learningLoop.stop(); } catch {}
+    if (memoryOrganizeTimer) clearInterval(memoryOrganizeTimer);
     try { closeAllQrLogins(); } catch {}
     if (characterTimer) clearInterval(characterTimer);
     if (syncTimer) clearInterval(syncTimer);

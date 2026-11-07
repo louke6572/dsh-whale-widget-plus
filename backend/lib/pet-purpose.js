@@ -39,6 +39,8 @@ import {
   summarizePurposeState,
 } from '../../src/purpose-engine.js';
 import { activeBiliDir, activeMemoryPaths } from '../../src/character-persona.js';
+import { personaPromptBlock } from '../../src/persona-state.js';
+import { learningPromptBlock } from '../../src/learning-profile.js';
 import { QQ_STATE_DIR } from './paths.js';
 import { readQqConfig, readUnified, writeJsonAtomic } from './store.js';
 
@@ -286,6 +288,18 @@ export function createPetPurposeService({ chat, tokenBudget = null, pluginLog = 
     if (memory) {
       systemLines.push('【记忆卡（越早的事记得越模糊，别把模糊的事说得很确定）】');
       systemLines.push(memory.slice(0, 2400));
+      systemLines.push('');
+    }
+    // 情绪 / 口头禅：主动搭话也要承接同一份心情，而不是每次从「平静」开始。
+    const personaState = personaPromptBlock();
+    if (personaState) {
+      systemLines.push(personaState);
+      systemLines.push('');
+    }
+    // 她自己看到的（贴吧/B站/抖音）+ 自动近况。
+    const learned = learningPromptBlock();
+    if (learned) {
+      systemLines.push(learned);
       systemLines.push('');
     }
     systemLines.push('【说话规则】');

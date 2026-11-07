@@ -34,6 +34,7 @@ import { tiebaConfig, tiebaPromptDue, markTiebaPrompted } from './tieba.js'
 import { resolvePersonaFile } from './persona.js'
 import { readUnified } from './store.js'
 import { memoryCardPromptBlock } from './memory-card.js'
+import { learningPromptBlock } from '../../src/learning-profile.js'
 import { buildSelfIdentityBlock, readQqSelfIdentity } from '../../src/self-identity.js'
 import { adminFromSources, adminPromptBlock } from '../../src/admin-identity.js'
 import { activeMemoryPaths, activePlatformStateDir, readPersonaLayerText } from '../../src/character-persona.js'
@@ -202,7 +203,7 @@ function memoryCardBlockForBili() {
   return memoryCardPromptBlock('bili')
 }
 
-/** 每次唤醒都放在最前面的合体上下文（顺序：人设 → 自我锚点 → 管理员 → 对齐 → QQ 记忆 → 记忆卡）。 */
+/** 每次唤醒都放在最前面的合体上下文（顺序：人设 → 自我锚点 → 管理员 → 对齐 → QQ 记忆 → 记忆卡 → 学习画像）。 */
 function identityContextLines() {
   return [
     personaCardBlock(),
@@ -211,6 +212,9 @@ function identityContextLines() {
     alignmentBlockForBili(),
     qqMemoryBlockForBili(),
     memoryCardBlockForBili(),
+    // 学习画像（梗 / 口头禅 / 网络用语）四个平台共用同一份：
+    // 只在 QQ / 抖音 / 桌宠注入的话，B站/贴吧的她说话就会退回「AI 腔」。
+    learningPromptBlock(),
   ].filter(Boolean)
 }
 
