@@ -193,6 +193,7 @@ export const SECRET_PATHS = new Set([
   'webSearch.apiKey',
   'consoleToken',
   // 第三方 TTS 凭证：只在后端合成时用，设置页回读一律给掩码（保存时自动还原）。
+  'socialV2.voice.tts.doubaoApiKey',
   'socialV2.voice.tts.doubaoToken',
   'socialV2.voice.tts.qwenApiKey',
   // 2026-11 审计：GitHub token 存在合体层（updates.githubToken），但没进这份清单，

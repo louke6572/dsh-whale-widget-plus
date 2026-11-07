@@ -212,6 +212,7 @@ async function openChatSession(key) {
 
   // ── 首选：sessionController（和旧版抖音回复同一条路，DSH 侧栏/身份页能看到会话）──
   const controller = service('sessionController');
+  // 主路径依赖 state/wait（发送时要按 cursor 等这一轮），DSH Remote 没暴露它们时只能走 agents 兜底。
   if (controller && typeof controller.create === 'function' && typeof controller.prompt === 'function'
     && typeof controller.wait === 'function' && typeof controller.state === 'function') {
     // 不依赖 inspect（Remote 服务没暴露它）：用 state 探一下会话是否已经在盘上。
@@ -263,10 +264,33 @@ async function openChatSession(key) {
   try {
     handle = await agents.resume({ resumeSessionId: sessionId, agentOptions, setup });
   } catch (resumeError) {
+    log(`接回抖音会话失败（${key}）：${String(resumeError?.message ?? resumeError).slice(0, 140)}，尝试新建`);
     try {
       handle = await agents.create({ sessionId, meta: { cwd: WORKSPACE_DIR }, agentOptions, setup });
     } catch (createError) {
-      throw new Error(`建 DSH 会话失败：${String(createError?.message ?? createError).slice(0, 180)}`);
+      // 会话在盘上、resume 又失败：同 id create 会报 already exists。
+      // 再试一次 resume（断线重连时第一次失败很常见）；仍拿不到所有权就请
+      // sessionController 分配一个新会话 id，保证这条回复能发出去。
+      if (!/already exists/i.test(String(createError?.message ?? ''))) {
+        throw new Error(`建 DSH 会话失败：${String(createError?.message ?? createError).slice(0, 180)}`);
+      }
+      try {
+        handle = await agents.resume({ resumeSessionId: sessionId, agentOptions, setup });
+        log(`再审接回抖音会话成功：${key}`);
+      } catch (retryError) {
+        // 会话在盘上但被 DSH 侧占用（resume 拿不到所有权）：让 sessionController
+        // 自己分配一个可用会话 id（它会 minted 一个不冲突的），再用 agents 接回。
+        log(`再审仍失败（${key}）：${String(retryError?.message ?? retryError).slice(0, 140)}，改由 sessionController 分配会话`);
+        const controller = service('sessionController');
+        if (!controller || typeof controller.create !== 'function') {
+          throw new Error(`建 DSH 会话失败：${String(retryError?.message ?? retryError).slice(0, 180)}`);
+        }
+        const created = await controller.create({ cwd: WORKSPACE_DIR, agentPreset: 'douyin-chat' });
+        const mintedId = String(created?.sessionId ?? '').trim();
+        if (!mintedId) throw new Error(`建 DSH 会话失败：${String(retryError?.message ?? retryError).slice(0, 180)}`);
+        handle = await agents.resume({ resumeSessionId: mintedId, agentOptions, setup });
+        log(`抖音会话 ${key} 改挂到新会话：${mintedId}`);
+      }
     }
   }
   const chat = {

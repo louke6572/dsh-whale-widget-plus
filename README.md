@@ -210,7 +210,7 @@ DSH「设置 → dsh-Dfy」与挂件内控制台是同一套配置：
 | 音源 | 需要什么 | 免费情况 |
 |---|---|---|
 | 微软 Edge | 无 | 完全免费，免 Key |
-| 豆包语音（火山引擎） | AppID + Access Token + voice_type | 21 款免费音色 + 开通送试用字符额度 |
+| 豆包语音（火山引擎） | 新版：API Key；旧版：AppID + Access Token + voice_type | 21 款免费音色 + 开通送试用字符额度 |
 | 阿里百炼 Qwen-TTS | API Key + 音色 + 语种 | 新人免费额度 |
 | 在线免费模型（Qwen3-TTS） | 只用一句中文「声音描述」 | 完全免费、无 Key，每句约 10~30 秒 |
 | 本地 voxd（8765） | 自己起 GPT-SoVITS 等 voxd 服务 | 本地免费，插件不捆绑模型 |

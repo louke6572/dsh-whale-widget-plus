@@ -2148,7 +2148,10 @@ async function main(options = {}) {
         // online = 免费的在线模型（HuggingFace Space）。音色用一句中文描述生成，不需要参考音频。
         onlineDesc: String(v.tts?.onlineDesc || DEFAULT_ONLINE_DESC),
         onlineLanguage: String(v.tts?.onlineLanguage || DEFAULT_ONLINE_LANGUAGE),
-        // doubao = 豆包语音（火山引擎）：AppID + Access Token，21 款免费音色。
+        // doubao = 豆包语音（火山引擎）：新版控制台用 API Key（V3 流式），
+        // 旧版控制台的 AppID + Access Token（V1）保留兼容。
+        doubaoApiKey: String(v.tts?.doubaoApiKey || '').trim(),
+        doubaoResourceId: String(v.tts?.doubaoResourceId || 'seed-tts-2.0').trim(),
         doubaoAppId: String(v.tts?.doubaoAppId || '').trim(),
         doubaoToken: String(v.tts?.doubaoToken || '').trim(),
         doubaoVoice: String(v.tts?.doubaoVoice || DOUBAO_DEFAULT_VOICE),
@@ -2229,6 +2232,9 @@ async function main(options = {}) {
     if (route === 'doubao') {
       const result = await synthesizeDoubaoToFile({
         text,
+        // 新版控制台只有 API Key → 走 V3；旧的 AppID + Access Token 仍兼容。
+        apiKey: vc.tts.doubaoApiKey,
+        resourceId: vc.tts.doubaoResourceId,
         appId: vc.tts.doubaoAppId,
         accessToken: vc.tts.doubaoToken,
         voice: voice || vc.tts.doubaoVoice,
@@ -2237,10 +2243,10 @@ async function main(options = {}) {
         cacheVersion: vc.tts.cacheVersion ?? null,
         outDir: vc.tts.dir,
       });
-      return {
-        path: result.path, cached: result.cached, durationMs: result.durationMs,
-        route, contentType: vc.tts.doubaoEncoding === 'wav' ? 'audio/wav' : 'audio/mpeg',
-      };
+      const contentType = result.format === 'ogg_opus'
+        ? 'audio/ogg'
+        : (result.format === 'wav' ? 'audio/wav' : 'audio/mpeg');
+      return { path: result.path, cached: result.cached, durationMs: result.durationMs, route, contentType };
     }
     if (route === 'qwen') {
       const result = await synthesizeQwenToFile({

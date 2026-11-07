@@ -261,6 +261,8 @@ export function createPetChatService({ ctx, stateDir, pluginLog = () => {}, toke
       cloudVoice: String(t.cloudVoice || ''),
       onlineDesc: String(t.onlineDesc || DEFAULT_ONLINE_DESC),
       onlineLanguage: String(t.onlineLanguage || DEFAULT_ONLINE_LANGUAGE),
+      doubaoApiKey: String(t.doubaoApiKey || '').trim(),
+      doubaoResourceId: String(t.doubaoResourceId || 'seed-tts-2.0').trim(),
       doubaoAppId: String(t.doubaoAppId || '').trim(),
       doubaoToken: String(t.doubaoToken || '').trim(),
       doubaoVoice: String(t.doubaoVoice || DOUBAO_DEFAULT_VOICE),
@@ -648,6 +650,9 @@ export function createPetChatService({ ctx, stateDir, pluginLog = () => {}, toke
       if (v.route === 'doubao') {
         const r = await synthesizeDoubaoToFile({
           text: spoken,
+          // 新版控制台只有 API Key（V3）；旧版 AppID + Token（V1）仍兼容。
+          apiKey: v.doubaoApiKey,
+          resourceId: v.doubaoResourceId,
           appId: v.doubaoAppId,
           accessToken: v.doubaoToken,
           voice: v.doubaoVoice,
@@ -658,7 +663,7 @@ export function createPetChatService({ ctx, stateDir, pluginLog = () => {}, toke
         });
         resultPath = r.path;
         durationMs = r.durationMs || 0;
-        ext = v.doubaoEncoding === 'ogg_opus' ? '.ogg' : (v.doubaoEncoding === 'wav' ? '.wav' : '.mp3');
+        ext = r.format === 'ogg_opus' ? '.ogg' : (r.format === 'wav' ? '.wav' : '.mp3');
       } else if (v.route === 'qwen') {
         const r = await synthesizeQwenToFile({
           text: spoken,
