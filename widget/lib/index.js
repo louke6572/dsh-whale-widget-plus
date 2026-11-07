@@ -6337,12 +6337,16 @@ export default {
       },
     }))
 
-    disposers.push(ctx.webServer.tapIndex((html) => {
-      if (html.indexOf('/dsh-whale/widget.js') !== -1) return html
-      const tag = '<script defer src="/dsh-whale/widget.js"></script>'
-      if (html.indexOf('</body>') !== -1) return html.replace('</body>', tag + '</body>')
-      return html + tag
-    }))
+    // tapIndex 是 web 形态的注入通道；桌面端走上面的 index-inject 行。
+    // 老版本 DSH 可能没有 tapIndex：缺它只影响 web 形态，绝不能让整个插件加载失败。
+    if (typeof ctx.webServer?.tapIndex === 'function') {
+      disposers.push(ctx.webServer.tapIndex((html) => {
+        if (html.indexOf('/dsh-whale/widget.js') !== -1) return html
+        const tag = '<script defer src="/dsh-whale/widget.js"></script>'
+        if (html.indexOf('</body>') !== -1) return html.replace('</body>', tag + '</body>')
+        return html + tag
+      }))
+    }
 
     // —— 官方 DSH 桌面端（Electron）适配（issue #152 / #153 / #154）——
     // 桌面壳的 index.html 是**从安装包静态 dist 直接读盘**的（`dsh-app://app/`），永远不经过宿主的

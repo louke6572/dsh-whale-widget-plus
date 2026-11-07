@@ -95,7 +95,7 @@ curl -s -o NUL -w "%{http_code}" http://127.0.0.1:3080/dsh-whale/widget.js
 ```text
 dsh-Dfy 已安装。
 - 安装目录：<目录>
-- 版本：0.7.4
+- 版本：0.7.5
 - DSH profile：<profile>
 - SnowLuma：<已就绪 / 未安装>
 - QQ：<已登录（昵称/QQ号） / 等待扫码>

@@ -85,6 +85,8 @@ function budgetFallbackFromQqConfig(cfg) {
   return {
     qq: { cny, tokens: null },
     bili: { cny: null, tokens: null },
+    tieba: { cny: null, tokens: null },
+    douyin: { cny: null, tokens: null },
     other: { cny: null, tokens: null },
     total: { cny: null, tokens: null },
   };
@@ -153,6 +155,8 @@ export function createTokenBudgetService({
   const lastSeq = new Map();
   const retryAxis = new Map();
   const samples = new Map();
+  // 贴吧和 B站 共用 bili-whale 会话：按「这一轮是谁的任务」临时改分类。
+  const turnCategory = new Map();
 
   // ── 配置 / 分类辅助 ────────────────────────────────────────────────────
   function getQqConfigSafe() {
@@ -198,10 +202,26 @@ export function createTokenBudgetService({
     }
     const preset = String(header.agentPreset ?? summary.agentPreset ?? '');
     const title = String(summary.title ?? sessionMeta.get(id)?.title ?? '');
+    // 抖音私信 / 贴吧会话（preset 或稳定 sessionId 任一命中即可）。
+    if (preset.startsWith('douyin-chat') || /^douyin-im(?:-|$)/.test(id)) return 'douyin';
+    if (preset.startsWith('tieba-chat') || /^tieba-(?:whale|chat)(?:-|$)/.test(id)) return 'tieba';
     if (preset.startsWith('qq-chat') && /黑话/.test(title)) return 'other';
     if (preset.startsWith('qq-chat')) return 'qq';
     if (readQqSessionIds().has(id)) return 'qq';
     return null;
+  }
+
+  /** 取用户消息正文，用来判断这一轮是「贴吧」还是普通 B站 任务。 */
+  function eventTextOf(event) {
+    const content = event?.data?.message?.content ?? event?.data?.content;
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+      return content
+        .filter((block) => block?.type === 'text' && typeof block.text === 'string')
+        .map((block) => block.text)
+        .join('\n');
+    }
+    return '';
   }
 
   /** 供旁路遥测过滤：只观测 SurfCore 自己跟踪的会话，避免把用户普通 DSH 会话混进基线。 */
@@ -486,13 +506,25 @@ export function createTokenBudgetService({
       }
       return false;
     }
+    if (event.type === 'turn/end') {
+      turnCategory.delete(id);
+      return false;
+    }
+    // 同一会话里「贴吧」和「B站」混跑：根据这一轮的用户消息临时改分类，只影响本回合用量。
+    if (event.type === 'user/message') {
+      const text = eventTextOf(event);
+      if (text && /贴吧|tieba\.(?:mjs|js)/i.test(text)) turnCategory.set(id, 'tieba');
+      else if (turnCategory.get(id) === 'tieba') turnCategory.delete(id);
+      return false;
+    }
     if (event.type !== 'assistant/message' && event.type !== 'assistant/attempt') return false;
     const usage = usageOfEvent(event);
     if (!usage) return false;
     const header = session.header ?? {};
-    const category = sessionCategory.get(id) ?? classify(header, sessionMeta.get(id) ?? {});
-    if (!category) return false;
-    rememberSession(id, category, {
+    const baseCategory = sessionCategory.get(id) ?? classify(header, sessionMeta.get(id) ?? {});
+    if (!baseCategory) return false;
+    const category = turnCategory.get(id) ?? baseCategory;
+    rememberSession(id, baseCategory, {
       agentPreset: header.agentPreset,
       parentSession: header.parentSession,
       title: sessionMeta.get(id)?.title,
@@ -533,7 +565,7 @@ export function createTokenBudgetService({
     samples.set(id, sessionSamples);
     addUsage(category, tokens, p.cost.total);
     const entry = ensureSessionState(id);
-    entry.category = category;
+    entry.category = baseCategory;
     entry.lastSeenAt = at;
     if (!entry.createdAt) entry.createdAt = num(header.createdAt);
     if (!entry.preset && header.agentPreset) entry.preset = String(header.agentPreset);
@@ -728,7 +760,7 @@ export function createTokenBudgetService({
   }
 
   function addLimit(scope, unit, amount) {
-    if (!SCOPES.includes(scope)) throw new Error('scope 必须是 qq / bili / other / total');
+    if (!SCOPES.includes(scope)) throw new Error('scope 必须是 qq / bili / tieba / douyin / other / total');
     if (unit !== 'cny' && unit !== 'tokens') throw new Error('unit 必须是 cny / tokens');
     const delta = Number(amount);
     if (!Number.isFinite(delta) || delta <= 0) throw new Error('加额度必须是正数');
@@ -743,6 +775,8 @@ export function createTokenBudgetService({
     return saveLimits({
       qq: { cny: null, tokens: null },
       bili: { cny: null, tokens: null },
+      tieba: { cny: null, tokens: null },
+      douyin: { cny: null, tokens: null },
       other: { cny: null, tokens: null },
       total: { cny: null, tokens: null },
     });

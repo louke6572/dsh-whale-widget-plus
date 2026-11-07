@@ -541,10 +541,10 @@ export function startScheduler(ctx, opts) {
     lastBudgetLogAt = Date.now()
     log(`[bili-whale] 今日 token 额度已到上限，跳过${where}${message ? `：${message}` : ''}`)
   }
-  async function budgetBlockedNow(where = '叫醒') {
+  async function budgetBlockedNow(where = '叫醒', scope = 'bili') {
     if (!tokenBudget?.block) return false
     try {
-      const gate = await tokenBudget.block('bili')
+      const gate = await tokenBudget.block(scope)
       if (gate?.blocked) { logBudgetBlocked(where, gate.message); return true }
     } catch (error) {
       // 额度服务异常不能把 B站 整条链路弄瘫；记一笔后按原逻辑继续（下次再判）。
@@ -745,12 +745,14 @@ export function startScheduler(ctx, opts) {
       try {
         await ensureSession()
         const tiebaDue = tiebaPromptDue()
+        const includeTieba = tiebaDue && !(await budgetBlockedNow('贴吧叫醒', 'tieba'))
+        if (tiebaDue && !includeTieba) log('[bili-whale] 贴吧额度已满：这一趟只逛 B站，跳过贴吧')
         await promptBili(
           {
             requestId: `bili-whale-${Date.now()}`,
             sessionId,
             mode: 'queue',
-            content: [{ type: 'text', text: wakePrompt(st, TOOL_CMD, tiebaDue ? TIEBA_MJS : '') }],
+            content: [{ type: 'text', text: wakePrompt(st, TOOL_CMD, includeTieba ? TIEBA_MJS : '') }],
           },
           new AbortController().signal,
         )
@@ -1105,6 +1107,7 @@ export function startScheduler(ctx, opts) {
     if (!cfg.bduss) throw new Error('还没有粘贴 BDUSS：设置 → 平台 → 贴吧')
     if (!ctx.sessionController) throw new Error('DSH 会话服务还没就绪，稍等再试')
     await ensureSession()
+    if (await budgetBlockedNow('贴吧手动', 'tieba')) throw new Error('贴吧今日 token 额度已到上限')
     const text = [
       ...identityContextLines(),
       '',

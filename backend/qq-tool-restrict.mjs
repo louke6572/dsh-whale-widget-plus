@@ -225,6 +225,9 @@ export function apply(ctx) {
   }
 
   // 2) 执行期白名单：任何不在允许范围内的工具调用都会被拒绝。
+  //    老/新 DSH 若没有 tools.guard，就只保留上面的 restrict，绝不因为
+  //    一个可选 API 缺失让整个 preset 加载失败（那会让 QQ 角色直接不可用）。
+  if (!ctx.tools || typeof ctx.tools.guard !== 'function') return
   ctx.tools.guard((exec) => {
     const name = exec?.name
     if (typeof name !== 'string' || name.length === 0) return '工具名无效，已拒绝'

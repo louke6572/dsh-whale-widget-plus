@@ -1,6 +1,6 @@
 # dsh-Dfy
 
-> DeepSeek Harness（DSH）的桌宠与挂件套件 · `v0.7.4`
+> DeepSeek Harness（DSH）的桌宠与挂件套件 · `v0.7.5`
 
 小鲸鱼余额挂件 + 桌宠（106 段透明动画）+ QQ 消息卡，QQ / B站 / 双向脱敏记忆由包内自带的 SurfCore 提供。
 
@@ -44,11 +44,18 @@
 |---|---|
 | 系统 | Windows 10 / 11 |
 | Node.js | ≥ 22.13 |
-| DSH | ≥ 0.2.1-rc.2（桌面端或 `dsh web`） |
+| DSH | ≥ 0.2.1-rc.2（桌面端或 `dsh web`）；已在 0.2.2-rc.1 实测 |
 | SnowLuma | 只有接 QQ 需要；Agent 安装脚本会自动从官方 Releases 装 |
 | 余额 | `DEEPSEEK_API_KEY` 或 DSH「账号与余额」登录，二选一 |
 
 不接 QQ / B站也能用：小鲸鱼与桌宠不依赖 SnowLuma。
+
+### 兼容性（最低 DSH 版本）
+
+- 插件在 `package.json` 的 `engines.dsh` 声明 **`>=0.2.1-rc.2`**：DSH 的插件市场与安装器会按这个范围**在安装前**拒绝过旧的 DSH，不会出现"装完才发现打不开"。
+- 已在 **DSH 0.2.2-rc.1**（桌面版，Electron 44 / Node 24.21）实测通过；`dsh web` 与桌面端共用同一套宿主代码。
+- 低于最低版本：先升级 DSH 再安装，不要用旧版强行解包。
+- 插件加载是 fail-open 的：缺少可选服务或可选 API 时只关闭对应功能（如桌宠、B站、抖音），不会让 DSH 启动失败。
 
 ---
 

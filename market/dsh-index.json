@@ -23,8 +23,8 @@
       "name": "dsh-dfy",
       "title": "dsh-Dfy",
       "description": {
-        "en": "All-in-one companion for the DSH web GUI: balance whale widget with usage and per-turn cost, a 106-clip transparent desktop pet, a QQ message card bridged through SnowLuma, Bilibili dynamics/comments with a fish guard, and local redacted memory. One plugin; data stays on this machine.",
-        "zh": "一体化的 DSH 桌面伴侣：小鲸鱼余额挂件（含今日已用与每轮消耗）、106 段透明动画桌宠、经 SnowLuma 桥接的 QQ 消息卡、B站动态与评论互动（鱼群保护），以及本机双向脱敏记忆。单个插件，数据只存本机。"
+        "en": "All-in-one companion for the DSH web GUI: balance whale widget with usage and per-turn cost, a 106-clip transparent desktop pet, a QQ message card bridged through SnowLuma, Bilibili dynamics/comments with a fish guard, and local redacted memory. One plugin; data stays on this machine. Requires DSH >= 0.2.1-rc.2 (verified on 0.2.2-rc.1).",
+        "zh": "一体化的 DSH 桌面伴侣：小鲸鱼余额挂件（含今日已用与每轮消耗）、106 段透明动画桌宠、经 SnowLuma 桥接的 QQ 消息卡、B站动态与评论互动（鱼群保护），以及本机双向脱敏记忆。单个插件，数据只存本机。需要 DSH ≥ 0.2.1-rc.2（已在 0.2.2-rc.1 实测）。"
       },
       "icon": "https://cdn.jsdelivr.net/gh/louke6572/dsh-Dfy@main/icon.png",
       "author": "louke6572",
@@ -37,6 +37,15 @@
         "sortKeys": { "stars": 0 }
       },
       "versions": [
+        {
+          "version": "0.7.4",
+          "publishTimestamp": 1794021341,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/louke6572/dsh-Dfy",
+            "commit": "e831912413033491781f0edd1b43235a59a92c02"
+          }
+        },
         {
           "version": "0.7.3",
           "publishTimestamp": 1793896800,
