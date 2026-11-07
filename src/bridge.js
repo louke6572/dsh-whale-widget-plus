@@ -2187,7 +2187,7 @@ async function main(options = {}) {
   /**
    * text → 本地 wav。AI 通道与操作者通道共用，抛出的错误已经是可直接展示的句子。
    */
-  async function synthesizeVoiceText(text, { voice = '' } = {}) {
+  async function synthesizeVoiceText(text, { voice = '', character = '', route = '' } = {}) {
     const vc = voiceCfg();
     const say = String(text ?? '').trim();
     if (!say) throw codedVoiceError(new Error('要合成的内容是空的'));
@@ -2200,7 +2200,8 @@ async function main(options = {}) {
     if (say.length > vc.tts.maxChars) throw codedVoiceError(new Error(`要说的话最多 ${vc.tts.maxChars} 字（收到 ${say.length}）`));
 
     try {
-      const result = await synthesizeByRoute({ text: say, voice });
+      // voice / character 是外部工具显式指定的音色；route 允许按单次请求覆盖配置里的音源。
+      const result = await synthesizeByRoute({ text: say, voice: voice || character, route });
       return { path: result.path, via: 'tts', ttsCached: result.cached, ttsDurationMs: result.durationMs, route: result.route };
     } catch (error) {
       const info = classifyVoiceError(error?.message ?? error);
@@ -2219,9 +2220,12 @@ async function main(options = {}) {
    *   · cloud → 本机 voxd 服务（wav，默认 8767，火山引擎声音复刻）
    * 后两条只发 HTTP，插件不捆绑模型；服务没起就直接报错，不静默换路。
    */
-  async function synthesizeByRoute({ text, voice = '', rate = '+0%', pitch = '+0Hz', timeoutMs } = {}) {
+  async function synthesizeByRoute({ text, voice = '', rate = '+0%', pitch = '+0Hz', timeoutMs, route: routeOverride = '' } = {}) {
     const vc = voiceCfg();
-    const route = vc.tts.route;
+    // 单次请求可以覆盖音源（外部工具按 route 指定），否则用设置页保存的那一路。
+    const route = ['edge', 'local', 'cloud', 'online', 'doubao', 'qwen'].includes(String(routeOverride))
+      ? String(routeOverride)
+      : vc.tts.route;
     if (route === 'doubao') {
       const result = await synthesizeDoubaoToFile({
         text,
